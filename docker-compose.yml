@@ -99,6 +99,7 @@ services:
         VITE_DEFAULT_MODEL: ${VITE_DEFAULT_MODEL:-}
         VITE_DISTRO_GATEWAY_ONLY: ${DISTRO_GATEWAY_ONLY:-true}
         VITE_DISTRO_CONTROL_PLANE: ${DISTRO_CONTROL_PLANE:-false}
+        BUILD_HEAP_MB: ${BUILD_HEAP_MB:-4096}
     image: distro-web:local
     container_name: distro-web
     restart: unless-stopped
