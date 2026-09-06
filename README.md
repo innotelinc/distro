@@ -59,13 +59,15 @@ and the model picker lists whatever your gateway exposes.
 | [docs/ops.md](docs/ops.md) | first boot, ports, secrets, day-2 ops, sizing, reverse proxy |
 | [docs/upstream.md](docs/upstream.md) | pinning + updating bolt.diy/OmniRoute, license/attribution |
 | [docs/multi-tenant.md](docs/multi-tenant.md) | Phase 2 design: accounts, per-user quotas, usage visibility |
+| [apps/control-plane](apps/control-plane/README.md) | the plan on disk: DB schema, gateway API inventory, milestone roadmap |
 | [apps/web/README.md](apps/web/README.md) | the bolt.diy fork itself (rebrand + gateway defaults, standalone run) |
 
 ## Repo layout
 
 ```
 apps/web/            Distro — rebranded bolt.diy fork (the front door)
-docker-compose.yml   gateway (OmniRoute image) + web, gateway bound to loopback
+apps/control-plane/  multi-tenant layer — schema + gateway API inventory + roadmap (planned)
+docker-compose.yml   gateway (OmniRoute image) + web, gateway LAN-exposed via GATEWAY_BIND_HOST
 Makefile             up / down / doctor / bootstrap / sync-upstream / …
 scripts/             bootstrap · healthcheck-gateway · sync-upstream · gen-brand-assets
 docs/                architecture · ops · upstream · multi-tenant
