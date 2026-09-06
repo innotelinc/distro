@@ -39,6 +39,11 @@ GET    /api/me                                                    → user, quot
 GET    /api/me/gateway-key                                        → { gatewayKeyId, gatewayKey }   (option A)
 POST   /api/me/gateway-key/rotate                                 → fresh key (old one revoked)
 GET    /api/me/usage                                              → today snapshot (M4: cache only)
+GET    /api/me/quota-status                                       → { allowed, reasons, quota }   (M3 coarse check)
+
+CORS is enabled so the Distro web UI can call this API directly from the
+browser (`CONTROL_CORS_ORIGIN` restrict, default `*`). The control-plane port
+publishes on `CONTROL_BIND_HOST` (default 0.0.0.0, same as the gateway).
 GET    /api/admin/users                                           → users + quotas + key presence
 PATCH  /api/admin/users/:id       { disabled?, quota? }           → disable revokes gateway key
 POST   /api/admin/users/:id/revoke-key
