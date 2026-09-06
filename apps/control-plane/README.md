@@ -1,8 +1,8 @@
-# Distro Control Plane (planning)
+# Distro Control Plane
 
-> Status: **planned** — schema, API inventory and task breakdown are committed
-> here so the implementation session starts fast. Nothing in this directory is
-> runnable yet.
+> Status: **M0–M2 slice implemented and running** — a small Node service with
+> accounts, sessions, and **one OmniRoute gateway API key per user**. The M3+
+> quota middleware/usage sync and the web-app integration are still roadmap.
 
 The control plane is Distro's Phase 2 multi-tenant layer: Distro accounts,
 **one gateway API key per user**, quota enforcement and usage visibility on
@@ -13,39 +13,61 @@ quota windows and rate limiting **per API key**, so mapping
 `distro_user ↔ gateway_key` gives per-user attribution and enforcement for
 free — no gateway forking required.
 
-See also:
+## What is implemented (this milestone)
 
-- [docs/multi-tenant.md](../../docs/multi-tenant.md) — the design rationale
-  and trust boundaries.
-- [docs/gateway-api-inventory.md](docs/gateway-api-inventory.md) — OmniRoute
-  dashboard/API endpoints the control plane will drive (several verified
-  against v3.8.51 in this scaffold).
-- [schema.sql](schema.sql) — proposed Distro DB (users, gateway_keys, quotas,
-  usage cache).
-- [docs/roadmap.md](docs/roadmap.md) — milestone-by-milestone task breakdown.
+| Area | Where | Notes |
+|---|---|---|
+| Service skeleton | `src/server.js`, `src/http.js`, `Dockerfile` | plain Node HTTP, no framework; zero public ports in compose |
+| SQLite store | `src/db.js` + `schema.sql` | users, sessions, gateway_keys, quotas, usage_cache |
+| Passwords | `src/passwords.js` | scrypt (node:crypto), no deps |
+| Gateway client | `src/gateway.js` | management login, create/list/revoke keys against the dashboard API (verified v3.8.51) |
+| Identity (M1) | `POST /api/auth/signup`, `/api/auth/login`, `/api/auth/logout`, `GET /api/me` | first account = admin; otherwise role from `ADMIN_EMAILS` |
+| Per-user keys (M2) | signup mints a key; `GET /api/me/gateway-key`; `POST /api/me/gateway-key/rotate` | key lifecycle driven through the gateway dashboard API |
+| Admin API | `GET /api/admin/users`, `PATCH /api/admin/users/:id` (disable/quota), `POST …/revoke-key` | disabling a user revokes their gateway key |
+| CLI | `bin/control.mjs` | `health`, `create-admin`, `users`, `gateway-check` |
 
-## Shape of the build
+## HTTP API
 
-A small service (Fastify/Express/plain Node — decision in roadmap M0) that:
+All endpoints return JSON. Auth = `Authorization: Bearer <token>` from login.
 
-1. authenticates Distro users (signup/login, sessions),
-2. mints/rotates/revokes a gateway API key per user through the gateway's
-   dashboard API (same calls `scripts/` used during scaffold verification),
-3. proxies or tags LLM traffic so each request carries the user's key,
-4. reads per-key usage back from the gateway for quota UI and billing.
+```
+GET    /health
+POST   /api/auth/signup            { email, password, plan? }      → 201 user+quota (mints gateway key)
+POST   /api/auth/login             { email, password }             → 200 { token, user }
+POST   /api/auth/logout
+GET    /api/me                                                    → user, quota, usageToday
+GET    /api/me/gateway-key                                        → { gatewayKeyId, gatewayKey }   (option A)
+POST   /api/me/gateway-key/rotate                                 → fresh key (old one revoked)
+GET    /api/me/usage                                              → today snapshot (M4: cache only)
+GET    /api/admin/users                                           → users + quotas + key presence
+PATCH  /api/admin/users/:id       { disabled?, quota? }           → disable revokes gateway key
+POST   /api/admin/users/:id/revoke-key
+```
 
-It joins the existing compose network as a new service; the web app's single
-`OPENAI_LIKE_API_KEY` becomes a per-session key injected by the control plane
-(see roadmap M2/M3 for the two integration options).
+## Run
 
-## Verification notes already proven in the scaffold (v3.8.51)
+As part of the stack:
 
-- `POST /api/auth/login` with `{"password": ...}` returns `{"success":true}`
-  and a session cookie.
-- `POST /api/keys` with `{"name","modelAccessMode":"all"}` returns
-  `201` + `{ key, id, machineId, … }` — the key authenticates on
-  `/v1/chat/completions` and `/v1/models`.
-- Changing the admin password on a live DB requires writing the bcrypt hash
-  into the `key_value` settings table (or `node /app/bin/reset-password.mjs`
-  from a host where the CLI deps resolve); `INITIAL_PASSWORD` only seeds fresh
-  databases. (Container exec path documented in docs/ops.md.)
+```bash
+docker compose up -d --build control-plane
+docker compose exec control-plane node bin/control.mjs gateway-check
+docker compose exec control-plane node bin/control.mjs users
+```
+
+Configuration (from env): `PORT`/`HOST` (default `20140`/`0.0.0.0`),
+`CONTROL_DB_PATH` (`/data/control.sqlite` in the image), `GATEWAY_DASHBOARD_URL`,
+`GATEWAY_ADMIN_PASSWORD`, `ADMIN_EMAILS`. The compose service wires these from
+the root `.env` (`GATEWAY_ADMIN_PASSWORD=${INITIAL_PASSWORD}`) and mounts a
+`control-data` volume.
+
+## Still to do (next milestones)
+
+- M3: per-request quota middleware + gateway usage-limits on each user key,
+  and the web-app integration (option A: web fetches `/api/me/gateway-key` at
+  login; option B: control plane proxies /v1).
+- M4: scheduled usage sync from the gateway into `usage_cache` and a usage UI.
+- M5: admin UI, audit log, backups, billing hooks.
+
+Full breakdown + open questions: [docs/roadmap.md](docs/roadmap.md).
+Design rationale: [docs/multi-tenant.md](../../docs/multi-tenant.md).
+Gateway endpoints used: [docs/gateway-api-inventory.md](docs/gateway-api-inventory.md).
