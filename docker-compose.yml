@@ -66,6 +66,25 @@ services:
       retries: 5
       start_period: 20s
 
+  # ── Control plane (multi-tenant accounts, per-user gateway keys) ──────────
+  # Phase 2 (M0-M2 skeleton). No published ports: only web/gateway reach it.
+  control-plane:
+    build:
+      context: ./apps/control-plane
+    image: distro-control-plane:local
+    container_name: distro-control-plane
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - GATEWAY_DASHBOARD_URL=http://gateway:20128
+      - GATEWAY_ADMIN_PASSWORD=${INITIAL_PASSWORD}
+      - ADMIN_EMAILS=${CONTROL_ADMIN_EMAILS:-}
+    volumes:
+      - control-data:/data
+    depends_on:
+      gateway:
+        condition: service_healthy
+
   # ── Distro web (rebranded bolt.diy) ────────────────────────────────────────
   web:
     build:
@@ -103,3 +122,4 @@ services:
 volumes:
   gateway-data:
   redis-data:
+  control-data:
