@@ -22,17 +22,18 @@ docker compose up -d --build web
 
 # 4. verify end-to-end
 make doctor
-# open http://127.0.0.1:5173 → the default provider is the gateway
-# (OpenAILike → pick a model the gateway exposes) → ask it to build a tiny app
+# open http://127.0.0.1:5173 (landing) → Start building → /app
+# Distro is gateway-only: pick any model the gateway exposes → ask it to
+# build a tiny app
 ```
 
 ## Topology & ports
 
 | Service | Bind | Ports | Notes |
 |---|---|---|---|
-| `gateway` (OmniRoute) | 127.0.0.1 | 20128 dashboard · 20129 OpenAI-compatible API · 20132 live WS | internal-only |
+| `gateway` (OmniRoute) | `GATEWAY_BIND_HOST` (default 0.0.0.0) | 20128 dashboard · 20129 OpenAI-compatible API · 20132 live WS | LAN-accessible; protect with the admin password + gateway keys |
 | `redis` | compose net | (none published) | gateway rate-limiter backend |
-| `web` (Distro) | 127.0.0.1 | 5173 | the public surface — front with your TLS reverse proxy |
+| `web` (Distro) | 127.0.0.1 | 5173 | app at `/app`, landing at `/` — front with your TLS reverse proxy |
 
 If the gateway and the web app run on *different* hosts, don't use the root
 compose `web` service: run `apps/web` standalone (see `apps/web/README.md`)

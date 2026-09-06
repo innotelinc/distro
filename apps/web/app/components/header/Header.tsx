@@ -17,7 +17,7 @@ export function Header() {
     >
       <div className="flex items-center gap-2 z-logo text-bolt-elements-textPrimary cursor-pointer">
         <div className="i-ph:sidebar-simple-duotone text-xl" />
-        <a href="/" className="text-2xl font-semibold text-accent flex items-center gap-2 select-none">
+        <a href="/" title="Distro home" className="text-2xl font-semibold text-accent flex items-center gap-2 select-none">
           <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
             <defs>
               <linearGradient id="distro-mark" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">

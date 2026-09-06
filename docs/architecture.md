@@ -53,6 +53,12 @@ Distro-specific defaults added on top of upstream bolt.diy:
 - `VITE_DEFAULT_MODEL` overrides the preselected model id
   (`app/utils/constants.ts`) so an operator can pin a model their gateway
   always exposes.
+- `VITE_DISTRO_GATEWAY_ONLY=true` (the Distro build default) makes the
+  provider registry register **only** OpenAILike — end users can never pick a
+  direct upstream provider. Set it to `false` to re-enable bolt.diy's direct
+  providers.
+- Routes: `/` is a marketing landing page; the workspace moved to `/app`
+  (saved chats stay at `/chat/:id`).
 
 All LLM traffic flows server-side: the browser calls Distro's own routes
 (`/api/chat`, `/api/models`), which run inside the Cloudflare-pages/workerd
@@ -73,8 +79,13 @@ upstream provider keys.
 
 ## Key security decisions (v1)
 
-- The gateway's published ports bind to **127.0.0.1**. Distro's web app is the
-  only public surface; put your TLS reverse proxy in front of `:5173`.
+- Gateway ports publish on the host interface from `GATEWAY_BIND_HOST`
+  (Distro's compose defaults to **0.0.0.0** for LAN access). The dashboard is
+  protected by a strong admin password (default `CHANGEME` is migrated only
+  for fresh DBs — change it via `docker compose exec gateway node
+  /app/bin/reset-password.mjs` or the DB-backed flow in `docs/ops.md`) and the
+  API by gateway keys. Tighten `GATEWAY_BIND_HOST=127.0.0.1` and front the web
+  app with a TLS reverse proxy for anything beyond a trusted LAN.
 - Upstream provider API keys live **only** in the gateway's encrypted SQLite
   volume (`gateway-data`, env secrets `API_KEY_SECRET`/`JWT_SECRET`). Distro
   holds a single gateway-issued key.

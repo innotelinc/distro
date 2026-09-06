@@ -47,8 +47,9 @@ make doctor
 # open http://127.0.0.1:5173
 ```
 
-From the Distro UI, the default provider is the OmniRoute gateway — pick a
-model it exposes and describe an app.
+Open http://127.0.0.1:5173 → **Start building** (the workspace lives at
+`/app`). Distro is gateway-only by default: the only provider is OmniRoute,
+and the model picker lists whatever your gateway exposes.
 
 ## Documentation
 
@@ -73,10 +74,13 @@ vendor/              git-ignored upstream working copies (OmniRoute source etc.)
 
 ## Notes & roadmap
 
-- Status: **Phase 0/1 scaffold** — gateway boots, Distro rebranded and wired to
-  the gateway; next is Phase 2 hardening (multi-tenant auth/quotas, deploy
-  targets) and Phase 3 differentiation (model fallback ladder, prompt tuning,
-  templates/workspaces). See the docs for detail.
+- Status: **Phase 0/1 complete** — gateway boots, Distro rebranded and wired to
+  the gateway, gateway-only mode + landing page shipped; next is Phase 2
+  (multi-tenant auth/quotas, deploy targets) and Phase 3 differentiation
+  (model fallback ladder, prompt tuning, templates/workspaces). See the docs.
+- Routes: `/` is a landing page; the workspace is `/app` (saved chats at
+  `/chat/:id`). Gateway ports publish on the LAN (`GATEWAY_BIND_HOST`, default
+  `0.0.0.0`) — keep the dashboard password strong.
 - The gateway container heap defaults to 4096 MB (`GATEWAY_MAX_OLD_SPACE_MB`)
   because coding-agent traffic is memory-hungry; upstream's default pin is
   smaller and OOMs under load.

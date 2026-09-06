@@ -30,6 +30,7 @@ export {
   HyperbolicProvider,
   MistralProvider,
   OllamaProvider,
+  OpenAILikeProvider,
   OpenAIProvider,
   OpenRouterProvider,
   PerplexityProvider,

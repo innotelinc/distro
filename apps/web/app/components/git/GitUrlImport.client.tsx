@@ -106,7 +106,7 @@ ${escapeBoltTags(file.content)}
         console.error('Error during import:', error);
         toast.error('Failed to import repository');
         setLoading(false);
-        window.location.href = '/';
+        window.location.href = '/app';
 
         return;
       }

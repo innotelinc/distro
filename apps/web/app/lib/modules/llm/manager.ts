@@ -12,8 +12,8 @@ export class LLMManager {
   private readonly _env: any = {};
 
   private constructor(_env: Record<string, string>) {
-    this._registerProvidersFromDirectory();
     this._env = _env;
+    this._registerProvidersFromDirectory();
   }
 
   static getInstance(env: Record<string, string> = {}): LLMManager {
@@ -34,10 +34,20 @@ export class LLMManager {
        * const providerModules = import.meta.glob('./providers/*.ts', { eager: true });
        */
 
+      // Distro: gateway-only mode (VITE_DISTRO_GATEWAY_ONLY=true) registers
+      // ONLY the OmniRoute gateway provider (OpenAILike) so end users can
+      // never select a direct upstream provider. Build-time env var.
+      const gatewayOnly = this._env?.VITE_DISTRO_GATEWAY_ONLY === 'true';
+
       // Look for exported classes that extend BaseProvider
       for (const exportedItem of Object.values(providers)) {
         if (typeof exportedItem === 'function' && exportedItem.prototype instanceof BaseProvider) {
           const provider = new exportedItem();
+
+          if (gatewayOnly && provider.name !== 'OpenAILike') {
+            logger.info(`Skipping provider (gateway-only mode): ${provider.name}`);
+            continue;
+          }
 
           try {
             this.registerProvider(provider);
