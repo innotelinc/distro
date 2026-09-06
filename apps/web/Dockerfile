@@ -64,7 +64,8 @@ RUN mkdir -p /root/.config/.wrangler && \
 # Distro: remix builds on this codebase need a larger Node heap than Node's
 # auto-detected default on memory-constrained hosts (upstream CI builds are
 # beefier). Raise only for the build step; the runtime heap is unaffected.
-RUN NODE_OPTIONS=--max-old-space-size=5120 pnpm run build
+ARG BUILD_HEAP_MB=4096
+RUN NODE_OPTIONS=--max-old-space-size=${BUILD_HEAP_MB} pnpm run build
 
 CMD [ "pnpm", "run", "dockerstart"]
 
