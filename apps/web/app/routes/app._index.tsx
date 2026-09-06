@@ -1,9 +1,11 @@
 import { json, type MetaFunction } from '@remix-run/cloudflare';
+import { useEffect } from 'react';
 import { ClientOnly } from 'remix-utils/client-only';
 import { BaseChat } from '~/components/chat/BaseChat';
 import { Chat } from '~/components/chat/Chat.client';
 import { Header } from '~/components/header/Header';
 import BackgroundRays from '~/components/ui/BackgroundRays';
+import { CONTROL_PLANE_ENABLED, getToken } from '~/lib/control-plane';
 
 export const meta: MetaFunction = () => {
   return [
@@ -21,6 +23,14 @@ export const loader = () => json({});
  * to keep the UI clean and consistent with the design system.
  */
 export default function Index() {
+  // Distro multi-user mode: require a control-plane session (or explicit
+  // host-mode opt-out) before showing the workspace.
+  useEffect(() => {
+    if (CONTROL_PLANE_ENABLED && !getToken() && !window.localStorage.getItem('distro_host_mode')) {
+      window.location.replace('/login');
+    }
+  }, []);
+
   return (
     <div className="flex flex-col h-full w-full bg-bolt-elements-background-depth-1">
       <BackgroundRays />
