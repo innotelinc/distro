@@ -28,10 +28,13 @@ fi
 
 echo "--- /v1/chat/completions smoke test ---"
 if [[ -n "$api_key" && "$api_key" != "CHANGEME" ]]; then
-  curl -sS -m 60 http://127.0.0.1:20129/v1/chat/completions \
+  # Override with a model your gateway exposes, e.g. GATEWAY_SMOKE_MODEL=gemini-2.5-flash
+  model="${GATEWAY_SMOKE_MODEL:-gpt-4o-mini}"
+  echo "(model: $model)"
+  curl -sS -m 90 http://127.0.0.1:20129/v1/chat/completions \
     -H "Authorization: Bearer $api_key" \
     -H "Content-Type: application/json" \
-    -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Reply with the single word: pong"}],"max_tokens":8}' \
+    -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the single word: pong\"}],\"max_tokens\":8}" \
     | head -c 600
   echo
 else

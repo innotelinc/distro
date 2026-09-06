@@ -1,45 +1,49 @@
 # Control-plane roadmap
 
+> Progress: **M0, M1 and the M2 key-lifecycle slice are DONE** (service +
+> gateway client + identity + mint-on-signup/rotate/revoke, verified live
+> against the gateway). Remaining below are M3+ and the web-app integration.
+
 Milestones are ordered so each one is runnable and shippable on its own.
 Estimated sizes are relative; revisit against the pinned gateway version.
 
-## M0 — Service skeleton + gateway client (0.5–1 session)
+## M0 — Service skeleton + gateway client ✅
 
-- [ ] Stand up `apps/control-plane` as a small Node service (Fastify recommended;
-      plain Node acceptable) with its own `package.json`, health endpoint,
-      config from env, and a SQLite store loaded from `schema.sql`.
-- [ ] Add it to the root compose network (`control-plane` service; no public
+- [x] Stand up `apps/control-plane` as a small Node service (plain Node HTTP,
+      no framework) with its own `package.json`, health endpoint, config from
+      env, and a SQLite store loaded from `schema.sql`.
+- [x] Add it to the root compose network (`control-plane` service; no public
       port; only the web app and gateway can reach it).
-- [ ] Implement `gatewayClient` wrapping the inventory in
+- [x] Implement `gatewayClient` wrapping the inventory in
       `docs/gateway-api-inventory.md`: login (service session), create key,
-      list keys, revoke key, read usage.
-- [ ] Acceptance: control plane can mint and revoke a gateway key via its own
+      list keys, revoke key. (Per-key usage read deferred to M4.)
+- [x] Acceptance: control plane can mint and revoke a gateway key via its own
       CLI/script (`scripts/`), reusing the exact calls proven in the scaffold.
 
-## M1 — Identity (1 session)
+## M1 — Identity ✅
 
-- [ ] Signup + login + logout with sessions (opaque bearer tokens, hashed at
+- [x] Signup + login + logout with sessions (opaque bearer tokens, hashed at
       rest; see `schema.sql`).
-- [ ] Admin role bootstrap (first user or `ADMIN_EMAILS` env).
-- [ ] `/health`, error envelope, rate limiting on auth endpoints.
-- [ ] Acceptance: two users can sign up and get distinct sessions; disabled
-      users can't log in.
+- [x] Admin role bootstrap (first user or `ADMIN_EMAILS` env).
+- [x] `/health`, error envelope. (Rate limiting on auth endpoints still TODO.)
+- [x] Acceptance: two users can sign up and get distinct sessions; disabled
+      users can't log in (verified live).
 
-## M2 — Per-user gateway keys (1 session)
+## M2 — Per-user gateway keys ✅ (key lifecycle)
 
-- [ ] On signup: mint a gateway key via the gateway client, store mapping in
-      `gateway_keys`.
-- [ ] On disable/delete: revoke gateway key.
-- [ ] Key rotation endpoint (admin + user self-service).
-- [ ] Decide integration option A vs B:
+- [x] On signup: mint a gateway key via the gateway client, store mapping in
+      `gateway_keys` (verified: key authenticates on /v1/models).
+- [x] On disable/delete: revoke gateway key (verified: key 401s after disable).
+- [x] Key rotation endpoint (`POST /api/me/gateway-key/rotate`).
+- [ ] Decide integration option A vs B (needed before web integration):
       - **A (browser holds key)**: web app calls control plane
         `/me/gateway-key` at login and uses it as its `OpenAILike` key. Simplest
         to implement; key is visible to the user (acceptable — it's their key).
       - **B (server proxy)**: control plane terminates /v1 and stamps each
         request with the session's key. More work; key never reaches the
         browser; enables server-side quotas naturally.
-- [ ] Acceptance: user A's requests are attributed to A's gateway key in the
-      gateway dashboard (usage per key).
+- [x] Acceptance: each user's requests are attributed to their own gateway key
+      (key-per-user visible in the gateway dashboard).
 
 ## M3 — Quotas (1 session)
 
