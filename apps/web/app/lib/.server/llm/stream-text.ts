@@ -6,6 +6,7 @@ import type { IProviderSetting } from '~/types/model';
 import { PromptLibrary } from '~/lib/common/prompt-library';
 import { allowedHTMLElements } from '~/utils/markdown';
 import { LLMManager } from '~/lib/modules/llm/manager';
+import { pickFirstChatModel } from '~/lib/modules/llm/model-utils';
 import { createScopedLogger } from '~/utils/logger';
 import { createFilesContext, extractPropertiesFromMessage } from './utils';
 
@@ -99,11 +100,18 @@ export async function streamText(props: {
     modelDetails = modelsList.find((m) => m.name === currentModel);
 
     if (!modelDetails) {
-      // Fallback to first model
+      // Fallback to the first plausibly chat-capable model (Distro: gateway
+      // catalogs mix image/embedding models, so modelsList[0] is not safe)
+      const fallback = pickFirstChatModel(modelsList);
+
+      if (!fallback) {
+        throw new Error(`No usable model found for provider ${provider.name}`);
+      }
+
+      modelDetails = fallback;
       logger.warn(
-        `MODEL [${currentModel}] not found in provider [${provider.name}]. Falling back to first model. ${modelsList[0].name}`,
+        `MODEL [${currentModel}] not found in provider [${provider.name}]. Falling back to ${modelDetails.name}.`,
       );
-      modelDetails = modelsList[0];
     }
   }
 

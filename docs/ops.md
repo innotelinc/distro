@@ -18,6 +18,10 @@ docker --version && docker compose version     # Docker Engine + Compose v2
 
 # 3. put the key in .env, start the web app
 OPENAI_LIKE_API_KEY=<gateway-key>   # edit .env
+
+# model preselection + build heap (optional)
+VITE_DEFAULT_MODEL=gemini/gemini-2.5-flash   # catalog id, prefix included; empty = auto-pick
+BUILD_HEAP_MB=4096                           # V8 heap cap for building apps/web
 docker compose up -d --build web
 
 # 4. verify end-to-end

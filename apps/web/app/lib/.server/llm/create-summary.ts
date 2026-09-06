@@ -4,6 +4,7 @@ import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDER_LIST } from '~/utils/constant
 import { extractCurrentContext, extractPropertiesFromMessage, simplifyBoltActions } from './utils';
 import { createScopedLogger } from '~/utils/logger';
 import { LLMManager } from '~/lib/modules/llm/manager';
+import { pickFirstChatModel } from '~/lib/modules/llm/model-utils';
 
 const logger = createScopedLogger('create-summary');
 
@@ -60,11 +61,13 @@ export async function createSummary(props: {
     modelDetails = modelsList.find((m) => m.name === currentModel);
 
     if (!modelDetails) {
-      // Fallback to first model
+      // Fallback to the first plausibly chat-capable model (Distro: gateway
+      // catalogs mix image/embedding models, so modelsList[0] is not safe)
+      modelDetails = pickFirstChatModel(modelsList);
+
       logger.warn(
-        `MODEL [${currentModel}] not found in provider [${provider.name}]. Falling back to first model. ${modelsList[0].name}`,
+        `MODEL [${currentModel}] not found in provider [${provider.name}]. Falling back to ${modelDetails?.name}.`,
       );
-      modelDetails = modelsList[0];
     }
   }
 

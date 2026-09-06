@@ -33,6 +33,7 @@ import type { ActionAlert, SupabaseAlert, DeployAlert } from '~/types/actions';
 import DeployChatAlert from '~/components/deploy/DeployAlert';
 import ChatAlert from './ChatAlert';
 import type { ModelInfo } from '~/lib/modules/llm/types';
+import { pickFirstChatModel } from '~/lib/modules/llm/model-utils';
 import ProgressCompilation from './ProgressCompilation';
 import type { ProgressAnnotation } from '~/types/context';
 import type { ActionRunner } from '~/lib/runtime/action-runner';
@@ -216,6 +217,30 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
           });
       }
     }, [providerList, provider]);
+
+    // Distro: the preselected model (VITE_DEFAULT_MODEL, a saved cookie, or the
+    // upstream default) may not exist in the gateway's live catalog — e.g. a
+    // gateway-only deployment serving Gemini where the build default is Claude.
+    // Once the catalog loads, correct an unavailable selection to the first
+    // plausibly chat-capable model so requests don't fall through to the
+    // server's model fallback (which can hit an image/embedding model).
+    useEffect(() => {
+      if (!setModel || !provider || !modelList.length || !model) {
+        return;
+      }
+
+      const available = modelList.filter((m) => m.provider === provider.name && m.name);
+
+      if (!available.length || available.some((m) => m.name === model)) {
+        return;
+      }
+
+      const fallback = pickFirstChatModel(available);
+
+      if (fallback && fallback.name !== model) {
+        setModel(fallback.name);
+      }
+    }, [modelList, model, provider, setModel]);
 
     const onApiKeysChange = async (providerName: string, apiKey: string) => {
       const newApiKeys = { ...apiKeys, [providerName]: apiKey };
