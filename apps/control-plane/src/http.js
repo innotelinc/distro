@@ -53,6 +53,16 @@ export async function handler(req, res, { gateway }) {
   const method = req.method;
   const send = (status, body) => json(res, status, body);
 
+  // CORS: the Distro web UI (option A) calls the control plane from the
+  // browser to log in and fetch the user's gateway key. LAN installs set
+  // CONTROL_CORS_ORIGIN to the Distro origin; default is permissive.
+  res.setHeader('Access-Control-Allow-Origin', process.env.CONTROL_CORS_ORIGIN || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (method === 'OPTIONS') {
+    return send(204, {});
+  }
+
   // ---- health ----
   if (path === '/health' && method === 'GET') {
     return send(200, { ok: true, service: 'distro-control-plane' });
@@ -85,7 +95,11 @@ export async function handler(req, res, { gateway }) {
     let gatewayKey = null;
     try {
       await gateway.login();
-      const key = await gateway.createApiKey(`distro-user-${user.id.slice(0, 8)}`);
+      const key = await gateway.createApiKey(`distro-user-${user.id.slice(0, 8)}`, {
+        // Hard spend cap on the gateway key (M3); daily/token caps need M4 sync.
+        dailyUsageLimitUsd: quota.spend_cap_usd ?? undefined,
+        weeklyUsageLimitUsd: quota.spend_cap_usd != null ? quota.spend_cap_usd * 7 : undefined,
+      });
       gatewayKey = setGatewayKey(user.id, { gatewayKeyId: key.id, gatewayKey: key.key });
     } catch (err) {
       updateUser(user.id, { disabled_at: new Date().toISOString() });
@@ -136,7 +150,11 @@ export async function handler(req, res, { gateway }) {
     try {
       await gateway.login();
       if (existing) await gateway.revokeApiKey(existing.gateway_key_id);
-      const fresh = await gateway.createApiKey(`distro-user-${me.id.slice(0, 8)}`);
+      const fresh = await gateway.createApiKey(`distro-user-${me.id.slice(0, 8)}`, {
+        dailyUsageLimitUsd: getQuota(me.id).spend_cap_usd ?? undefined,
+        weeklyUsageLimitUsd:
+          getQuota(me.id).spend_cap_usd != null ? getQuota(me.id).spend_cap_usd * 7 : undefined,
+      });
       const key = setGatewayKey(me.id, { gatewayKeyId: fresh.id, gatewayKey: fresh.key });
       return send(200, { gatewayKeyId: key.gateway_key_id, gatewayKey: key.gateway_key });
     } catch (err) {
@@ -148,6 +166,24 @@ export async function handler(req, res, { gateway }) {
     // M4 stub: today's snapshot from usage_cache. Gateway usage sync lands in
     // the M4 milestone (see apps/control-plane/docs/roadmap.md).
     return send(200, { date: new Date().toISOString().slice(0, 10), ...getUsageToday(me.id) });
+  }
+
+  if (path === '/api/me/quota-status' && method === 'GET') {
+    // Coarse pre-chat check (M3). Hard enforcement happens on the gateway via
+    // the usage limits attached to the user's key.
+    const quota = getQuota(me.id);
+    const today = getUsageToday(me.id);
+    const reasons = [];
+    if (quota.requests_per_day != null && today.requests >= quota.requests_per_day) {
+      reasons.push('daily request limit reached');
+    }
+    if (quota.tokens_per_day != null && today.tokens_in + today.tokens_out >= quota.tokens_per_day) {
+      reasons.push('daily token limit reached');
+    }
+    if (quota.spend_cap_usd != null && today.cost_usd >= quota.spend_cap_usd) {
+      reasons.push('spend cap reached');
+    }
+    return send(200, { allowed: reasons.length === 0, reasons, quota, usageToday: today });
   }
 
   // ---- admin routes ----

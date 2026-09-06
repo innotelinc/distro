@@ -84,6 +84,11 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+    ports:
+      # Browser-facing (the Distro web UI logs in / fetches per-user gateway
+      # keys directly). Bind like the gateway: LAN via 0.0.0.0, loopback via
+      # CONTROL_BIND_HOST=127.0.0.1. Protect with CONTROL_CORS_ORIGIN.
+      - '${CONTROL_BIND_HOST:-0.0.0.0}:20140:20140'
 
   # ── Distro web (rebranded bolt.diy) ────────────────────────────────────────
   web:
@@ -93,6 +98,7 @@ services:
       args:
         VITE_DEFAULT_MODEL: ${VITE_DEFAULT_MODEL:-}
         VITE_DISTRO_GATEWAY_ONLY: ${DISTRO_GATEWAY_ONLY:-true}
+        VITE_DISTRO_CONTROL_PLANE: ${DISTRO_CONTROL_PLANE:-false}
     image: distro-web:local
     container_name: distro-web
     restart: unless-stopped

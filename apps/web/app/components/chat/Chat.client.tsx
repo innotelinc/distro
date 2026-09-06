@@ -16,6 +16,7 @@ import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } fro
 import { cubicEasingFn } from '~/utils/easings';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
 import { BaseChat } from './BaseChat';
+import { getApiKeysFromCookies } from './APIKeyManager';
 import Cookies from 'js-cookie';
 import { debounce } from '~/utils/debounce';
 import { useSettings } from '~/lib/hooks/useSettings';
@@ -146,7 +147,9 @@ export const ChatImpl = memo(
 
     const [animationScope, animate] = useAnimate();
 
-    const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+    // Distro (option A): adopt the per-user gateway key from the apiKeys
+    // cookie set at login. Falls back to {} like upstream when absent.
+    const [apiKeys, setApiKeys] = useState<Record<string, string>>(getApiKeysFromCookies());
 
     const {
       messages,
