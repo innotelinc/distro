@@ -73,6 +73,7 @@ services:
       target: bolt-ai-production
       args:
         VITE_DEFAULT_MODEL: ${VITE_DEFAULT_MODEL:-}
+        VITE_DISTRO_GATEWAY_ONLY: ${DISTRO_GATEWAY_ONLY:-true}
     image: distro-web:local
     container_name: distro-web
     restart: unless-stopped

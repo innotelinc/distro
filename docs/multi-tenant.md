@@ -76,9 +76,9 @@ Options, in order of preference:
 - Configure **fallback ladders** in OmniRoute and give users a small curated
   set of model ids (the gateway's own catalog is 350+ providers — too much
   choice for end users).
-- Restrict the provider list Distro exposes (the scaffold keeps upstream
-  providers; a `VITE_DISTRO_RESTRICT_PROVIDERS=OpenAILike`-style flag can gate
-  the registry at build time).
+- Restrict the provider list Distro exposes: `VITE_DISTRO_GATEWAY_ONLY=true`
+  (already the Distro build default) registers only the gateway provider, so
+  end users cannot pick a direct upstream provider.
 - Hide model choice entirely behind one "smart default" per tier.
 
 ## Schema sketch (Distro DB)
