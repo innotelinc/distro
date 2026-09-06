@@ -1,0 +1,20 @@
+# secrets / env (keep tracked examples, never the real files)
+.env
+.env.*
+!.env.example
+
+# OmniRoute source checkout is fetched on demand (scripts/sync-upstream.sh)
+# and kept out of git: we track a pinned image tag, not 294 MB of upstream.
+vendor/
+
+# dependencies & build output (apps/ carry their own more detailed ignores)
+node_modules/
+
+# local data & logs
+*.log
+npm-debug.log*
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/

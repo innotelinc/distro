@@ -1,0 +1,104 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Distro — single-host compose stack
+#
+#   gateway   OmniRoute (published image, pinned by OMNIROUTE_IMAGE_TAG)
+#             dashboard :20128, OpenAI-compatible API :20129, live WS :20132
+#             NOTE: Distro is configured to publish the gateway on 0.0.0.0 so
+#             it is reachable from the LAN (set in .env / this file). The
+#             dashboard is protected by the admin password and the API by
+#             gateway keys — never run this without both set.
+#   web       Distro (fork of bolt.diy, apps/web) built locally
+#
+# Before first run: cp .env.example .env and fill in secrets. Then:
+#   docker compose up -d --build
+#
+# See docs/ops.md for the runbook, docs/architecture.md for the layout.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: distro
+
+services:
+  # ── Redis (rate-limiter backend used by the gateway) ───────────────────────
+  redis:
+    image: docker.io/library/redis:8.6.5-alpine
+    restart: unless-stopped
+    # no host port: reachable only on the compose network (redis:6379)
+    volumes:
+      - redis-data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── OmniRoute AI gateway ───────────────────────────────────────────────────
+  gateway:
+    image: diegosouzapw/omniroute:${OMNIROUTE_IMAGE_TAG:-latest}
+    container_name: distro-gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATA_DIR=/app/data
+      - PORT=20128
+      - DASHBOARD_PORT=20128
+      - API_PORT=20129
+      - API_HOST=0.0.0.0
+      - LIVE_WS_PORT=20132
+      - LIVE_WS_HOST=0.0.0.0
+      - REDIS_URL=redis://redis:6379
+      - LIVE_WS_ALLOWED_ORIGINS=${LIVE_WS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      - NODE_OPTIONS=--max-old-space-size=${GATEWAY_MAX_OLD_SPACE_MB:-4096}
+    volumes:
+      - gateway-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      # LAN exposure (0.0.0.0). To go loopback-only again, prepend 127.0.0.1:
+      - '${GATEWAY_BIND_HOST:-0.0.0.0}:20128:20128' # dashboard
+      - '${GATEWAY_BIND_HOST:-0.0.0.0}:20129:20129' # OpenAI-compatible API (/v1/*)
+      - '${GATEWAY_BIND_HOST:-0.0.0.0}:20132:20132' # live workspace websocket
+    healthcheck:
+      test: ['CMD', 'node', 'healthcheck.mjs']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Distro web (rebranded bolt.diy) ────────────────────────────────────────
+  web:
+    build:
+      context: ./apps/web
+      target: bolt-ai-production
+      args:
+        VITE_DEFAULT_MODEL: ${VITE_DEFAULT_MODEL:-}
+    image: distro-web:local
+    container_name: distro-web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - RUNNING_IN_DOCKER=true
+      # The gateway is always reached by its compose service name here. If you
+      # deploy the gateway on another host, run web standalone (apps/web) and
+      # set OPENAI_LIKE_API_BASE_URL in its .env.local instead.
+      - OPENAI_LIKE_API_BASE_URL=http://gateway:20129/v1
+      - OPENAI_LIKE_API_KEY=${OPENAI_LIKE_API_KEY}
+    ports:
+      - '127.0.0.1:5173:5173'
+    depends_on:
+      gateway:
+        condition: service_healthy
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1 || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  gateway-data:
+  redis-data:
