@@ -1,5 +1,8 @@
 # Distro — Multi-Tenant Design
 
+> Implementation plan lives in **`apps/control-plane/`** (schema.sql, gateway
+> API inventory, milestone roadmap). This document is the design it follows.
+
 Distro is being built **multi-tenant** (Phase 2 of the master plan): accounts,
 per-user quotas and usage visibility sitting in front of the shared OmniRoute
 gateway. This document is the design the scaffold is shaped around. The v1
