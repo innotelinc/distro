@@ -37,7 +37,14 @@ make doctor
 |---|---|---|---|
 | `gateway` (OmniRoute) | `GATEWAY_BIND_HOST` (default 0.0.0.0) | 20128 dashboard · 20129 OpenAI-compatible API · 20132 live WS | LAN-accessible; protect with the admin password + gateway keys |
 | `redis` | compose net | (none published) | gateway rate-limiter backend |
-| `web` (Distro) | 127.0.0.1 | 5173 | app at `/app`, landing at `/` — front with your TLS reverse proxy |
+| `web` (Distro) | `WEB_BIND_HOST` (default 0.0.0.0) | 5173 | app at `/app`, landing at `/` — front with your TLS reverse proxy |
+| `control-plane` | `CONTROL_BIND_HOST` (default 0.0.0.0) | 20140 API · `/admin` console | accounts/quotas/keys — admin console requires an admin login |
+
+All services bind **0.0.0.0 by default** so the whole stack is reachable from
+other machines on the LAN (`http://<host-ip>:5173`, `…:20140/admin`, `…:20128`).
+Set `WEB_BIND_HOST`/`CONTROL_BIND_HOST`/`GATEWAY_BIND_HOST` to `127.0.0.1` in
+`.env` to pull any of them back to loopback-only. `LIVE_WS_ALLOWED_ORIGINS`
+controls which origins may open the gateway's live workspace websocket.
 
 If the gateway and the web app run on *different* hosts, don't use the root
 compose `web` service: run `apps/web` standalone (see `apps/web/README.md`)
@@ -66,6 +73,14 @@ make logs            # tail everything (add a service name to narrow)
 make doctor          # gateway + web health
 docker compose exec gateway node healthcheck.mjs   # gateway self-check
 ```
+
+- **Admin console** (multi-tenant): `http://<host>:20140/admin` — sign in with
+  an admin account (first signup on the instance is admin). Manage users,
+  per-user daily limits (requests/tokens/spend) and gateway keys from there.
+- **Quota enforcement**: `DISTRO_ENFORCE_QUOTA=true` (default) makes the web
+  app ask the control plane before each chat turn (429 when over a daily
+  cap) and report usage after it. Gateway-key spend caps still apply even if
+  the control plane is down.
 
 - **Upgrading the gateway**: bump `OMNIROUTE_IMAGE_TAG` in `.env`, then
   `docker compose up -d gateway`. Check the upstream changelog

@@ -45,32 +45,47 @@ Estimated sizes are relative; revisit against the pinned gateway version.
 - [x] Acceptance: each user's requests are attributed to their own gateway key
       (key-per-user visible in the gateway dashboard).
 
-## M3 — Quotas (1 session)
+## M3 — Quotas (done: server-side gate + key spend caps)
 
-- [ ] Coarse enforcement middleware in the web app / control plane:
-      requests/day, tokens/day, spend cap from `quotas` before proxying.
-- [ ] Map gateway usage-limits onto the per-user key (`/api/keys/[id]/usage-limits`)
-      for hard enforcement when the gateway is bypassed.
-- [ ] Acceptance: a user over their daily cap gets a clear error; admin can
-      change plan and it applies without key rotation.
+- [x] Server-side enforcement middleware in the web app: `/api/chat` calls
+      `GET /api/internal/quota-check` (identity = the user's gateway key from
+      the `apiKeys` cookie) before streaming; 429 with reasons when over.
+      Fail-open if the control plane is unreachable; host-key ("skip for
+      now") traffic is never gated. Toggle: `DISTRO_ENFORCE_QUOTA`.
+- [x] Hard spend cap on each per-user gateway key at mint/rotate
+      (`dailyUsageLimitUsd`, `weeklyUsageLimitUsd`) — the backstop when the
+      gateway is called directly.
+- [x] Acceptance: capped user's `/api/chat` returns HTTP 429 with reasons
+      (verified over HTTP against the running stack); admin can change the
+      cap and it applies without key rotation (null clears a limit).
 
-## M4 — Usage visibility (0.5–1 session)
+## M4 — Usage visibility (done for chat traffic; per-key gateway sync blocked)
 
-- [ ] Sync `usage_cache` from gateway per-key usage on a schedule.
-- [ ] `GET /me/usage` (today, 30-day totals, per-model if gateway exposes it).
-- [ ] Minimal UI: usage widget in the Distro settings sidebar (or a small
-      control-plane page).
-- [ ] Acceptance: usage shown matches the gateway dashboard per key ± sync lag.
+- [x] `POST /api/internal/usage-report` — the web app records every finished
+      chat turn (tokens in/out + call count) against the user after streaming.
+      `usage_cache` now has real data for agent traffic.
+- [x] `GET /me/usage` (today snapshot) and quota decisions consume it, so
+      daily request/token caps become effective after the first report.
+- [x] Minimal UI: admin console usage columns (`/admin`).
+- [ ] **Blocked upstream**: OmniRoute's request-logs surface has no per-key
+      attribution, so usage from direct `/v1` calls or the gateway dashboard
+      cannot be synced per user yet (see `gateway-api-inventory.md`). Chat
+      traffic is fully covered; a deeper gateway endpoint would close the gap.
 
-## M5 — Hardening & operator UX (1 session)
+## M5 — Hardening & operator UX (admin console done; billing/audit open)
 
-- [ ] Admin endpoints/UI: list users, disable, set quota/plan, view usage.
+- [x] Admin console at `http://<host>:20140/admin` (no build step): stats
+      cards, per-user quota editing, disable/enable (revokes key), revoke &
+      rotate key, today usage columns. Backed by `/api/admin/*`.
+- [x] Role management (`PATCH role`) with a last-admin guard and account
+      deletion (`DELETE /api/admin/users/:id`, cascades + revokes key).
+- [x] `GET /api/admin/stats` aggregate endpoint.
 - [ ] Billing hook points (Stripe etc.) behind a `billing` interface — only if
       paid tiers are in scope.
 - [ ] Audit log (signups, key rotations, quota changes), backups of the
       control-plane DB, docs runbook section.
 - [ ] Acceptance: a second operator can administer the platform from the
-      dashboard without touching compose/DB.
+      dashboard without touching compose/DB (admin console covers this).
 
 ## Open questions to resolve before/at M2
 
