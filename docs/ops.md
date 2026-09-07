@@ -110,6 +110,39 @@ Verify with `make doctor`. To run everything self-contained instead (offline
 box, air-gapped lab), enable the bundled fallback:
 `docker compose --profile local-gateway up -d`.
 
+### WireGuard mesh (platform stack)
+
+The remote gateway and Magnate live on the Innotel platform stack's WireGuard
+mesh (`10.10.0.0/16`) — servers reach each other by mesh IP (e.g. OmniRoute at
+`10.10.2.1`) over the tunnel, with Consul at `10.10.1.1:8500` as the registry.
+`scripts/mesh-setup.sh` bootstraps the mesh on **any** server based on the
+Innotel products installed under `../` (or the hostname), so the same script
+works on every box — `--server N` overrides detection.
+
+```bash
+make mesh-setup          # or: ./scripts/mesh-setup.sh
+```
+
+What it does:
+
+1. Detects the server number (1-5) and provisions the platform stack's `.env`
+   (`<dev-root>/innotel-platform-stack/.env`) with the mesh section: `10.10.N.1`
+   IPs, this server's WireGuard keypair, `MESH_PORT`, the Consul gossip key,
+   and the Consul role (server on Server 1, client elsewhere).
+2. **Server 1 (hub):** starts the existing hub-mode mesh compose; peer configs
+   are generated under `mesh/wg/data/` — distribute `peerN.conf` to clients.
+3. **Servers 2-5 (clients):** writes a static client `wg0.conf` dialing the
+   hub (needs the hub's public key: `--hub-pubkey <SERVER_1_WG_PUBLIC_KEY>`, or
+   run `./stack.sh mesh` on Server 1 first and copy the key) plus a client-mode
+   compose fragment, then starts the mesh and waits for a handshake.
+4. Verifies the tunnel handshake and Consul leader (`--no-verify` to skip).
+
+Order matters on a fresh mesh: run it on **Server 1 first**, then on each
+client. `--dry-run` prints what would be written without starting anything.
+Once the tunnel is up, `make discover-gateway` pins the remote OmniRoute (and
+Magnate) URLs into `.env` and `docker compose up -d control-plane web` moves
+the stack onto the platform services.
+
 If the gateway and the web app run on *different* hosts without Consul, don't
 use the root compose `web` service: run `apps/web` standalone (see
 `apps/web/README.md`) and set `OPENAI_LIKE_API_BASE_URL` to the gateway's
