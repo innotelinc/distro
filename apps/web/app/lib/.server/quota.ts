@@ -76,10 +76,11 @@ export async function quotaCheck(gatewayKey: string | undefined, env: EnvLike): 
   }
 }
 
-/** Fire-and-forget usage recording after a chat turn finishes. */
+/** Fire-and-forget usage recording after a chat turn finishes. The model id
+ *  is passed so the control plane can estimate spend (see pricing.js). */
 export async function reportChatUsage(
   gatewayKey: string | undefined,
-  usage: { tokensIn: number; tokensOut: number; requests: number },
+  usage: { tokensIn: number; tokensOut: number; requests: number; model?: string },
   env: EnvLike,
 ): Promise<void> {
   if (!gatewayKey || !enforcementOn(env)) return;
@@ -93,6 +94,7 @@ export async function reportChatUsage(
         tokensIn: Math.max(0, Math.round(usage.tokensIn) || 0),
         tokensOut: Math.max(0, Math.round(usage.tokensOut) || 0),
         requests: Math.max(1, Math.round(usage.requests) || 1),
+        model: usage.model ? String(usage.model).slice(0, 200) : undefined,
       }),
     });
   } catch (err: any) {

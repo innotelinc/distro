@@ -123,7 +123,13 @@ docker compose exec gateway node healthcheck.mjs   # gateway self-check
 
 ## Reverse proxy (TLS)
 
-Front `web` (:5173) only. nginx example:
+Front `web` (:5173) only; nginx proxy manager (NPM) host entries work the
+same way. Two details verified in testing: add `proxy_buffering off;` so
+`/api/chat` streams (buffering delays first tokens), and leave websocket
+upgrade headers out unless you proxy them — the IDE/preview runs in the
+browser, so no WS is needed for the app itself. If you also give the admin
+console its own hostname, proxy `:20140` the same way and set
+`CONTROL_CORS_ORIGIN` (see below). nginx example:
 
 ```nginx
 server {
@@ -144,6 +150,20 @@ server {
 
 Do **not** expose ports 20128/20129/20132 publicly — the gateway is
 internal-only; Distro is the only surface.
+
+### Multi-tenant control plane behind TLS
+
+The browser logs in against the control plane directly (option A per-user
+gateway keys), so when `web` is served over HTTPS the control-plane base URL
+must also be HTTPS or browsers block it as mixed content. Two settings:
+
+- `VITE_CONTROL_PLANE_URL=https://admin.example.com` (build-time; baked into
+the client bundle → rebuild web: `docker compose up -d --build web`).
+- `CONTROL_CORS_ORIGIN=https://app.example.com` (runtime; strict-origin CORS
+on the control plane — only that exact origin gets the allow header, and
+preflights from any other origin get 403). Leave both empty for direct-LAN
+use, where the app auto-derives `http://<app-hostname>:20140` and CORS is
+permissive `*`.
 
 ## Where multi-tenant plugs in
 

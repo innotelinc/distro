@@ -22,6 +22,8 @@ import {
   listAudit,
 } from './db.js';
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
+import { alert } from './alerts.js';
+import { estimateCostUsd } from './pricing.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -99,12 +101,27 @@ export async function handler(req, res, { gateway }) {
   }
 
   // CORS: the Distro web UI (option A) calls the control plane from the
-  // browser to log in and fetch the user's gateway key. LAN installs set
-  // CONTROL_CORS_ORIGIN to the Distro origin; default is permissive.
-  res.setHeader('Access-Control-Allow-Origin', process.env.CONTROL_CORS_ORIGIN || '*');
+  // browser to log in and fetch the user's gateway key. Set
+  // CONTROL_CORS_ORIGIN to the Distro origin to lock cross-origin calls to
+  // that origin (default is permissive '*'). When locked, the allow-origin
+  // header is only emitted for a matching request Origin, so browsers from
+  // any other origin get no CORS grant (non-browser clients are unaffected).
+  const corsOrigin = process.env.CONTROL_CORS_ORIGIN || '*';
+  const reqOrigin = req.headers.origin;
+  if (corsOrigin === '*') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (reqOrigin && reqOrigin === corsOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (method === 'OPTIONS') {
+    // Preflight from a non-allowed origin must not get a CORS grant; respond
+    // 403 so the browser fails the request visibly.
+    if (corsOrigin !== '*' && (!reqOrigin || reqOrigin !== corsOrigin)) {
+      return send(403, { error: 'origin not allowed' });
+    }
     return send(204, {});
   }
 
@@ -176,7 +193,15 @@ export async function handler(req, res, { gateway }) {
   if (path === '/api/internal/quota-check' && method === 'GET') {
     const user = await userFromGatewayKey(req);
     if (!user) return send(401, { error: 'unknown or revoked gateway key' });
-    return send(200, { user: publicUser(user), ...quotaDecision(user.id) });
+    const decision = quotaDecision(user.id);
+    if (!decision.allowed) {
+      void alert(`quota.denied:${user.id.slice(0, 8)}`, {
+        title: 'User hit a daily quota limit',
+        message: `${user.email} was blocked (${decision.reasons.join(', ')}).`,
+        meta: { userId: user.id, reasons: decision.reasons, quota: decision.quota, usageToday: decision.usageToday },
+      });
+    }
+    return send(200, { user: publicUser(user), ...decision });
   }
 
   if (path === '/api/internal/usage-report' && method === 'POST') {
@@ -184,11 +209,13 @@ export async function handler(req, res, { gateway }) {
     if (!user) return send(401, { error: 'unknown or revoked gateway key' });
     const body = await readBody(req);
     if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const tokensIn = Number(body.tokensIn) || 0;
+    const tokensOut = Number(body.tokensOut) || 0;
     const usage = recordUsage(user.id, {
-      tokensIn: Number(body.tokensIn) || 0,
-      tokensOut: Number(body.tokensOut) || 0,
+      tokensIn,
+      tokensOut,
       requests: Math.max(1, Number(body.requests) || 1),
-      costUsd: Number(body.costUsd) || 0,
+      costUsd: body.model ? estimateCostUsd(String(body.model), tokensIn, tokensOut) : Number(body.costUsd) || 0,
     });
     return send(200, { ok: true, usageToday: usage });
   }

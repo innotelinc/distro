@@ -12,6 +12,7 @@
 
 import Database from 'better-sqlite3';
 import { existsSync } from 'node:fs';
+import { estimateCostUsd } from './pricing.js';
 
 const DATA_DIR = process.env.GATEWAY_DATA_DIR || '/gateway-data';
 const DB_FILE = `${DATA_DIR}/storage.sqlite`;
@@ -21,9 +22,10 @@ export function gatewayDbAvailable() {
 }
 
 /**
- * @returns {Promise<Array<{ apiKeyId: string, tokensIn: number, tokensOut: number, requests: number }>>}
- *          Today's aggregates per gateway key. Throws on schema drift /
- *          unreadable DB so callers can log + skip.
+ * @returns {Promise<Array<{ apiKeyId: string, model: string, tokensIn: number, tokensOut: number, requests: number, costUsd: number }>>}
+ *          Today's aggregates per gateway key AND model, with estimated USD
+ *          cost (usage_history stores tokens; pricing lives in pricing.js).
+ *          Throws on schema drift / unreadable DB so callers can log + skip.
  */
 export async function readGatewayUsageToday() {
   if (!gatewayDbAvailable()) {
@@ -36,22 +38,30 @@ export async function readGatewayUsageToday() {
     const rows = db
       .prepare(
         `SELECT api_key_id AS apiKeyId,
+                COALESCE(model, '')                              AS model,
                 COALESCE(SUM(COALESCE(tokens_input, 0)), 0)  AS tokensIn,
                 COALESCE(SUM(COALESCE(tokens_output, 0)), 0) AS tokensOut,
                 COUNT(*)                                     AS requests
          FROM usage_history
          WHERE api_key_id IS NOT NULL
            AND timestamp >= date('now')
-         GROUP BY api_key_id`,
+         GROUP BY api_key_id, model`,
       )
       .all();
 
-    return rows.map((r) => ({
-      apiKeyId: String(r.apiKeyId),
-      tokensIn: Number(r.tokensIn) || 0,
-      tokensOut: Number(r.tokensOut) || 0,
-      requests: Number(r.requests) || 0,
-    }));
+    return rows.map((r) => {
+      const tokensIn = Number(r.tokensIn) || 0;
+      const tokensOut = Number(r.tokensOut) || 0;
+      const model = String(r.model || '');
+      return {
+        apiKeyId: String(r.apiKeyId),
+        model,
+        tokensIn,
+        tokensOut,
+        requests: Number(r.requests) || 0,
+        costUsd: estimateCostUsd(model, tokensIn, tokensOut),
+      };
+    });
   } catch (err) {
     throw new Error(`gateway usage read failed (schema drift?): ${err.message}`);
   } finally {
