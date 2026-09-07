@@ -131,3 +131,21 @@ IDE itself).
   selector; unavailable presets auto-correct to a chat-capable model now.
 - The OmniRoute dashboard remains the place to register upstream providers
   and read gateway-level logs; Distro never holds those provider keys.
+
+### Live preview / terminal stay disconnected (chat works)
+
+WebContainer (the in-browser runtime behind the preview and terminal) only
+runs on a **trustworthy origin**: browsers ignore the COOP/COEP headers that
+enable cross-origin isolation, and block service workers, on plain-HTTP
+origins other than localhost. So:
+
+- `http://localhost:5173` and `http://127.0.0.1:5173` → full shell works.
+- `https://app.example.com` (your nginx proxy manager host) → full shell works.
+- `http://<lan-ip-or-hostname>:5173` → **chat works, preview/terminal never
+  connect** — this is a browser security rule, not a Distro bug.
+
+The shell now shows an amber notice in that case, and the terminal pane
+prints an explanation instead of hanging. Fix: open the app over HTTPS
+(proxy host) or localhost. (Verified: headless Chromium on `127.0.0.1` boots
+WebContainer and the preview iframe connects with the running app; the same
+session on `http://172.x.x.x` reports `crossOriginIsolated: false`.)

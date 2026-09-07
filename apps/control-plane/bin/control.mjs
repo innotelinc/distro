@@ -65,6 +65,19 @@ async function main() {
       console.log(JSON.stringify(result, null, 2));
       break;
     }
+    case 'test-alert': {
+      // Fires a synthetic alert to CONTROL_ALERT_WEBHOOK_URL (verifies the
+      // receiver and records the delivery in alert_log).
+      const { alert } = await import('../src/alerts.js');
+      const result = await alert('test', {
+        title: 'Distro test alert',
+        message: 'If you can read this, webhook delivery works.',
+        meta: { source: 'cli' },
+      });
+      console.log(JSON.stringify(result));
+      if (!result.sent) process.exit(1);
+      break;
+    }
     case 'backup': {
       // Online SQLite backup via better-sqlite3 .backup() — safe while live.
       const outDir = args[0] || join(here, '..', 'data', 'backups');
@@ -77,7 +90,7 @@ async function main() {
       break;
     }
     default:
-      console.error('usage: control.mjs <health|create-admin|users|gateway-check|usage-sync|backup>');
+      console.error('usage: control.mjs <health|create-admin|users|gateway-check|usage-sync|test-alert|backup>');
       process.exit(1);
   }
 }

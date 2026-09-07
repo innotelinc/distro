@@ -12,6 +12,8 @@ import {
   getQuota,
   upsertQuota,
   getUsageToday,
+  usageFor,
+  usageAll,
   userIsDisabled,
   getUserByGatewayKey,
   touchGatewayKey,
@@ -20,9 +22,10 @@ import {
   deleteUser,
   logAudit,
   listAudit,
+  listAlerts,
 } from './db.js';
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
-import { alert } from './alerts.js';
+import { alert, alertsConfig } from './alerts.js';
 import { estimateCostUsd } from './pricing.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -282,6 +285,7 @@ export async function handler(req, res, { gateway }) {
         ...publicUser(u),
         quota: getQuota(u.id),
         usageToday: getUsageToday(u.id),
+        usage7d: usageFor(u.id, 7),
         hasGatewayKey: !!key,
         gatewayKeyId: key?.gateway_key_id || null,
       };
@@ -302,12 +306,23 @@ export async function handler(req, res, { gateway }) {
       },
       { users: users.length, active: users.filter((u) => !u.disabled_at).length, requests: 0, tokensIn: 0, tokensOut: 0, costUsd: 0 },
     );
-    return send(200, { date: new Date().toISOString().slice(0, 10), ...totals });
+    const week = usageAll(7);
+    return send(200, {
+      date: new Date().toISOString().slice(0, 10),
+      ...totals,
+      week: { requests: week.requests, tokensIn: week.tokens_in, tokensOut: week.tokens_out, costUsd: week.cost_usd },
+      alerting: alertsConfig(),
+    });
   }
 
   if (path === '/api/admin/audit' && method === 'GET') {
     const limit = Number(url.searchParams.get('limit')) || 200;
     return send(200, { entries: listAudit(limit) });
+  }
+
+  if (path === '/api/admin/alerts' && method === 'GET') {
+    const limit = Number(url.searchParams.get('limit')) || 100;
+    return send(200, { entries: listAlerts(limit) });
   }
 
   const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
