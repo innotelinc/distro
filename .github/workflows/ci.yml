@@ -1,0 +1,53 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# ci.yml — static checks on push and pull requests.
+#
+# The repo is maintained at zero findings: any shellcheck warning/error/note
+# on a tracked script, a compose file that fails to interpolate, or a
+# control-plane file that does not parse fails the build.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck tracked shell scripts
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(git ls-files '*.sh' '.githooks/*')
+          echo "Checking ${#scripts[@]} scripts"
+          docker run --rm -v "$PWD":/mnt:ro -w /mnt \
+            koalaman/shellcheck:v0.10.0 -s bash "${scripts[@]}"
+
+  compose:
+    name: Compose validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate the root stack compose file
+        run: docker compose -f docker-compose.yml config --quiet
+
+  control-plane:
+    name: Control plane syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: node --check over control-plane sources
+        run: |
+          set -euo pipefail
+          for f in apps/control-plane/src/*.js apps/control-plane/src/*.mjs \
+                   apps/control-plane/bin/*.mjs; do
+            node --check "$f"
+          done
+          echo "All control-plane sources parse"

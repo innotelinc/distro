@@ -1,0 +1,108 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# release.yml — Distro release pipeline.
+#
+# Fires on every `v*` tag push (and on demand via workflow_dispatch):
+#   1. build-and-publish — builds the Distro images (control plane + web) and
+#      publishes them to GHCR: ghcr.io/<owner>/<repo>/<image>:<tag> (+ :latest).
+#   2. release-artifacts — bundles the compose stack + README and attaches
+#      them to the GitHub Release for the pushed tag.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: Distro release pipeline
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag to build (default: use the pushed tag)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: distro-release
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository }}
+
+jobs:
+  build-and-publish:
+    name: Build & publish Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          else
+            TAG="${GITHUB_REF_NAME#v}"
+          fi
+          [ -n "$TAG" ] || TAG="$(git rev-parse --short HEAD)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push control-plane image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/control-plane
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/control-plane:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE_NAMESPACE }}/control-plane:latest
+
+      - name: Build & push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/web
+          target: bolt-ai-production
+          push: true
+          build-args: |
+            VITE_DISTRO_GATEWAY_ONLY=true
+            VITE_DISTRO_CONTROL_PLANE=true
+            VITE_LOG_LEVEL=debug
+            BUILD_HEAP_MB=4096
+          tags: |
+            ${{ env.IMAGE_NAMESPACE }}/web:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE_NAMESPACE }}/web:latest
+
+  release-artifacts:
+    name: Attach release artifacts
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bundle the compose stack
+        run: |
+          tar czf distro-stack.tar.gz \
+            docker-compose.yml .env.example README.md docs apps/control-plane/bin \
+            apps/control-plane/schema.sql apps/control-plane/src apps/web/Dockerfile
+          ls -lh distro-stack.tar.gz
+
+      - name: Upload to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          [ -n "${TAG}" ] || TAG="${{ github.event.inputs.version }}"
+          gh release upload "$TAG" distro-stack.tar.gz --clobber

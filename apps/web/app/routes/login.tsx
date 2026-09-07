@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@remix-run/react';
 import type { MetaFunction } from '@remix-run/cloudflare';
 import BackgroundRays from '~/components/ui/BackgroundRays';
-import { CONTROL_PLANE_ENABLED, logIn, signUp, adoptGatewayKey } from '~/lib/control-plane';
+import { controlPlaneBase, CONTROL_PLANE_ENABLED, logIn, signUp, adoptGatewayKey, finishOidcLogin, oidcConfig } from '~/lib/control-plane';
 
 export const meta: MetaFunction = () => {
   return [{ title: 'Sign in — Distro' }];
@@ -18,6 +18,44 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [ssoEnabled, setSsoEnabled] = useState(false);
+  const [ssoBusy, setSsoBusy] = useState(false);
+
+  // Detect Authentik SSO on the control plane; listen for the popup callback.
+  useEffect(() => {
+    if (!CONTROL_PLANE_ENABLED || typeof window === 'undefined') return;
+    oidcConfig()
+      .then((c) => setSsoEnabled(c.enabled))
+      .catch(() => setSsoEnabled(false));
+    const onMessage = async (event: MessageEvent) => {
+      if (event.data?.source !== 'distro-oidc' || !event.data.token) return;
+      const origin = (() => {
+        try {
+          return new URL(controlPlaneBase()).origin;
+        } catch {
+          return '';
+        }
+      })();
+      if (origin && event.origin !== origin) return;
+      setSsoBusy(true);
+      try {
+        await finishOidcLogin(event.data.token, event.data.user || {});
+        navigate('/app', { replace: true });
+      } catch (err: any) {
+        setError(err?.message || 'Authentik sign-in succeeded but the gateway key could not be adopted — sign out and in again.');
+        setSsoBusy(false);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  const startOidc = () => {
+    const popup = window.open(`${controlPlaneBase()}/api/auth/oidc/start`, '_blank', 'width=520,height=660');
+    if (!popup) {
+      setError('Pop-up blocked — allow pop-ups for this site to use Authentik sign-in.');
+    }
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -99,6 +137,24 @@ export default function Login() {
             {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
           </button>
         </form>
+
+        {ssoEnabled && (
+          <>
+            <div className="flex items-center gap-3 my-4 text-xs text-bolt-elements-textTertiary">
+              <span className="flex-1 h-px bg-bolt-elements-borderColor" />
+              or
+              <span className="flex-1 h-px bg-bolt-elements-borderColor" />
+            </div>
+            <button
+              type="button"
+              onClick={startOidc}
+              disabled={ssoBusy}
+              className="w-full rounded-lg px-4 py-2 text-sm font-semibold border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 hover:bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary disabled:opacity-60"
+            >
+              {ssoBusy ? 'Signing in…' : 'Continue with Authentik'}
+            </button>
+          </>
+        )}
 
         <p className="text-sm text-bolt-elements-textSecondary mt-4 text-center">
           {mode === 'login' ? (

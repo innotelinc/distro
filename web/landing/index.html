@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Distro — build apps with AI, in your browser</title>
+<meta name="description" content="Distro is a self-hosted AI app-building platform: describe an app and the agent writes, runs, previews, and iterates on a full-stack codebase in your browser." />
+<style>
+  :root {
+    --bg: #0b0f1a; --panel: #131a2b; --line: #22304a;
+    --text: #e6edf7; --muted: #8fa0bd; --cyan: #06b6d4; --indigo: #6366f1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: radial-gradient(1200px 600px at 20% -10%, #16233d 0%, var(--bg) 55%); color: var(--text); min-height: 100vh; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+  header { display: flex; align-items: center; gap: 14px; }
+  .logo { width: 44px; height: 44px; border-radius: 11px; background: linear-gradient(135deg, var(--cyan), var(--indigo)); display: grid; place-items: center; font-weight: 800; font-size: 24px; color: #fff; }
+  .logo svg { width: 26px; height: 26px; }
+  h1 { font-size: 30px; margin: 0; }
+  header .sub { color: var(--muted); }
+  .hero { padding: 48px 0 24px; }
+  .hero h2 { font-size: 42px; line-height: 1.15; margin: 0 0 12px; background: linear-gradient(90deg, var(--cyan), var(--indigo)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { color: var(--muted); font-size: 18px; max-width: 720px; margin: 0 0 24px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 11px 22px; border-radius: 10px; font-weight: 600; text-decoration: none; }
+  .btn.primary { background: linear-gradient(135deg, var(--cyan), var(--indigo)); color: #fff; }
+  .btn.ghost { border: 1px solid var(--line); color: var(--text); }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 34px 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; color: var(--cyan); }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; }
+  h2.sec { font-size: 24px; margin: 44px 0 16px; }
+  .shot { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin: 14px 0; background: var(--panel); }
+  .shot img { width: 100%; display: block; }
+  .shot .cap { padding: 10px 16px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
+  code { background: rgba(143,160,189,.12); border-radius: 6px; padding: 2px 7px; font-size: .9em; }
+  footer { margin-top: 60px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 18px; }
+  footer a { color: var(--cyan); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <g fill="#ffffff">
+          <circle cx="16" cy="16" r="3.6" /><circle cx="16" cy="6.9" r="2.2" />
+          <circle cx="24.5" cy="21" r="2.2" /><circle cx="7.5" cy="21" r="2.2" />
+        </g>
+      </svg>
+    </div>
+    <div>
+      <h1>Distro</h1>
+      <div class="sub">self-hosted AI app-building platform</div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h2>Describe an app.<br />Watch it get built — in your browser.</h2>
+    <p>
+      Distro's AI agent writes, runs, previews, and iterates on a full-stack
+      codebase live in your browser — no local dev environment required. It
+      combines the bolt.diy in-browser IDE with a self-hosted OmniRoute AI
+      gateway, operated as one service.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/innotelinc/distro">GitHub repo</a>
+      <a class="btn ghost" href="https://github.com/innotelinc/distro/blob/main/README.md">Readme</a>
+      <a class="btn ghost" href="https://github.com/innotelinc/distro/blob/main/docs/ops.md">Ops runbook</a>
+    </div>
+  </section>
+
+  <div class="features">
+    <div class="card"><h3>Chat-to-code agent</h3><p>Natural-language builds powered by your own OmniRoute gateway — upstream provider keys never leave your server.</p></div>
+    <div class="card"><h3>WebContainer sandbox</h3><p>Node.js runs in the tab: <code>npm install</code>, dev servers, and terminals with no cloud VM.</p></div>
+    <div class="card"><h3>Live preview &amp; terminal</h3><p>Iterate on a running app with an in-browser shell and instant reload as the agent edits files.</p></div>
+    <div class="card"><h3>Multi-tenant accounts</h3><p>Control plane with per-user gateway keys, quotas, spend tracking, an admin console, and audit log.</p></div>
+  </div>
+
+  <h2 class="sec">Gallery</h2>
+
+  <div class="shot">
+    <img src="assets/screenshot-landing.png" alt="Distro landing page" />
+    <div class="cap">The Distro front door.</div>
+  </div>
+  <div class="shot">
+    <img src="assets/screenshot-workspace.png" alt="Distro workspace with generated files" />
+    <div class="cap">The agent writes a project and it appears in the file tree.</div>
+  </div>
+  <div class="shot">
+    <img src="assets/screenshot-preview.png" alt="Distro live preview" />
+    <div class="cap">The reply streams in with actions — files, installs, and dev servers.</div>
+  </div>
+
+  <footer>
+    Distro is registered in the
+    <a href="https://github.com/innotelinc/innotel-platform-stack">Innotel Platform Stack</a>
+    as <strong>BuilderOps</strong>. Built on
+    <a href="https://github.com/stackblitz-labs/bolt.diy">bolt.diy</a> and
+    <a href="https://github.com/diegosouzapw/OmniRoute">OmniRoute</a> (MIT).
+  </footer>
+</div>
+</body>
+</html>

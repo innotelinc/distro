@@ -121,6 +121,15 @@ export async function logIn(email: string, password: string) {
   return data;
 }
 
+/** Authentik popup callback: the control plane posts { token, user } back to
+ *  the opener. Persist the session exactly like logIn, then adopt the user's
+ *  gateway key so the workspace is ready. */
+export async function finishOidcLogin(token: string, user: { role?: string; email?: string }) {
+  window.localStorage.setItem(TOKEN_KEY, token);
+  window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+  await adoptGatewayKey();
+}
+
 export function logOut() {
   window.localStorage.removeItem(TOKEN_KEY);
   window.localStorage.removeItem(USER_KEY);
@@ -148,6 +157,17 @@ export async function adoptGatewayKey(): Promise<string> {
   existing[PROVIDER] = data.gatewayKey;
   Cookies.set('apiKeys', JSON.stringify(existing), { expires: 7 });
   return data.gatewayKey;
+}
+
+export async function oidcConfig() {
+  const res = await fetch(`${controlPlaneBase()}/api/auth/oidc/config`);
+  if (!res.ok) return { enabled: false };
+  try {
+    const data: any = await res.json();
+    return { enabled: !!data.enabled, provider: data.provider || 'Authentik' };
+  } catch {
+    return { enabled: false };
+  }
 }
 
 export async function quotaStatus() {
