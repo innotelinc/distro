@@ -15,10 +15,12 @@ are MIT-licensed; their full license texts are retained in-tree.
 
 - Project: https://github.com/diegosouzapw/OmniRoute (default branch)
 - License: MIT — Copyright (c) 2026 diegosouzapw
-- License text: [`vendor/omniroute/LICENSE`](vendor/omniroute/LICENSE) (present
-  in the local source checkout; run `make sync-upstream` to fetch it)
-- Used as: the `gateway` service — AI model routing gateway providing the
-  single OpenAI-compatible `/v1/*` endpoint Distro calls, run from the
+- License text: https://github.com/diegosouzapw/OmniRoute/blob/main/LICENSE
+  (no source checkout is vendored in this repo)
+- Used as: the AI model routing gateway providing the single
+  OpenAI-compatible `/v1/*` endpoint Distro calls. Consumed remotely as a
+  platform service (Innotel platform stack, Server 2; Consul service
+  `omniroute`); the LOCAL fallback (compose profile `local-gateway`) runs the
   published image `diegosouzapw/omniroute` (tag pinned via
   `OMNIROUTE_IMAGE_TAG` in `.env`).
 

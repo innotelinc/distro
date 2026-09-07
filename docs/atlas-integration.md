@@ -96,7 +96,7 @@ ATLAS_GIT_REMOTE=git@atlas.innotel.us       # Git SSH host for exports
 
 Both platforms run on the same WireGuard mesh:
 
-- **Distro** — Group 5 (Server 5): web app, control plane, OmniRoute
+- **Distro** — Group 5 (Server 5): web app + control plane; consumes the shared OmniRoute gateway (Server 2) via Consul
 - **Atlas** — Group 5 (Server 5): Gitea, Chef, Convex
 
 They share the same server and discover each other via Consul:

@@ -1,5 +1,3 @@
 # Automatically updated by scripts/sync-upstream.sh — do not edit.
 bolt.diy branch: stable
 bolt.diy sha: 5d3fb1d7def677bc8c9d89fed595f58aa454e0b9
-omniroute branch: main
-omniroute sha: b345c7f6cd4e1590d1177540813302375a75e332

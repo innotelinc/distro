@@ -51,7 +51,9 @@ platform owns, consumes, provides, and explicitly does not own.
 - The LLM gateway itself (OmniRoute) — it is an ecosystem extension
   (`extensions/llm`) that any group may enable
 
-> **Current state:** the live deployment bundles its own OmniRoute gateway and
-> control-plane accounts inside Distro's compose stack. Convergence targets:
-> consume the shared `omniroute-llm` extension for the AI plane, move secrets
-> into Infisical, and adopt Authentik as the identity provider.
+> **Current state:** Distro consumes the shared platform OmniRoute gateway
+> (Server 2, Consul service `omniroute`) — no local gateway is bundled by
+> default; a local fallback lives behind the compose profile
+> `local-gateway` for offline/single-host use. Still bundled: Distro's own
+> control-plane accounts. Convergence targets: move secrets into Infisical
+> and adopt Authentik as the identity provider.
