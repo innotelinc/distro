@@ -38,7 +38,7 @@ import {
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { magnateConfigured, checkEntitlement, listPlans } from './billing.js';
+import { magnateConfigured, checkEntitlement, listPlans, gatedQuota } from './billing.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -294,12 +294,31 @@ export async function handler(req, res, { gateway }) {
   if (path === '/api/internal/quota-check' && method === 'GET') {
     const user = await userFromGatewayKey(req);
     if (!user) return send(401, { error: 'unknown or revoked gateway key' });
-    const decision = quotaDecision(user.id);
+
+    // Check entitlement and apply feature gating
+    const entitlement = await checkEntitlement(user.email);
+    const baseQuota = getQuota(user.id);
+    const quota = gatedQuota(entitlement, baseQuota);
+
+    // Use gated quota for decision
+    const today = getUsageToday(user.id);
+    const reasons = [];
+    if (quota.requests_per_day != null && today.requests >= quota.requests_per_day) {
+      reasons.push('daily request limit reached');
+    }
+    if (quota.tokens_per_day != null && today.tokens_in + today.tokens_out >= quota.tokens_per_day) {
+      reasons.push('daily token limit reached');
+    }
+    if (quota.spend_cap_usd != null && today.cost_usd >= quota.spend_cap_usd) {
+      reasons.push('spend cap reached');
+    }
+    const decision = { allowed: reasons.length === 0, reasons, quota, usageToday: today, entitlement };
+
     if (!decision.allowed) {
       void alert(`quota.denied:${user.id.slice(0, 8)}`, {
         title: 'User hit a daily quota limit',
         message: `${user.email} was blocked (${decision.reasons.join(', ')}).`,
-        meta: { userId: user.id, reasons: decision.reasons, quota: decision.quota, usageToday: decision.usageToday },
+        meta: { userId: user.id, reasons: decision.reasons, quota: decision.quota, usageToday: decision.usageToday, entitlement },
       });
     }
     return send(200, { user: publicUser(user), ...decision });
