@@ -1,14 +1,17 @@
 # Distro Control Plane
 
-> Status: **M0–M5 implemented and running** — a small Node service providing
-> Distro accounts, **one OmniRoute gateway API key per user**, server-side
-> quota enforcement (M3), usage accounting for chat traffic (M4) and an admin
-> console at `/admin` (M5). The web-app integration is live (login, per-user
-> keys, quota gate, usage reporting).
+> Status: **M0–M5 implemented and running** — accounts, **one OmniRoute
+> gateway API key per user**, server-side quota enforcement (M3), usage
+> visibility backed by the gateway's own per-key ledger (M4) and an admin
+> console with audit log + backups (M5). Web-app integration is live (login,
+> per-user keys, quota gate, usage reports). Remaining: billing hooks only if
+> paid tiers are in scope.
 >
-> Known M4 gap: OmniRoute's request logs lack per-key attribution, so usage
-> from direct `/v1` calls can't be synced per user yet — chat traffic is fully
-> accounted. See [docs/roadmap.md](docs/roadmap.md).
+> M4 detail: the gateway's HTTP usage logs drop key attribution, but its
+> SQLite `usage_history` carries `api_key_id` — the control plane mounts the
+> gateway-data volume read-only and syncs per-key aggregates into
+> `usage_cache` (`CONTROL_SYNC_INTERVAL_MS`, or `control.mjs usage-sync`).
+> See [docs/gateway-api-inventory.md](docs/gateway-api-inventory.md).
 
 The control plane is Distro's Phase 2 multi-tenant layer: Distro accounts,
 **one gateway API key per user**, quota enforcement and usage visibility on
@@ -30,9 +33,12 @@ free — no gateway forking required.
 | Identity (M1) | `POST /api/auth/signup`, `/api/auth/login`, `/api/auth/logout`, `GET /api/me` | first account = admin; otherwise role from `ADMIN_EMAILS` |
 | Per-user keys (M2) | signup mints a key; `GET /api/me/gateway-key`; `POST /api/me/gateway-key/rotate` | key lifecycle driven through the gateway dashboard API |
 | Quota gate (M3) | `GET /api/internal/quota-check` + `POST /api/internal/usage-report` | the web app identifies the user by their gateway key and enforces/records before/after each chat turn (`DISTRO_ENFORCE_QUOTA`) |
-| Admin API (M5) | users list/stats, PATCH (disable, quota, role), revoke/rotate key, DELETE user | disabling/deleting revokes the gateway key; last-admin guard |
+| Usage sync (M4) | `src/sync.js` + `src/gatewayUsage.js` | scheduled/CLI sync of the gateway's per-key ledger into `usage_cache` (gateway-data volume mounted ro) |
+| Admin API (M5) | users list/stats, PATCH (disable, quota, role), revoke/rotate key, DELETE user, audit list | disabling/deleting revokes the gateway key; last-admin guard |
 | Admin console (M5) | `GET /admin` → `src/admin.html` | no build step, no CDNs; login as an admin |
-| CLI | `bin/control.mjs` | `health`, `create-admin`, `users`, `gateway-check` |
+| Audit log (M5) | `audit_log` table + `GET /api/admin/audit` | signups, key lifecycle, quota/role/disable changes, deletes |
+| Backups (M5) | `make backup` → `scripts/backup.sh` | online `.backup()` of control + gateway DBs into `./backups/` |
+| CLI | `bin/control.mjs` | `health`, `create-admin`, `users`, `gateway-check`, `usage-sync`, `backup` |
 
 ## HTTP API
 
@@ -80,9 +86,11 @@ docker compose exec control-plane node bin/control.mjs users
 
 Configuration (from env): `PORT`/`HOST` (default `20140`/`0.0.0.0`),
 `CONTROL_DB_PATH` (`/data/control.sqlite` in the image), `GATEWAY_DASHBOARD_URL`,
-`GATEWAY_ADMIN_PASSWORD`, `ADMIN_EMAILS`. The compose service wires these from
-the root `.env` (`GATEWAY_ADMIN_PASSWORD=${INITIAL_PASSWORD}`) and mounts a
-`control-data` volume.
+`GATEWAY_ADMIN_PASSWORD`, `ADMIN_EMAILS`, `CONTROL_SYNC_INTERVAL_MS` (M4 sync
+period; 0 disables), `GATEWAY_DATA_DIR` (default `/gateway-data`). The compose
+service wires these from the root `.env` (`GATEWAY_ADMIN_PASSWORD=${INITIAL_PASSWORD}`),
+mounts a `control-data` volume and the `gateway-data` volume read-only
+(for the M4 usage sync).
 
 ## Still to do
 

@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 .PHONY: help up down logs ps gateway-up web-up build bootstrap doctor \
-        sync-upstream typecheck format clean
+        sync-upstream typecheck format clean backup
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -37,6 +37,9 @@ doctor: ## Verify gateway + web health from the host
 
 sync-upstream: ## Refresh local upstream checkouts (apps/web ref + vendor/omniroute)
 	./scripts/sync-upstream.sh
+
+backup: ## Back up control-plane + gateway DBs to ./backups
+	./scripts/backup.sh
 
 typecheck: ## Typecheck the Distro web app (needs pnpm + installed deps)
 	cd apps/web && pnpm run typecheck

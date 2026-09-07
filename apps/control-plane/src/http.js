@@ -18,6 +18,8 @@ import {
   recordUsage,
   setUserRole,
   deleteUser,
+  logAudit,
+  listAudit,
 } from './db.js';
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
 import { readFileSync } from 'node:fs';
@@ -149,6 +151,8 @@ export async function handler(req, res, { gateway }) {
       return send(502, { error: `gateway unreachable: ${err.message}` });
     }
 
+    logAudit({ action: 'user.signup', targetId: user.id, targetEmail: user.email, meta: { role, plan: quota.plan, gatewayKeyId: gatewayKey?.gateway_key_id || null } });
+
     return send(201, { user: publicUser(user), quota });
   }
 
@@ -221,6 +225,7 @@ export async function handler(req, res, { gateway }) {
           getQuota(me.id).spend_cap_usd != null ? getQuota(me.id).spend_cap_usd * 7 : undefined,
       });
       const key = setGatewayKey(me.id, { gatewayKeyId: fresh.id, gatewayKey: fresh.key });
+      logAudit({ action: 'key.rotate', actorId: me.id, actorEmail: me.email, targetId: me.id, targetEmail: me.email, meta: { gatewayKeyId: key.gateway_key_id } });
       return send(200, { gatewayKeyId: key.gateway_key_id, gatewayKey: key.gateway_key });
     } catch (err) {
       return send(502, { error: `gateway unreachable: ${err.message}` });
@@ -273,6 +278,11 @@ export async function handler(req, res, { gateway }) {
     return send(200, { date: new Date().toISOString().slice(0, 10), ...totals });
   }
 
+  if (path === '/api/admin/audit' && method === 'GET') {
+    const limit = Number(url.searchParams.get('limit')) || 200;
+    return send(200, { entries: listAudit(limit) });
+  }
+
   const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
   const revokeMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/revoke-key$/);
   const rotateMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/rotate-key$/);
@@ -312,6 +322,18 @@ export async function handler(req, res, { gateway }) {
       }
     }
     const updated = getUserById(target.id);
+    logAudit({
+      action: 'user.update',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      targetId: target.id,
+      targetEmail: target.email,
+      meta: {
+        disabled: body.disabled !== undefined ? body.disabled : undefined,
+        role: body.role || undefined,
+        quota: body.quota || undefined,
+      },
+    });
     return send(200, { user: publicUser(updated), quota: getQuota(updated.id) });
   }
 
@@ -333,6 +355,7 @@ export async function handler(req, res, { gateway }) {
         return send(502, { error: `gateway unreachable: ${err.message}` });
       }
     }
+    logAudit({ action: 'user.delete', actorId: admin.id, actorEmail: admin.email, targetId: target.id, targetEmail: target.email, meta: { gatewayKeyId: key?.gateway_key_id || null } });
     deleteUser(target.id);
     return send(200, { deleted: true, id: target.id });
   }
@@ -346,6 +369,7 @@ export async function handler(req, res, { gateway }) {
       await gateway.login();
       await gateway.revokeApiKey(key.gateway_key_id);
       revokeGatewayKey(target.id);
+      logAudit({ action: 'key.revoke', actorId: admin.id, actorEmail: admin.email, targetId: target.id, targetEmail: target.email, meta: { gatewayKeyId: key.gateway_key_id } });
       return send(200, { revoked: true });
     } catch (err) {
       return send(502, { error: `gateway unreachable: ${err.message}` });
@@ -366,6 +390,7 @@ export async function handler(req, res, { gateway }) {
         weeklyUsageLimitUsd: quota.spend_cap_usd != null ? quota.spend_cap_usd * 7 : undefined,
       });
       const key = setGatewayKey(target.id, { gatewayKeyId: fresh.id, gatewayKey: fresh.key });
+      logAudit({ action: 'key.rotate', actorId: admin.id, actorEmail: admin.email, targetId: target.id, targetEmail: target.email, meta: { from: existing.gateway_key_id, to: key.gateway_key_id } });
       return send(200, { rotated: true, gatewayKeyId: key.gateway_key_id });
     } catch (err) {
       return send(502, { error: `gateway unreachable: ${err.message}` });
