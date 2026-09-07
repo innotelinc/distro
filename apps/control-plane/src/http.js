@@ -38,6 +38,7 @@ import {
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { magnateConfigured, checkEntitlement, listPlans } from './billing.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -371,6 +372,45 @@ export async function handler(req, res, { gateway }) {
     return send(200, quotaDecision(me.id));
   }
 
+  // ---- billing (Magnate integration) ----
+  if (path === '/api/billing/entitlements' && method === 'GET') {
+    const result = await checkEntitlement(me.email);
+    return send(200, result);
+  }
+
+  if (path === '/api/billing/plans' && method === 'GET') {
+    const plans = await listPlans();
+    return send(200, { plans, magnate_configured: magnateConfigured() });
+  }
+
+  if (path === '/api/billing/checkout' && method === 'POST') {
+    if (!magnateConfigured()) return send(400, { error: 'billing not configured (MAGNATE_URL)' });
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const planSlug = String(body.planSlug || '').trim();
+    const interval = body.interval === 'year' ? 'year' : 'month';
+    if (!planSlug) return send(400, { error: 'planSlug required' });
+
+    // Forward to Magnate checkout, passing the Distro user's email.
+    const params = { planSlug, interval, email: me.email, username: me.email.split('@')[0] };
+    try {
+      const res = await fetch(`${process.env.MAGNATE_URL.replace(/\/+$/, '')}/api/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.MAGNATE_ENTITLEMENTS_TOKEN ? { Authorization: `Bearer ${process.env.MAGNATE_ENTITLEMENTS_TOKEN}` } : {}),
+        },
+        body: JSON.stringify(params),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json();
+      if (!res.ok) return send(res.status, data);
+      return send(200, data);
+    } catch (err) {
+      return send(502, { error: `magnate unreachable: ${err?.message || err}` });
+    }
+  }
+
   // ---- admin routes ----
   const admin = requireAdmin(req);
   if (!admin) return send(403, { error: 'admin required' });
@@ -409,6 +449,7 @@ export async function handler(req, res, { gateway }) {
       ...totals,
       week: { requests: week.requests, tokensIn: week.tokens_in, tokensOut: week.tokens_out, costUsd: week.cost_usd },
       alerting: alertsConfig(),
+      billing: { magnate_configured: magnateConfigured() },
     });
   }
 
