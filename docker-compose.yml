@@ -112,8 +112,14 @@ services:
       # set OPENAI_LIKE_API_BASE_URL in its .env.local instead.
       - OPENAI_LIKE_API_BASE_URL=http://gateway:20129/v1
       - OPENAI_LIKE_API_KEY=${OPENAI_LIKE_API_KEY}
+      # Runtime vars must be listed here (not just in .env): the worker runtime
+      # only binds vars declared in `environment:`.
+      - DISTRO_ENFORCE_QUOTA=${DISTRO_ENFORCE_QUOTA:-true}
+      - CONTROL_PLANE_INTERNAL_URL=${CONTROL_PLANE_INTERNAL_URL:-http://control-plane:20140}
     ports:
-      - '127.0.0.1:5173:5173'
+      # LAN exposure like the gateway: 0.0.0.0 by default. Loopback-only via
+      # WEB_BIND_HOST=127.0.0.1.
+      - '${WEB_BIND_HOST:-0.0.0.0}:5173:5173'
     depends_on:
       gateway:
         condition: service_healthy

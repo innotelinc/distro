@@ -10,6 +10,7 @@ import { getFilePaths, selectContext } from '~/lib/.server/llm/select-context';
 import type { ContextAnnotation, ProgressAnnotation } from '~/types/context';
 import { WORK_DIR } from '~/utils/constants';
 import { createSummary } from '~/lib/.server/llm/create-summary';
+import { quotaCheck, reportChatUsage } from '~/lib/.server/quota';
 import { extractPropertiesFromMessage } from '~/lib/.server/llm/utils';
 
 export async function action(args: ActionFunctionArgs) {
@@ -58,6 +59,21 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     parseCookies(cookieHeader || '').providers || '{}',
   );
 
+  // Distro (M3): per-request quota gate. The user's gateway key from the
+  // apiKeys cookie identifies the account to the control plane server-side.
+  const gatewayKey = (apiKeys as Record<string, string>)['OpenAILike'];
+  const quota = await quotaCheck(gatewayKey, context.cloudflare?.env as any);
+
+  if (!quota.allowed) {
+    return new Response(
+      JSON.stringify({ error: 'Daily quota reached — ask an admin to raise your limits', reasons: quota.reasons }),
+      {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+  }
+
   const stream = new SwitchableStream();
 
   const cumulativeUsage = {
@@ -80,6 +96,11 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         let filteredFiles: FileMap | undefined = undefined;
         let summary: string | undefined = undefined;
         let messageSliceId = 0;
+        // Distro (M3/M4): count LLM calls for usage reporting. One main
+        // stream per /api/chat turn, plus one for each summary/context pass
+        // and one per auto-continue segment.
+        let llmCalls = 1;
+        let auxCalls = 0;
 
         if (messages.length > 3) {
           messageSliceId = messages.length - 3;
@@ -114,6 +135,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               }
             },
           });
+          auxCalls += 1;
           dataStream.writeData({
             type: 'progress',
             label: 'summary',
@@ -158,6 +180,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               }
             },
           });
+          auxCalls += 1;
 
           if (filteredFiles) {
             logger.debug(`files in context : ${JSON.stringify(Object.keys(filteredFiles))}`);
@@ -215,6 +238,20 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
                 order: progressCounter++,
                 message: 'Response Generated',
               } satisfies ProgressAnnotation);
+
+              // Distro (M4): record the finished turn against the user's
+              // account so daily caps and the usage widget reflect chat
+              // traffic. Fire-and-forget; never blocks the response.
+              reportChatUsage(
+                gatewayKey,
+                {
+                  tokensIn: cumulativeUsage.promptTokens,
+                  tokensOut: cumulativeUsage.completionTokens,
+                  requests: llmCalls + auxCalls,
+                },
+                context.cloudflare?.env as any,
+              ).catch(() => {});
+
               await new Promise((resolve) => setTimeout(resolve, 0));
 
               // stream.close();
@@ -226,6 +263,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             }
 
             const switchesLeft = MAX_RESPONSE_SEGMENTS - stream.switches;
+            llmCalls += 1; // this auto-continue is another LLM call
 
             logger.info(`Reached max token limit (${MAX_TOKENS}): Continuing message (${switchesLeft} switches left)`);
 
