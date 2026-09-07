@@ -266,10 +266,58 @@ export function getUsageToday(userId) {
   );
 }
 
+/** Rolling usage over the last `days` days (inclusive of today). */
+export function usageFor(userId, days = 7) {
+  return (
+    getDb()
+      .prepare(
+        `SELECT COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                COALESCE(SUM(requests), 0)   AS requests,
+                COALESCE(SUM(cost_usd), 0)   AS cost_usd
+         FROM usage_cache
+         WHERE user_id = ? AND date >= date('now', ?)`,
+      )
+      .get(userId, `-${days - 1} days`) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
+  );
+}
+
+/** Rolling usage across all users over the last `days` days. */
+export function usageAll(days = 7) {
+  return (
+    getDb()
+      .prepare(
+        `SELECT COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                COALESCE(SUM(requests), 0)   AS requests,
+                COALESCE(SUM(cost_usd), 0)   AS cost_usd
+         FROM usage_cache
+         WHERE date >= date('now', ?)`,
+      )
+      .get(`-${days - 1} days`) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
+  );
+}
+
 /** M4: make the gateway's own per-key aggregates authoritative for today.
  *  Every chat turn also flows through the gateway with the user's key, so
  *  this REPLACES (not adds to) the day's totals — chat-usage reports merely
  *  fill the gap between syncs. */
+// ── alert history ─────────────────────────────────────────────────────────
+export function logAlert({ key, status, title = null, message = null, meta = null, reason = null }) {
+  return getDb()
+    .prepare(
+      `INSERT INTO alert_log (key, status, title, message, meta, reason)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(key, status, title, message, meta ? JSON.stringify(meta) : null, reason);
+}
+
+export function listAlerts(limit = 100) {
+  return getDb()
+    .prepare('SELECT * FROM alert_log ORDER BY created_at DESC, id DESC LIMIT ?')
+    .all(limit);
+}
+
 export function replaceUsageFromGateway(userId, { tokensIn, tokensOut, requests, costUsd = 0 }) {
   const day = new Date().toISOString().slice(0, 10);
   getDb()

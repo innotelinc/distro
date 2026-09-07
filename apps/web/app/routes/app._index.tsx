@@ -4,6 +4,7 @@ import { ClientOnly } from 'remix-utils/client-only';
 import { BaseChat } from '~/components/chat/BaseChat';
 import { Chat } from '~/components/chat/Chat.client';
 import { Header } from '~/components/header/Header';
+import { ShellNotice } from '~/components/ShellNotice';
 import BackgroundRays from '~/components/ui/BackgroundRays';
 import { CONTROL_PLANE_ENABLED, getToken } from '~/lib/control-plane';
 
@@ -35,6 +36,7 @@ export default function Index() {
     <div className="flex flex-col h-full w-full bg-bolt-elements-background-depth-1">
       <BackgroundRays />
       <Header />
+      <ShellNotice />
       <ClientOnly fallback={<BaseChat />}>{() => <Chat />}</ClientOnly>
     </div>
   );

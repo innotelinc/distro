@@ -37,8 +37,10 @@ free — no gateway forking required.
 | Admin API (M5) | users list/stats, PATCH (disable, quota, role), revoke/rotate key, DELETE user, audit list | disabling/deleting revokes the gateway key; last-admin guard |
 | Admin console (M5) | `GET /admin` → `src/admin.html` | no build step, no CDNs; login as an admin |
 | Audit log (M5) | `audit_log` table + `GET /api/admin/audit` | signups, key lifecycle, quota/role/disable changes, deletes |
+| Alert history | `alert_log` table + `GET /api/admin/alerts` | every webhook attempt (sent/failed) recorded; cooldown-suppressed repeats are not |
+| Spend rollups | `usage7d` on users, `week` on stats, admin console columns/cards | rolling 7-day totals from the gateway-ledger usage cache |
 | Backups (M5) | `make backup` → `scripts/backup.sh` | online `.backup()` of control + gateway DBs into `./backups/` |
-| CLI | `bin/control.mjs` | `health`, `create-admin`, `users`, `gateway-check`, `usage-sync`, `backup` |
+| CLI | `bin/control.mjs` | `health`, `create-admin`, `users`, `gateway-check`, `usage-sync`, `test-alert`, `backup` |
 
 ## HTTP API
 
@@ -94,10 +96,7 @@ mounts a `control-data` volume and the `gateway-data` volume read-only
 
 ## Still to do
 
-- M4 remainder: a per-key usage read from OmniRoute (blocked — its request
-  logs carry no key attribution) to also account direct `/v1` traffic.
-- M5 remainder: audit log (signups, key rotations, quota changes), DB backup
-  automation, billing hooks (only if paid tiers are in scope).
+- Billing hooks / paid tiers, if ever in scope.
 
 Full breakdown + open questions: [docs/roadmap.md](docs/roadmap.md).
 Design rationale: [docs/multi-tenant.md](../../docs/multi-tenant.md).
