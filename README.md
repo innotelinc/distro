@@ -59,6 +59,7 @@ and the model picker lists whatever your gateway exposes.
 | [docs/ops.md](docs/ops.md) | first boot, ports, secrets, day-2 ops, sizing, reverse proxy |
 | [docs/upstream.md](docs/upstream.md) | pinning + updating bolt.diy/OmniRoute, license/attribution |
 | [docs/multi-tenant.md](docs/multi-tenant.md) | Phase 2 design: accounts, per-user quotas, usage visibility |
+| [docs/testing.md](docs/testing.md) | first-build walkthrough, quota 429 demo, nginx proxy manager host setup |
 | [apps/control-plane](apps/control-plane/README.md) | the plan on disk: DB schema, gateway API inventory, milestone roadmap |
 | [apps/web/README.md](apps/web/README.md) | the bolt.diy fork itself (rebrand + gateway defaults, standalone run) |
 

@@ -7,12 +7,20 @@ import Cookies from 'js-cookie';
 export const CONTROL_PLANE_ENABLED = import.meta.env.VITE_DISTRO_CONTROL_PLANE === 'true';
 export const CONTROL_PLANE_PORT = Number(import.meta.env.VITE_CONTROL_PLANE_PORT || 20140);
 
+// Distro: when the app is fronted by a reverse proxy (e.g. nginx proxy
+// manager) the control plane usually sits behind its own host/HTTPS rather
+// than raw hostname:20140 — set VITE_CONTROL_PLANE_URL to that absolute base
+// URL (scheme + host, optional path). Empty = derive from the page origin
+// (direct LAN mode).
+export const CONTROL_PLANE_URL = ((import.meta.env.VITE_CONTROL_PLANE_URL as string | undefined) || '').replace(/\/+$/, '');
+
 const TOKEN_KEY = 'distro_token';
 const USER_KEY = 'distro_user';
 const PROVIDER = 'OpenAILike'; // the OmniRoute gateway provider
 
 export function controlPlaneBase(): string {
   if (typeof window === 'undefined') return '';
+  if (CONTROL_PLANE_URL) return CONTROL_PLANE_URL;
   return `${window.location.protocol}//${window.location.hostname}:${CONTROL_PLANE_PORT}`;
 }
 
