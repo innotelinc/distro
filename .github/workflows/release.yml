@@ -58,35 +58,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      - name: Verify GHCR login
-        run: docker pull ghcr.io/${{ env.IMAGE_NAMESPACE }}/control-plane:nonexistent 2>&1 || true
+      - name: Build control-plane image
+        run: docker build -t ${{ env.IMAGE_NAMESPACE }}/control-plane:${{ steps.tag.outputs.tag }} apps/control-plane
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Build web image
+        run: docker build --target bolt-ai-production --build-arg VITE_DISTRO_GATEWAY_ONLY=true --build-arg VITE_DISTRO_CONTROL_PLANE=true --build-arg VITE_LOG_LEVEL=debug --build-arg BUILD_HEAP_MB=4096 -t ${{ env.IMAGE_NAMESPACE }}/web:${{ steps.tag.outputs.tag }} apps/web
 
-      - name: Build & push control-plane image
-        uses: docker/build-push-action@v6
-        with:
-          context: apps/control-plane
-          push: true
-          tags: |
-            ${{ env.IMAGE_NAMESPACE }}/control-plane:${{ steps.tag.outputs.tag }}
-            ${{ env.IMAGE_NAMESPACE }}/control-plane:latest
+      - name: Tag images as latest
+        run: |
+          docker tag ${{ env.IMAGE_NAMESPACE }}/control-plane:${{ steps.tag.outputs.tag }} ${{ env.IMAGE_NAMESPACE }}/control-plane:latest
+          docker tag ${{ env.IMAGE_NAMESPACE }}/web:${{ steps.tag.outputs.tag }} ${{ env.IMAGE_NAMESPACE }}/web:latest
 
-      - name: Build & push web image
-        uses: docker/build-push-action@v6
-        with:
-          context: apps/web
-          target: bolt-ai-production
-          push: true
-          build-args: |
-            VITE_DISTRO_GATEWAY_ONLY=true
-            VITE_DISTRO_CONTROL_PLANE=true
-            VITE_LOG_LEVEL=debug
-            BUILD_HEAP_MB=4096
-          tags: |
-            ${{ env.IMAGE_NAMESPACE }}/web:${{ steps.tag.outputs.tag }}
-            ${{ env.IMAGE_NAMESPACE }}/web:latest
+      - name: Push control-plane image
+        run: docker push ${{ env.IMAGE_NAMESPACE }}/control-plane:${{ steps.tag.outputs.tag }} && docker push ${{ env.IMAGE_NAMESPACE }}/control-plane:latest
+
+      - name: Push web image
+        run: docker push ${{ env.IMAGE_NAMESPACE }}/web:${{ steps.tag.outputs.tag }} && docker push ${{ env.IMAGE_NAMESPACE }}/web:latest
 
   release-artifacts:
     name: Attach release artifacts
