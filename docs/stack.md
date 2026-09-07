@@ -37,13 +37,16 @@ platform owns, consumes, provides, and explicitly does not own.
   `.env` on the host; see convergence note)
 - Magnate — subscription billing (entitlements check, plans, checkout via
   Stripe). Distro never holds Stripe keys.
+- Cerulean — DNS automation (RFC 2136 BIND zone updates) and TLS certificate
+  lifecycle (wildcard Let's Encrypt via DNS-01 challenge). The
+  `scripts/npm-proxy-hosts.py` script provisions NPM proxy hosts and
+  wildcard certs for `*.innotel.us`.
 
 ## Explicitly does NOT own
 
 - Identity (Authentik) — Distro runs its own control-plane accounts today;
   Authentik SSO is the convergence target
 - Secrets (Infisical)
-- Certificates / DNS / trust (Cerulean) — the NPM edge terminates TLS
 - Storage (ONYX)
 - The LLM gateway itself (OmniRoute) — it is an ecosystem extension
   (`extensions/llm`) that any group may enable
