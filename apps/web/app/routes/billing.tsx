@@ -112,7 +112,9 @@ export default function Billing() {
       <div className="relative z-10 mx-auto w-full max-w-2xl px-4 py-12">
         <h1 className="text-3xl font-bold text-bolt-elements-textPrimary">Billing & Subscription</h1>
         <p className="mt-2 text-bolt-elements-textSecondary">
-          Manage your Distro subscription via Magnate.
+          Manage your Distro subscription via Magnate (RevenueOps in the Innotel Platform Stack).
+          Magnate owns Stripe, plans and the revenue ledger; Distro only checks
+          entitlements server-to-server.
         </p>
 
         {/* Current Status */}
