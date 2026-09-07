@@ -3,7 +3,7 @@ import type { MetaFunction } from '@remix-run/cloudflare';
 import {
   controlPlaneBase,
   CONTROL_PLANE_ENABLED,
-  getStoredToken,
+  getToken,
 } from '~/lib/control-plane';
 import BackgroundRays from '~/components/ui/BackgroundRays';
 
@@ -44,7 +44,7 @@ export default function Billing() {
       setLoading(false);
       return;
     }
-    const token = getStoredToken();
+    const token = getToken();
     if (!token) {
       setLoading(false);
       return;
@@ -54,8 +54,8 @@ export default function Billing() {
     const headers = { Authorization: `Bearer ${token}` };
 
     Promise.all([
-      fetch(`${base}/api/billing/entitlements`, { headers }).then((r) => r.json()),
-      fetch(`${base}/api/billing/plans`, { headers }).then((r) => r.json()),
+      fetch(`${base}/api/billing/entitlements`, { headers }).then((r) => r.json() as Promise<Entitlement>),
+      fetch(`${base}/api/billing/plans`, { headers }).then((r) => r.json() as Promise<{ plans: Plan[] }>),
     ])
       .then(([ent, planData]) => {
         setEntitlement(ent);
@@ -70,7 +70,7 @@ export default function Billing() {
     setError('');
     try {
       const base = controlPlaneBase();
-      const token = getStoredToken();
+      const token = getToken();
       const res = await fetch(`${base}/api/billing/checkout`, {
         method: 'POST',
         headers: {
@@ -79,7 +79,7 @@ export default function Billing() {
         },
         body: JSON.stringify({ planSlug, interval }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as { url?: string; error?: string };
       if (data.url) {
         window.open(data.url, '_blank');
       } else if (data.error) {
