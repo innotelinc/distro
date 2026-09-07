@@ -23,7 +23,10 @@ jobs:
       - name: ShellCheck tracked shell scripts
         run: |
           set -euo pipefail
-          mapfile -t scripts < <(git ls-files '*.sh' '.githooks/*')
+          # Only the scripts we author: .githooks guard infra and repo-root
+          # scripts/. Everything under apps/web is vendored upstream bolt.diy
+          # shell code and is excluded, like any third-party tree.
+          mapfile -t scripts < <(git ls-files '.githooks/*' 'scripts/*.sh')
           echo "Checking ${#scripts[@]} scripts"
           docker run --rm -v "$PWD":/mnt:ro -w /mnt \
             koalaman/shellcheck:v0.10.0 -s bash "${scripts[@]}"
