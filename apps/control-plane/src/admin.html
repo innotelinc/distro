@@ -79,6 +79,8 @@
     <div class="card"><div class="n" id="cReq">–</div><div class="l">Requests today</div></div>
     <div class="card"><div class="n" id="cTok">–</div><div class="l">Tokens today</div></div>
     <div class="card"><div class="n" id="cCost">–</div><div class="l">Est. spend today</div></div>
+    <div class="card"><div class="n" id="cCost7">–</div><div class="l">Est. spend 7d</div></div>
+    <div class="card"><div class="n" id="cAlert">–</div><div class="l">Alert webhook</div></div>
   </div>
 
   <div class="panel">
@@ -88,7 +90,7 @@
       <thead><tr>
         <th>User</th><th>Role</th><th>Status</th><th>Plan</th>
         <th>Req/day</th><th>Tokens/day</th><th>Spend/day $</th>
-        <th>Today (req / tok / $)</th><th>Key</th><th></th>
+        <th>Today (req / tok / $)</th><th>7d (tok / $)</th><th>Key</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -101,6 +103,16 @@
     <table>
       <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr></thead>
       <tbody id="auditRows"></tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:18px">
+    <div class="title">Webhook alerts <span id="alertCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>When</th><th>Event</th><th>Status</th><th>Title</th><th>Details</th></tr></thead>
+      <tbody id="alertRows"></tbody>
     </table>
     </div>
   </div>
@@ -170,12 +182,25 @@ async function loadAll() {
     $('#cReq').textContent = stats.requests;
     $('#cTok').textContent = (stats.tokensIn + stats.tokensOut).toLocaleString();
     $('#cCost').textContent = money(stats.costUsd);
+    $('#cCost7').textContent = money(stats.week ? stats.week.costUsd : stats.costUsd);
+    const alerting = stats.alerting || {};
+    const aEl = $('#cAlert');
+    aEl.textContent = alerting.enabled ? 'on' : 'off';
+    aEl.style.color = alerting.enabled ? 'var(--green)' : 'var(--red)';
+    const cfgEl = $('#alertCfg');
+    cfgEl.innerHTML = alerting.enabled
+      ? '<span class="pill ok">' + esc(alerting.webhookHost || 'configured') + '</span> cooldown ' + Math.round((alerting.cooldownMs || 600000) / 60000) + ' min'
+      : '<span class="pill off">not configured</span> — set CONTROL_ALERT_WEBHOOK_URL';
     const { users } = await api('/api/admin/users');
     renderRows(users);
     try {
       const { entries } = await api('/api/admin/audit?limit=100');
       renderAudit(entries);
     } catch { /* audit is non-critical */ }
+    try {
+      const { entries } = await api('/api/admin/alerts?limit=50');
+      renderAlerts(entries);
+    } catch { /* alerts are non-critical */ }
   } catch (e) {
     toast('Load failed: ' + e.message);
     if (/unauthorized|403/i.test(e.message)) { localStorage.removeItem(TOKEN_KEY); showLogin(); }
@@ -188,6 +213,7 @@ function renderRows(users) {
   for (const u of users) {
     const q = u.quota || {};
     const t = u.usageToday || { requests: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 };
+    const w = u.usage7d || { requests: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 };
     const tr = document.createElement('tr');
     const disabled = !!u.disabled_at;
     tr.innerHTML =
@@ -199,6 +225,7 @@ function renderRows(users) {
       '<td><input class="num f-tpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.tokens_per_day) + '" /></td>' +
       '<td><input class="num f-cap" type="number" min="0" step="0.01" placeholder="∞" value="' + numOrEmpty(q.spend_cap_usd) + '" /></td>' +
       '<td class="muted">' + t.requests + ' / ' + (Number(t.tokens_in) + Number(t.tokens_out)).toLocaleString() + ' / ' + money(t.cost_usd) + '</td>' +
+      '<td class="muted">' + (Number(w.tokens_in) + Number(w.tokens_out)).toLocaleString() + ' / ' + money(w.cost_usd) + '</td>' +
       '<td>' + (u.hasGatewayKey ? '<span class="pill ok">active</span>' : '<span class="pill off">none</span>') +
       '<div class="badge">' + esc(u.gatewayKeyId || '') + '</div></td>' +
       '<td><div class="row-actions">' +
@@ -239,6 +266,30 @@ function renderRows(users) {
       try { await api('/api/admin/users/' + encodeURIComponent(u.id) + '/revoke-key', { method: 'POST' }); toast('Key revoked for ' + u.email); loadAll(); }
       catch (e) { toast('Failed: ' + e.message); }
     };
+    tb.appendChild(tr);
+  }
+}
+
+function renderAlerts(entries) {
+  const tb = $('#alertRows');
+  tb.innerHTML = '';
+  if (!entries || !entries.length) {
+    tb.innerHTML = '<tr><td colspan="5" class="muted">No alerts fired yet — set CONTROL_ALERT_WEBHOOK_URL and try <code>node bin/control.mjs test-alert</code> inside the container</td></tr>';
+    return;
+  }
+  for (const a of entries) {
+    const tr = document.createElement('tr');
+    const statusCls = a.status === 'sent' ? 'ok' : a.status === 'failed' ? 'off' : '';
+    const meta =
+      a.meta && typeof a.meta === 'object' && Object.keys(a.meta).length
+        ? JSON.stringify(a.meta)
+        : '';
+    tr.innerHTML =
+      '<td class="badge">' + esc(a.created_at) + '</td>' +
+      '<td><code>' + esc(a.key) + '</code></td>' +
+      '<td><span class="pill ' + statusCls + '">' + esc(a.status) + (a.reason ? ': ' + esc(a.reason) : '') + '</span></td>' +
+      '<td>' + esc(a.title || '') + '</td>' +
+      '<td class="muted">' + esc((a.message || '') + (meta ? ' ' + meta : '')) + '</td>';
     tb.appendChild(tr);
   }
 }

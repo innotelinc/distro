@@ -76,5 +76,20 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
 
+-- Alert history (webhook deliveries for quota denials / sync failures).
+-- Recorded only when CONTROL_ALERT_WEBHOOK_URL is configured; 'cooldown'
+-- rows mean the event fired again inside the per-key cooldown window.
+CREATE TABLE IF NOT EXISTS alert_log (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  key           TEXT NOT NULL,                     -- event id, e.g. quota.denied / sync.failed
+  status        TEXT NOT NULL,                     -- sent | failed | cooldown
+  title         TEXT,
+  message       TEXT,
+  meta          TEXT,                              -- JSON details
+  reason        TEXT                               -- why (cooldown / http 500 / error text)
+);
+CREATE INDEX IF NOT EXISTS idx_alert_created ON alert_log(created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_gateway_keys_user ON gateway_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_usage_cache_user_date ON usage_cache(user_id, date);

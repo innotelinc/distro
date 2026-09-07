@@ -151,6 +151,17 @@ server {
 Do **not** expose ports 20128/20129/20132 publicly — the gateway is
 internal-only; Distro is the only surface.
 
+### Why the live preview/terminal need HTTPS (or localhost)
+
+The preview and terminal run on WebContainer, which browsers only allow on
+**trustworthy origins**: plain HTTP from a LAN IP/hostname makes the browser
+ignore the app's COOP/COEP headers (`crossOriginIsolated: false`) and blocks
+service workers, so WebContainer can't boot there — chat still works, but the
+preview/terminal never connect. This is a browser security rule. Full-shell
+access therefore requires `http://localhost:5173`, `http://127.0.0.1:5173`,
+or an HTTPS reverse-proxy hostname. The shell shows an amber notice and the
+terminal pane prints the reason when it detects this condition.
+
 ### Multi-tenant control plane behind TLS
 
 The browser logs in against the control plane directly (option A per-user
