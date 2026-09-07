@@ -1,16 +1,31 @@
 // Thin client over the OmniRoute dashboard API (see docs/gateway-api-inventory.md).
 // Verified against v3.8.51: POST /api/auth/login, POST /api/keys.
+//
+// The dashboard URL is resolved via gateway discovery (env override →
+// Consul → local compose fallback) when not passed explicitly.
 
-const DEFAULT_DASHBOARD_URL = process.env.GATEWAY_DASHBOARD_URL || 'http://gateway:20128';
+import { resolveGatewayUrls } from './discovery.js';
 
 export class GatewayClient {
-  constructor({ dashboardUrl = DEFAULT_DASHBOARD_URL, adminPassword } = {}) {
-    this.dashboardUrl = dashboardUrl.replace(/\/$/, '');
+  constructor({ dashboardUrl, adminPassword } = {}) {
+    this.dashboardUrl = null; // resolved lazily on first use
+    this._explicitDashboardUrl = dashboardUrl?.replace(/\/$/, '');
     this.adminPassword = adminPassword;
     this.cookie = null;
   }
 
+  async #ensureDashboardUrl() {
+    if (this.dashboardUrl) return;
+    if (this._explicitDashboardUrl) {
+      this.dashboardUrl = this._explicitDashboardUrl;
+      return;
+    }
+    const resolved = await resolveGatewayUrls();
+    this.dashboardUrl = resolved.dashboardUrl;
+  }
+
   async #json(method, path, body) {
+    await this.#ensureDashboardUrl();
     const res = await fetch(`${this.dashboardUrl}${path}`, {
       method,
       headers: {
@@ -38,6 +53,7 @@ export class GatewayClient {
     if (!this.adminPassword) {
       throw new Error('GATEWAY_ADMIN_PASSWORD is not configured');
     }
+    await this.#ensureDashboardUrl();
     const res = await fetch(`${this.dashboardUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

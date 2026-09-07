@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Distro first-run bootstrap:
 #   1. create .env from .env.example, generating secrets when empty
-#   2. start the OmniRoute gateway (+redis)
-#   3. wait for it to come up and print the next steps
+#   2. locate the OmniRoute gateway (REMOTE platform service by default):
+#        - GATEWAY_API_URL / GATEWAY_DASHBOARD_URL from .env, or
+#        - Consul discovery (CONTROL_CONSUL_URL, service "omniroute")
+#      only falls back to the bundled local gateway when neither works
+#   3. print next steps
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,7 +16,8 @@ if [[ ! -f .env ]]; then
   cp .env.example .env
 fi
 
-# Fill in empty secrets (delimiter | is safe for base64/hex output)
+# Fill in empty secrets (delimiter | is safe for base64/hex output) — used by
+# the control-plane sessions and the LOCAL gateway fallback profile only.
 fill_secret() {
   local key="$1" value="$2"
   if grep -qE "^${key}=$" .env; then
@@ -23,45 +27,88 @@ fill_secret() {
 fill_secret JWT_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
 fill_secret API_KEY_SECRET "$(openssl rand -hex 32)"
 
-echo "==> starting redis + gateway (first pull may take a while)"
-docker compose up -d redis gateway
+# env var from .env (or environment)
+envget() { grep -E "^${1}=" .env 2>/dev/null | head -1 | cut -d= -f2-; }
 
-echo "==> waiting for the gateway to become healthy"
-for _ in $(seq 1 60); do
-  status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' distro-gateway 2>/dev/null || echo starting)"
-  if [[ "$status" == "healthy" ]]; then
-    echo "==> gateway is healthy"
-    break
-  fi
-  if [[ "$status" == "unhealthy" ]]; then
-    echo "!! gateway reported unhealthy — check: docker compose logs gateway"
-    exit 1
-  fi
-  sleep 2
-done
+GATEWAY_DASHBOARD_URL="$(envget GATEWAY_DASHBOARD_URL)"
+GATEWAY_API_URL="$(envget GATEWAY_API_URL)"
+CONTROL_CONSUL_URL="$(envget CONTROL_CONSUL_URL)"
 
-cat <<'EOF'
+GATEWAY_MODE="none"
+
+if [[ -n "${GATEWAY_DASHBOARD_URL}${GATEWAY_API_URL}" ]]; then
+  # Derive the dashboard base from whichever URL is set (API url carries /v1).
+  base="${GATEWAY_DASHBOARD_URL:-${GATEWAY_API_URL%/v1}}"
+  base="${base%/v1}"
+  GATEWAY_MODE="env ($base)"
+  if curl -fsS -o /dev/null -m 5 "${base}/" 2>/dev/null \
+     || curl -fsS -o /dev/null -m 5 "${GATEWAY_API_URL:-$base/v1}/models" 2>/dev/null; then
+    echo "==> gateway pinned via env: $base"
+  else
+    echo "!! pinned gateway at $base is not reachable (continuing anyway)"
+  fi
+else
+  # Consul discovery (platform stack): service "omniroute" on server 2.
+  consul="${CONTROL_CONSUL_URL:-http://10.10.1.1:8500}"
+  echo "==> discovering gateway via consul ($consul, service omniroute)…"
+  if entry="$(curl -fsS -m 5 "${consul}/v1/health/service/omniroute?passing=true" 2>/dev/null)" \
+     && [[ "$entry" != "[]" ]]; then
+    host="$(node -e 'const e=JSON.parse(process.argv[1]);const s=e[0]?.Service,n=e[0]?.Node;console.log(s?.Address||n?.Address||"")' "$entry" 2>/dev/null || true)"
+    if [[ -n "$host" ]]; then
+      GATEWAY_MODE="consul (http://${host}:20128)"
+      echo "==> gateway discovered: http://${host}:20128 (dashboard), http://${host}:20129 (API)"
+    fi
+  fi
+fi
+
+if [[ "$GATEWAY_MODE" == "none" ]]; then
+  echo "!! no remote gateway found via env or consul"
+  echo "   Starting the LOCAL fallback gateway instead (--profile local-gateway)."
+  echo "   For the shared platform gateway, set GATEWAY_API_URL in .env, e.g."
+  echo "     OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20129/v1"
+  docker compose --profile local-gateway up -d redis gateway
+
+  echo "==> waiting for the local gateway to become healthy"
+  for _ in $(seq 1 60); do
+    status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' distro-gateway 2>/dev/null || echo starting)"
+    if [[ "$status" == "healthy" ]]; then
+      echo "==> local gateway is healthy"
+      GATEWAY_MODE="local (http://127.0.0.1:20128)"
+      break
+    fi
+    if [[ "$status" == "unhealthy" ]]; then
+      echo "!! local gateway reported unhealthy — check: docker compose logs gateway"
+      exit 1
+    fi
+    sleep 2
+  done
+fi
+
+cat <<EOF
 
 ────────────────────────────────────────────────────────────────────────
- Gateway is up. Next steps (once per deployment):
+ Gateway mode: $GATEWAY_MODE
 
- 1. Open the OmniRoute dashboard:  http://127.0.0.1:20128
-    Sign in with the admin password in .env (INITIAL_PASSWORD).
+ Next steps (once per deployment):
 
- 2. Register upstream provider API keys in the dashboard so the gateway
-    has at least one model to route to (Anthropic, OpenAI, free tiers, …).
+ 1. Get a gateway API key:
+      REMOTE  — open the OmniRoute dashboard (server 2 :20128), register
+                upstream provider keys, then Settings → API Keys → create
+      LOCAL   — open http://127.0.0.1:20128 (INITIAL_PASSWORD in .env) and
+                do the same
 
- 3. Issue a gateway API key (Dashboard → API Keys) and put it in .env:
+ 2. Put it in .env:
 
       OPENAI_LIKE_API_KEY=<gateway key>
+      OPENAI_LIKE_API_BASE_URL=<gateway /v1 url>   # e.g. http://10.10.2.1:20129/v1
 
- 4. Start the Distro web app and verify end-to-end:
+ 3. Start the Distro web app and verify end-to-end:
 
-      docker compose up -d --build web
+      docker compose up -d --build
       make doctor
       # open http://127.0.0.1:5173, pick the OpenAILike/Distro provider
 
- Upstream provider keys NEVER go into Distro — they live in the gateway's
- SQLite volume (gateway-data). See docs/ops.md and docs/architecture.md.
+ Upstream provider keys NEVER go into Distro — they live in the gateway.
+ See docs/ops.md and docs/architecture.md.
 ────────────────────────────────────────────────────────────────────────
 EOF

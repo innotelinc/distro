@@ -5,15 +5,21 @@ import { handler } from './http.js';
 import { syncUsageFromGateway } from './sync.js';
 import { alert } from './alerts.js';
 import { magnateConfigured, seedDistroPlan } from './billing.js';
+import { resolveGatewayUrls } from './discovery.js';
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 20140);
 
 openDb();
 
-// M4: periodically reconcile usage_cache with the gateway's own per-key
-// aggregates (gateway-data volume mounted read-only). 0 disables.
-const SYNC_INTERVAL_MS = Number(process.env.CONTROL_SYNC_INTERVAL_MS || 0);
+// M4 usage sync reconciles usage_cache with the gateway's own per-key ledger.
+// It reads the gateway's SQLite file, which is only possible when the gateway
+// runs locally with the gateway-data volume mounted (compose profile
+// `local-gateway`). With a REMOTE gateway (the default) there is no volume —
+// default the interval to 0 (off) and let chat-traffic usage reports keep
+// quota accounting working. Set CONTROL_SYNC_INTERVAL_MS explicitly to
+// re-enable it on local-gateway deployments.
+const SYNC_INTERVAL_MS = Number(process.env.CONTROL_SYNC_INTERVAL_MS ?? 0);
 
 async function runUsageSync() {
   try {
@@ -43,7 +49,6 @@ async function runUsageSync() {
 }
 
 const gateway = new GatewayClient({
-  dashboardUrl: process.env.GATEWAY_DASHBOARD_URL,
   adminPassword: process.env.GATEWAY_ADMIN_PASSWORD,
 });
 
@@ -57,8 +62,9 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, async () => {
+  const urls = await resolveGatewayUrls();
   console.log(`[control-plane] listening on http://${HOST}:${PORT}`);
-  console.log(`[control-plane] gateway dashboard: ${gateway.dashboardUrl}`);
+  console.log(`[control-plane] gateway dashboard: ${urls.dashboardUrl} (via ${urls.source})`);
 
   // Auto-seed distro plan in Magnate if billing is configured
   if (magnateConfigured()) {
