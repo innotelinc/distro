@@ -35,6 +35,8 @@ platform owns, consumes, provides, and explicitly does not own.
   control plane at `/cp`)
 - Infisical — secrets target for gateway/control-plane credentials (currently
   `.env` on the host; see convergence note)
+- Magnate — subscription billing (entitlements check, plans, checkout via
+  Stripe). Distro never holds Stripe keys.
 
 ## Explicitly does NOT own
 
@@ -43,7 +45,6 @@ platform owns, consumes, provides, and explicitly does not own.
 - Secrets (Infisical)
 - Certificates / DNS / trust (Cerulean) — the NPM edge terminates TLS
 - Storage (ONYX)
-- Billing (Magnate)
 - The LLM gateway itself (OmniRoute) — it is an ecosystem extension
   (`extensions/llm`) that any group may enable
 
