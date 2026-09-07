@@ -4,6 +4,7 @@ import { GatewayClient } from './gateway.js';
 import { handler } from './http.js';
 import { syncUsageFromGateway } from './sync.js';
 import { alert } from './alerts.js';
+import { magnateConfigured, seedDistroPlan } from './billing.js';
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 20140);
@@ -55,9 +56,15 @@ const server = createServer((req, res) => {
   });
 });
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, async () => {
   console.log(`[control-plane] listening on http://${HOST}:${PORT}`);
   console.log(`[control-plane] gateway dashboard: ${gateway.dashboardUrl}`);
+
+  // Auto-seed distro plan in Magnate if billing is configured
+  if (magnateConfigured()) {
+    console.log(`[billing] Magnate configured at ${process.env.MAGNATE_URL}`);
+    await seedDistroPlan();
+  }
 
   if (SYNC_INTERVAL_MS > 0) {
     runUsageSync(); // immediate first pass
