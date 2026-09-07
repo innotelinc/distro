@@ -5,7 +5,7 @@
 #   1. build-verify — builds both Docker images locally (no push) to prove
 #      they compile on a clean runner, but doesn't publish to GHCR.
 #   2. release-artifacts — bundles the compose stack + source and attaches
-#      them to the GitHub Release for the pushed tag.
+#      them to the GitHub Release (only runs on tag push, not workflow_dispatch).
 #
 # Distro is a self-hosted platform: operators build from source via
 # `docker compose build`.  GHCR publishing is not part of the release.
@@ -59,10 +59,11 @@ jobs:
             VITE_DISTRO_GATEWAY_ONLY=true
             VITE_DISTRO_CONTROL_PLANE=true
             VITE_LOG_LEVEL=debug
-            BUILD_HEAP_MB=2048
+            BUILD_HEAP_MB=4096
 
   release-artifacts:
     name: Attach release artifacts
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,5 +80,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF_NAME}"
-          [ -n "${TAG}" ] || TAG="${{ github.event.inputs.version }}"
           gh release upload "$TAG" distro-stack.tar.gz --clobber
