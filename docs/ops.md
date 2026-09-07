@@ -43,8 +43,20 @@ Every release publishes Docker images to the GitHub Container Registry:
 | Web app | `ghcr.io/innotelinc/distro/web` |
 
 Tags: `:latest` (tracks `main`) and `:<semver>` (e.g. `:0.1.0`).  To use them
-instead of building locally, replace the `build:` block in the relevant
-services with `image:` directives:
+instead of building locally:
+
+**1. Log in to GHCR** (required for private repos; optional but recommended
+for public — avoids Docker Hub rate-limit confusion):
+
+```bash
+# with a GitHub personal access token (classic) that has read:packages scope
+docker login ghcr.io -u <github-username> -p <pat-token>
+
+# or, if you have the gh CLI installed:
+gh auth token | docker login ghcr.io -u <github-username> --password-stdin
+```
+
+**2. Replace `build:` with `image:` in your compose file:**
 
 ```yaml
 services:
@@ -55,7 +67,12 @@ services:
     image: ghcr.io/innotelinc/distro/control-plane:0.1.0
 ```
 
-Then `docker compose pull && docker compose up -d` — no build required.
+**3. Pull and start:**
+
+```bash
+docker compose pull && docker compose up -d
+```
+
 Note: the web image expects `VITE_DISTRO_GATEWAY_ONLY=true` and
 `VITE_DISTRO_CONTROL_PLANE=true` at build time (baked into the default
 GHCR image), so no additional build-args are needed when pulling.
