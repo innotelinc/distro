@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Distro — Admin</title>
+<style>
+  :root {
+    --bg: #0b0f1a; --panel: #131a2b; --panel2: #0f1626; --line: #22304a;
+    --text: #e6edf7; --muted: #8fa0bd; --cyan: #06b6d4; --indigo: #6366f1;
+    --green: #34d399; --red: #f87171; --amber: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: radial-gradient(1200px 600px at 20% -10%, #16233d 0%, var(--bg) 55%); color: var(--text); min-height: 100vh; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 22px; border-bottom: 1px solid var(--line); background: rgba(11,15,26,.7); }
+  header .logo { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--cyan), var(--indigo)); display:grid; place-items:center; font-weight: 800; color:#fff; font-size: 15px; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .spacer { flex: 1; }
+  header .who { color: var(--muted); font-size: 13px; }
+  main { padding: 22px; max-width: 1180px; margin: 0 auto; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .card .n { font-size: 22px; font-weight: 700; }
+  .card .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .hidden { display: none !important; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .panel > .title { padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 600; color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: .06em; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; background: var(--panel2); }
+  input { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 4px 6px; width: 100%; font-size: 13px; }
+  input:focus { outline: none; border-color: var(--cyan); }
+  .num { width: 74px; }
+  button { background: linear-gradient(135deg, var(--cyan), var(--indigo)); border: 0; color: #fff; font-weight: 600; border-radius: 7px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  button.danger { background: transparent; border: 1px solid rgba(248,113,113,.5); color: var(--red); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .pill.admin { background: rgba(99,102,241,.2); color: #a5b4fc; }
+  .pill.user { background: rgba(143,160,189,.15); color: var(--muted); }
+  .pill.ok { background: rgba(52,211,153,.15); color: var(--green); }
+  .pill.off { background: rgba(248,113,113,.15); color: var(--red); }
+  .err { color: var(--red); min-height: 20px; margin: 6px 0; }
+  .login-wrap { max-width: 360px; margin: 12vh auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
+  .login-wrap h2 { margin: 0 0 4px; font-size: 18px; }
+  .login-wrap p { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .row-actions { display: flex; gap: 4px; }
+  .badge { color: var(--muted); font-size: 11px; }
+  .toast { position: fixed; bottom: 18px; right: 18px; background: var(--panel); border: 1px solid var(--green); color: var(--green); padding: 10px 14px; border-radius: 8px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">D</div>
+  <h1>Distro Admin</h1>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <button class="ghost hidden" id="logoutBtn">Sign out</button>
+</header>
+
+<div class="login-wrap" id="loginWrap">
+  <h2>Admin sign in</h2>
+  <p>Manage accounts, quotas and gateway keys. Only instance admins can sign in.</p>
+  <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="admin@example.com" /></div>
+  <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••" /></div>
+  <div class="err" id="loginErr"></div>
+  <button id="loginBtn" style="width:100%">Sign in</button>
+</div>
+
+<main id="app" class="hidden">
+  <div class="cards">
+    <div class="card"><div class="n" id="cUsers">–</div><div class="l">Users</div></div>
+    <div class="card"><div class="n" id="cActive">–</div><div class="l">Active</div></div>
+    <div class="card"><div class="n" id="cReq">–</div><div class="l">Requests today</div></div>
+    <div class="card"><div class="n" id="cTok">–</div><div class="l">Tokens today</div></div>
+    <div class="card"><div class="n" id="cCost">–</div><div class="l">Est. spend today</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="title">Users — limits are per day (empty = unlimited); spend cap is USD/day (gateway-enforced)</div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>User</th><th>Role</th><th>Status</th><th>Plan</th>
+        <th>Req/day</th><th>Tokens/day</th><th>Spend/day $</th>
+        <th>Today (req / tok / $)</th><th>Key</th><th></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const TOKEN_KEY = 'distro_admin_token';
+const API = '';
+
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 2200);
+}
+
+async function api(path, opts = {}) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) },
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+  if (!res.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
+  return data;
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function money(v) {
+  const n = Number(v) || 0;
+  return n >= 100 ? '$' + n.toFixed(0) : '$' + n.toFixed(4);
+}
+function numOrEmpty(v) {
+  return v == null || v === '' ? '' : v;
+}
+
+function currentUser() {
+  try { return JSON.parse(localStorage.getItem('distro_admin_user') || 'null'); } catch { return null; }
+}
+
+function showApp(user) {
+  $('#loginWrap').classList.add('hidden');
+  $('#app').classList.remove('hidden');
+  $('#logoutBtn').classList.remove('hidden');
+  $('#who').textContent = (user && user.email) || '';
+  loadAll();
+}
+
+function showLogin() {
+  $('#app').classList.add('hidden');
+  $('#logoutBtn').classList.add('hidden');
+  $('#loginWrap').classList.remove('hidden');
+  $('#who').textContent = '';
+}
+
+async function loadAll() {
+  try {
+    const stats = await api('/api/admin/stats');
+    $('#cUsers').textContent = stats.users;
+    $('#cActive').textContent = stats.active;
+    $('#cReq').textContent = stats.requests;
+    $('#cTok').textContent = (stats.tokensIn + stats.tokensOut).toLocaleString();
+    $('#cCost').textContent = money(stats.costUsd);
+    const { users } = await api('/api/admin/users');
+    renderRows(users);
+  } catch (e) {
+    toast('Load failed: ' + e.message);
+    if (/unauthorized|403/i.test(e.message)) { localStorage.removeItem(TOKEN_KEY); showLogin(); }
+  }
+}
+
+function renderRows(users) {
+  const tb = $('#rows');
+  tb.innerHTML = '';
+  for (const u of users) {
+    const q = u.quota || {};
+    const t = u.usageToday || { requests: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 };
+    const tr = document.createElement('tr');
+    const disabled = !!u.disabled_at;
+    tr.innerHTML =
+      '<td><div>' + esc(u.email) + '</div><div class="badge">' + esc(u.id) + '</div></td>' +
+      '<td><span class="pill ' + (u.role === 'admin' ? 'admin' : 'user') + '">' + esc(u.role) + '</span></td>' +
+      '<td><span class="pill ' + (disabled ? 'off' : 'ok') + '">' + (disabled ? 'disabled' : 'active') + '</span></td>' +
+      '<td><input class="f-plan" value="' + esc(q.plan || 'free') + '" style="width:70px" /></td>' +
+      '<td><input class="num f-rpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.requests_per_day) + '" /></td>' +
+      '<td><input class="num f-tpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.tokens_per_day) + '" /></td>' +
+      '<td><input class="num f-cap" type="number" min="0" step="0.01" placeholder="∞" value="' + numOrEmpty(q.spend_cap_usd) + '" /></td>' +
+      '<td class="muted">' + t.requests + ' / ' + (Number(t.tokens_in) + Number(t.tokens_out)).toLocaleString() + ' / ' + money(t.cost_usd) + '</td>' +
+      '<td>' + (u.hasGatewayKey ? '<span class="pill ok">active</span>' : '<span class="pill off">none</span>') +
+      '<div class="badge">' + esc(u.gatewayKeyId || '') + '</div></td>' +
+      '<td><div class="row-actions">' +
+        '<button class="ghost b-save">Save</button>' +
+        '<button class="ghost b-rotate" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Rotate key</button>' +
+        '<button class="ghost b-revoke" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Revoke key</button>' +
+        '<button class="danger b-toggle">' + (disabled ? 'Enable' : 'Disable') + '</button>' +
+      '</div></td>';
+    tr.querySelector('.b-save').onclick = async () => {
+      const body = {
+        quota: {
+          plan: tr.querySelector('.f-plan').value.trim() || 'free',
+          requests_per_day: tr.querySelector('.f-rpd').value === '' ? null : Math.max(0, parseInt(tr.querySelector('.f-rpd').value, 10) || 0),
+          tokens_per_day: tr.querySelector('.f-tpd').value === '' ? null : Math.max(0, parseInt(tr.querySelector('.f-tpd').value, 10) || 0),
+          spend_cap_usd: tr.querySelector('.f-cap').value === '' ? null : Math.max(0, parseFloat(tr.querySelector('.f-cap').value) || 0),
+        },
+      };
+      try { await api('/api/admin/users/' + encodeURIComponent(u.id), { method: 'PATCH', body: JSON.stringify(body) }); toast('Saved ' + u.email); loadAll(); }
+      catch (e) { toast('Save failed: ' + e.message); }
+    };
+    tr.querySelector('.b-toggle').onclick = async () => {
+      try {
+        await api('/api/admin/users/' + encodeURIComponent(u.id), { method: 'PATCH', body: JSON.stringify({ disabled: !disabled }) });
+        toast((disabled ? 'Enabled ' : 'Disabled ') + u.email);
+        loadAll();
+      } catch (e) { toast('Failed: ' + e.message); }
+    };
+    tr.querySelector('.b-rotate').onclick = async () => {
+      if (!confirm('Rotate the gateway key for ' + u.email + '? Their old key stops working immediately.')) return;
+      try {
+        await api('/api/admin/users/' + encodeURIComponent(u.id) + '/rotate-key', { method: 'POST' });
+        toast('Key rotated for ' + u.email + ' — they must sign out/in to pick it up');
+        loadAll();
+      } catch (e) { toast('Rotate failed: ' + e.message); }
+    };
+    tr.querySelector('.b-revoke').onclick = async () => {
+      if (!confirm('Revoke the gateway key for ' + u.email + '?')) return;
+      try { await api('/api/admin/users/' + encodeURIComponent(u.id) + '/revoke-key', { method: 'POST' }); toast('Key revoked for ' + u.email); loadAll(); }
+      catch (e) { toast('Failed: ' + e.message); }
+    };
+    tb.appendChild(tr);
+  }
+}
+
+// login
+$('#loginBtn').onclick = doLogin;
+$('#password').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+async function doLogin() {
+  const btn = $('#loginBtn');
+  btn.disabled = true;
+  $('#loginErr').textContent = '';
+  try {
+    const data = await api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: $('#email').value.trim(), password: $('#password').value }),
+    });
+    if (data.user && data.user.role !== 'admin') throw new Error('this account is not an admin');
+    localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem('distro_admin_user', JSON.stringify(data.user));
+    showApp(data.user);
+  } catch (e) {
+    $('#loginErr').textContent = e.message || 'sign-in failed';
+  } finally { btn.disabled = false; }
+}
+$('#logoutBtn').onclick = () => {
+  try { api('/api/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem('distro_admin_user');
+  showLogin();
+};
+
+// boot
+(function boot() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return showLogin();
+  api('/api/admin/users')
+    .then(() => showApp(currentUser()))
+    .catch(() => { localStorage.removeItem(TOKEN_KEY); showLogin(); });
+})();
+</script>
+</body>
+</html>

@@ -13,8 +13,18 @@ import {
   upsertQuota,
   getUsageToday,
   userIsDisabled,
+  getUserByGatewayKey,
+  touchGatewayKey,
+  recordUsage,
+  setUserRole,
+  deleteUser,
 } from './db.js';
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -52,6 +62,39 @@ export async function handler(req, res, { gateway }) {
   const path = url.pathname;
   const method = req.method;
   const send = (status, body) => json(res, status, body);
+
+  function quotaDecision(userId) {
+    const quota = getQuota(userId);
+    const today = getUsageToday(userId);
+    const reasons = [];
+    if (quota.requests_per_day != null && today.requests >= quota.requests_per_day) {
+      reasons.push('daily request limit reached');
+    }
+    if (quota.tokens_per_day != null && today.tokens_in + today.tokens_out >= quota.tokens_per_day) {
+      reasons.push('daily token limit reached');
+    }
+    if (quota.spend_cap_usd != null && today.cost_usd >= quota.spend_cap_usd) {
+      reasons.push('spend cap reached');
+    }
+    return { allowed: reasons.length === 0, reasons, quota, usageToday: today };
+  }
+
+  async function userFromGatewayKey(req) {
+    const header = req.headers.authorization || '';
+    const key = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';
+    if (!key) return null;
+    const user = getUserByGatewayKey(key);
+    if (!user) return null;
+    touchGatewayKey(user.id);
+    return user;
+  }
+
+  // ---- admin console (public shell; data requires the admin API) ----
+  if ((path === '/admin' || path === '/admin/') && method === 'GET') {
+    const html = readFileSync(join(here, 'admin.html'), 'utf8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(html);
+  }
 
   // CORS: the Distro web UI (option A) calls the control plane from the
   // browser to log in and fetch the user's gateway key. LAN installs set
@@ -124,6 +167,28 @@ export async function handler(req, res, { gateway }) {
     return send(204, {});
   }
 
+  // ---- internal routes (auth by gateway key, called server-side by the web
+  //      app's quota middleware — never exposed to browser JS) ----
+  if (path === '/api/internal/quota-check' && method === 'GET') {
+    const user = await userFromGatewayKey(req);
+    if (!user) return send(401, { error: 'unknown or revoked gateway key' });
+    return send(200, { user: publicUser(user), ...quotaDecision(user.id) });
+  }
+
+  if (path === '/api/internal/usage-report' && method === 'POST') {
+    const user = await userFromGatewayKey(req);
+    if (!user) return send(401, { error: 'unknown or revoked gateway key' });
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const usage = recordUsage(user.id, {
+      tokensIn: Number(body.tokensIn) || 0,
+      tokensOut: Number(body.tokensOut) || 0,
+      requests: Math.max(1, Number(body.requests) || 1),
+      costUsd: Number(body.costUsd) || 0,
+    });
+    return send(200, { ok: true, usageToday: usage });
+  }
+
   // ---- authenticated user routes ----
   const me = currentUser(req);
   if (!me) return send(401, { error: 'unauthorized' });
@@ -169,21 +234,9 @@ export async function handler(req, res, { gateway }) {
   }
 
   if (path === '/api/me/quota-status' && method === 'GET') {
-    // Coarse pre-chat check (M3). Hard enforcement happens on the gateway via
-    // the usage limits attached to the user's key.
-    const quota = getQuota(me.id);
-    const today = getUsageToday(me.id);
-    const reasons = [];
-    if (quota.requests_per_day != null && today.requests >= quota.requests_per_day) {
-      reasons.push('daily request limit reached');
-    }
-    if (quota.tokens_per_day != null && today.tokens_in + today.tokens_out >= quota.tokens_per_day) {
-      reasons.push('daily token limit reached');
-    }
-    if (quota.spend_cap_usd != null && today.cost_usd >= quota.spend_cap_usd) {
-      reasons.push('spend cap reached');
-    }
-    return send(200, { allowed: reasons.length === 0, reasons, quota, usageToday: today });
+    // Coarse pre-chat check (M3): same decision the web app enforces
+    // server-side via /api/internal/quota-check.
+    return send(200, quotaDecision(me.id));
   }
 
   // ---- admin routes ----
@@ -191,17 +244,39 @@ export async function handler(req, res, { gateway }) {
   if (!admin) return send(403, { error: 'admin required' });
 
   if (path === '/api/admin/users' && method === 'GET') {
-    const users = listUsers().map((u) => ({
-      ...publicUser(u),
-      quota: getQuota(u.id),
-      hasGatewayKey: !!getGatewayKey(u.id),
-    }));
+    const users = listUsers().map((u) => {
+      const key = getGatewayKey(u.id);
+      return {
+        ...publicUser(u),
+        quota: getQuota(u.id),
+        usageToday: getUsageToday(u.id),
+        hasGatewayKey: !!key,
+        gatewayKeyId: key?.gateway_key_id || null,
+      };
+    });
     return send(200, { users });
+  }
+
+  if (path === '/api/admin/stats' && method === 'GET') {
+    const users = listUsers();
+    const totals = users.reduce(
+      (acc, u) => {
+        const t = getUsageToday(u.id);
+        acc.requests += t.requests;
+        acc.tokensIn += t.tokens_in;
+        acc.tokensOut += t.tokens_out;
+        acc.costUsd += t.cost_usd;
+        return acc;
+      },
+      { users: users.length, active: users.filter((u) => !u.disabled_at).length, requests: 0, tokensIn: 0, tokensOut: 0, costUsd: 0 },
+    );
+    return send(200, { date: new Date().toISOString().slice(0, 10), ...totals });
   }
 
   const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);
   const revokeMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/revoke-key$/);
-  if (!userMatch && !revokeMatch) return send(404, { error: 'not found' });
+  const rotateMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/rotate-key$/);
+  if (!userMatch && !revokeMatch && !rotateMatch) return send(404, { error: 'not found' });
 
   if (userMatch && method === 'PATCH') {
     const target = getUserById(decodeURIComponent(userMatch[1]));
@@ -210,6 +285,13 @@ export async function handler(req, res, { gateway }) {
     const fields = {};
     if (body.disabled !== undefined) {
       fields.disabled_at = body.disabled ? new Date().toISOString() : null;
+    }
+    if (body.role === 'admin' || body.role === 'user') {
+      const admins = listUsers().filter((u) => u.role === 'admin' && !u.disabled_at);
+      const demotingLastAdmin =
+        target.role === 'admin' && body.role === 'user' && admins.length === 1 && admins[0].id === target.id;
+      if (demotingLastAdmin) return send(400, { error: 'cannot demote the last active admin' });
+      setUserRole(target.id, body.role);
     }
     if (fields.disabled_at || body.quota) {
       upsertQuota(target.id, {
@@ -233,6 +315,28 @@ export async function handler(req, res, { gateway }) {
     return send(200, { user: publicUser(updated), quota: getQuota(updated.id) });
   }
 
+  if (userMatch && method === 'DELETE') {
+    const target = getUserById(decodeURIComponent(userMatch[1]));
+    if (!target) return send(404, { error: 'user not found' });
+    if (target.role === 'admin') {
+      const admins = listUsers().filter((u) => u.role === 'admin' && !u.disabled_at);
+      if (admins.length === 1 && admins[0].id === target.id) {
+        return send(400, { error: 'cannot delete the last active admin' });
+      }
+    }
+    const key = getGatewayKey(target.id);
+    if (key) {
+      try {
+        await gateway.login();
+        await gateway.revokeApiKey(key.gateway_key_id);
+      } catch (err) {
+        return send(502, { error: `gateway unreachable: ${err.message}` });
+      }
+    }
+    deleteUser(target.id);
+    return send(200, { deleted: true, id: target.id });
+  }
+
   if (revokeMatch && method === 'POST') {
     const target = getUserById(decodeURIComponent(revokeMatch[1]));
     if (!target) return send(404, { error: 'user not found' });
@@ -243,6 +347,26 @@ export async function handler(req, res, { gateway }) {
       await gateway.revokeApiKey(key.gateway_key_id);
       revokeGatewayKey(target.id);
       return send(200, { revoked: true });
+    } catch (err) {
+      return send(502, { error: `gateway unreachable: ${err.message}` });
+    }
+  }
+
+  if (rotateMatch && method === 'POST') {
+    const target = getUserById(decodeURIComponent(rotateMatch[1]));
+    if (!target) return send(404, { error: 'user not found' });
+    const existing = getGatewayKey(target.id);
+    if (!existing) return send(404, { error: 'no gateway key for user' });
+    const quota = getQuota(target.id);
+    try {
+      await gateway.login();
+      await gateway.revokeApiKey(existing.gateway_key_id);
+      const fresh = await gateway.createApiKey(`distro-user-${target.id.slice(0, 8)}`, {
+        dailyUsageLimitUsd: quota.spend_cap_usd ?? undefined,
+        weeklyUsageLimitUsd: quota.spend_cap_usd != null ? quota.spend_cap_usd * 7 : undefined,
+      });
+      const key = setGatewayKey(target.id, { gatewayKeyId: fresh.id, gatewayKey: fresh.key });
+      return send(200, { rotated: true, gatewayKeyId: key.gateway_key_id });
     } catch (err) {
       return send(502, { error: `gateway unreachable: ${err.message}` });
     }
