@@ -11,6 +11,8 @@ docker --version && docker compose version     # Docker Engine + Compose v2
 # 1. clone the repo, then bootstrap
 ./scripts/bootstrap.sh                          # creates .env, generates secrets,
                                                 # starts redis + gateway, prints next steps
+#    (alternatively: skip bootstrap and pull pre-built images — see GHCR section)
+```
 # 2. in a browser: register providers + issue a gateway key
 #    dashboard http://127.0.0.1:20128  (login = INITIAL_PASSWORD from .env)
 #    → register upstream API keys (Anthropic/OpenAI/…)
@@ -30,6 +32,33 @@ make doctor
 # Distro is gateway-only: pick any model the gateway exposes → ask it to
 # build a tiny app
 ```
+
+## Pre-built images (GHCR)
+
+Every release publishes Docker images to the GitHub Container Registry:
+
+| Image | GHCR path |
+|---|---|
+| Control plane | `ghcr.io/innotelinc/distro/control-plane` |
+| Web app | `ghcr.io/innotelinc/distro/web` |
+
+Tags: `:latest` (tracks `main`) and `:<semver>` (e.g. `:0.1.0`).  To use them
+instead of building locally, replace the `build:` block in the relevant
+services with `image:` directives:
+
+```yaml
+services:
+  web:
+    image: ghcr.io/innotelinc/distro/web:0.1.0   # or :latest
+    # drop the build: block
+  control-plane:
+    image: ghcr.io/innotelinc/distro/control-plane:0.1.0
+```
+
+Then `docker compose pull && docker compose up -d` — no build required.
+Note: the web image expects `VITE_DISTRO_GATEWAY_ONLY=true` and
+`VITE_DISTRO_CONTROL_PLANE=true` at build time (baked into the default
+GHCR image), so no additional build-args are needed when pulling.
 
 ## Topology & ports
 
@@ -104,7 +133,9 @@ docker compose exec gateway node healthcheck.mjs   # gateway self-check
   (`vendor/omniroute/CHANGELOG.md` after `make sync-upstream`) for schema
   migrations — the SQLite volume is upgraded in place, so back it up first.
 - **Upgrading Distro web**: `git pull` (or apply upstream bolt.diy changes per
-  `docs/upstream.md`), then `docker compose up -d --build web`.
+  `docs/upstream.md`), then `docker compose up -d --build web`.  Alternatively,
+  pull the latest GHCR image: `docker compose pull web && docker compose up -d web`.
+  To pin a release version, set `image:` in the web service and remove `build:`.
 - **Updating the vendor snapshot** (source checkout for reference/dev):
   `make sync-upstream`.
 
