@@ -2,12 +2,20 @@
  * Magnate billing integration.
  *
  * Distro never holds Stripe keys.  Magnate owns subscriptions, plans and the
- * revenue ledger.  Distro queries Magnate's server-to-server entitlements API
- * to check whether a user has an active subscription and which plan they're on.
+ * revenue ledger (RevenueOps in the Innotel Platform Stack).  Distro queries
+ * Magnate's server-to-server entitlements API (/api/entitlements) to check
+ * whether a user has an active subscription and which plan they're on.
+ *
+ * Magnate itself is Cerulean/Authentik-first: subscriber accounts + passwords
+ * live in Cerulean's Authentik, and Jellyfin authenticates against it via the
+ * LDAP outpost.  Distro is therefore one of many consumers that gate a feature
+ * on Magnate billing without ever holding Stripe keys.
  *
  * Env vars:
- *   MAGNATE_URL               – base URL of the Magnate instance (e.g. https://magnate.example.com)
- *   MAGNATE_ENTITLEMENTS_TOKEN – shared secret for the /api/entitlements gate (optional on trusted nets)
+ *   MAGNATE_URL               – base URL of the Magnate instance (e.g. https://magnate.innotel.us)
+ *   MAGNATE_ENTITLEMENTS_TOKEN – shared secret for the /api/entitlements gate;
+ *                               must equal Magnate's ENTITLEMENTS_API_TOKEN.
+ *                               Optional on trusted networks (empty = open).
  *   MAGNATE_BILLING_SLUG      – plan slug to check (default "distro")
  *
  * MAGNATE_URL is optional: when unset it is resolved via Consul service
@@ -122,15 +130,26 @@ export async function checkEntitlement(usernameOrEmail) {
 }
 
 /**
- * Fetch available plans from Magnate's storefront endpoint.
- * Falls back to an empty list when Magnate is unreachable.
+ * Fetch available plans from Magnate's admin plans endpoint.
+ * Falls back to an empty list when Magnate is unreachable or the control plane
+ * can't authenticate (ENTITLEMENTS_API_TOKEN required on the Magnate side).
+ *
+ * Magnate contract (see magnate-subscription-platform/app/api/admin/plans/route.ts):
+ *   GET /api/admin/plans  →  200 { plans: […] }   (admin auth via
+ *   ENTITLEMENTS_API_TOKEN bearer when that token is set; else 401)
  */
 export async function listPlans() {
   const MAGNATE_URL = magnateUrl();
   if (!MAGNATE_URL) return [];
 
+  const headers = {};
+  if (MAGNATE_ENTITLEMENTS_TOKEN) {
+    headers['Authorization'] = `Bearer ${MAGNATE_ENTITLEMENTS_TOKEN}`;
+  }
+
   try {
-    const res = await fetch(`${MAGNATE_URL}/api/plans`, {
+    const res = await fetch(`${MAGNATE_URL}/api/admin/plans`, {
+      headers,
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];

@@ -448,6 +448,11 @@ export async function handler(req, res, { gateway }) {
   }
 
   // ---- git export (Atlas integration) ----
+  // Atlas is the CodeOps platform in the Innotel Platform Stack (Gitea repos +
+  // Chef AI app builder on self-hosted Convex). Distro builds apps live in the
+  // browser; Atlas ships them via Gitea + Chef/Convex. When
+  // ATLAS_URL + ATLAS_GIT_REMOTE are set in .env, Distro can push projects to
+  // an Atlas/Gitea remote (ssh-agent or WebContainer git).
   if (path === '/api/export/config' && method === 'GET') {
     return send(200, getAtlasConfig());
   }

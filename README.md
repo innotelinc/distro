@@ -1,8 +1,26 @@
+<div align="center">
+
 # Distro
 
-**Self-hosted AI app-building platform.** Describe an application in natural
-language and Distro's AI agent writes, runs, previews, and iterates on a
-full-stack codebase in your browser — no local dev environment required.
+**Self-hosted AI app-building platform — BuilderOps.**
+
+Describe an application in natural language and Distro's AI agent writes, runs,
+previews, and iterates on a full-stack codebase in your browser — no local dev
+environment required.
+
+[![CI](https://github.com/innotelinc/distro/actions/workflows/ci.yml/badge.svg)](https://github.com/innotelinc/distro/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+</div>
+
+> **About Distro** — a self-hosted AI app-building platform that assembles two
+> MIT-licensed open-source projects and operates them as one service: bolt.diy
+> (in-browser IDE) + OmniRoute (AI routing gateway). Distro's agent only ever talks
+> to OmniRoute, and OmniRoute is the only place upstream provider keys live. Distro
+> runs its own OmniRoute gateway in its compose stack and shares the upstream provider
+> pool with Atlas Chef. Identity (optional) and billing come from the Innotel
+> Platform Stack — Cerulean Authentik and Magnate. **Landing page:**
+> [innotelinc.github.io/distro](https://innotelinc.github.io/distro)
 
 Distro is not built from scratch. It assembles two MIT-licensed open-source
 projects and operates them as one service:
@@ -27,6 +45,26 @@ only place upstream provider keys live.
 │   preview · terminal · git   │ compat │                              │
 └──────────────────────────────┘        └──────────────────────────────┘
 ```
+
+## Why Distro
+
+| Problem | Distro answer |
+| --- | --- |
+| Cloud IDEs leak source + context | Self-hosted — the agent runs in your browser, code never leaves your machine |
+| Provider keys scattered across tools | One OmniRoute gateway pools every upstream provider; rotate in one place |
+| Static scaffolding is manual | The agent writes, runs, previews, and iterates on a full-stack app in-browser |
+| No accountability per user | Multi-tenant control plane: per-user gateway keys, quotas, spend tracking, admin console |
+| Identity you don't control | Optional Authentik SSO through Cerulean — one login for the whole stack |
+| Billing you don't control | Optional Magnate subscriptions — Distro checks entitlements server-to-server |
+
+## What it is
+
+- **In-browser builder shell (fork of bolt.diy)** — chat-to-code agent UI, WebContainer
+  sandbox, live preview, file tree, terminal.
+- **Self-hosted OmniRoute gateway** — Distro runs its own gateway and publishes it on the
+  LAN; the agent routes every model call through it.
+- **Multi-tenant control plane** — accounts, one gateway key per user, quota/usage
+  enforcement, admin console, audit log.
 
 ## Platform stack
 
@@ -116,8 +154,35 @@ if paid tiers ever come in scope.
 - Desktop (Electron) packaging is inherited from upstream and only rebranded
   in config; it is not yet part of the verified path.
 
+## Repo layout
+
+```
+distro/
+├── apps/web/            Distro — rebranded bolt.diy fork (the front door)
+├── apps/control-plane/  multi-tenant layer — accounts, per-user gateway keys, quotas
+├── web/landing/         static landing + screenshot gallery (GitHub Pages)
+├── docker-compose.yml   gateway (OmniRoute) + control plane + web
+├── Makefile             up / down / doctor / bootstrap / backup / …
+├── .github/workflows/   CI, attribution guard, GitHub Pages, release
+├── .githooks/           attribution guard (commit-msg, pre-commit, guard-lib)
+├── scripts/             bootstrap · backup · healthcheck-gateway · sync-upstream
+├── docs/                stack · architecture · ops · upstream · multi-tenant · testing
+└── LICENSE
+```
+
 ## License
 
 MIT. Distro's new material is MIT (root [`LICENSE`](LICENSE)); both upstream
 projects remain MIT with their licenses retained in-tree. See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+*Distro — self-hosted AI app-building platform, in your browser. © 2026*
+
+## 🏛️ Platform stack
+
+Distro is the ecosystem's **BuilderOps** platform — the in-browser AI app builder —
+in the [**Innotel Platform Stack**](https://github.com/innotelinc/innotel-platform-stack) —
+the canonical single-responsibility architecture where Authentik owns identity,
+Infisical owns secrets, Cerulean owns trust, ONYX owns storage, Magnate owns
+revenue, and every other platform is a business function that consumes them. See
+[docs/stack.md](docs/stack.md) for this platform's owns/consumes boundaries.

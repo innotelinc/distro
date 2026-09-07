@@ -6,6 +6,7 @@ import { syncUsageFromGateway } from './sync.js';
 import { alert } from './alerts.js';
 import { seedDistroPlan } from './billing.js';
 import { resolveGatewayUrls, resolveMagnateUrl } from './discovery.js';
+import { atlasConfigured } from './export.js';
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 20140);
@@ -74,6 +75,12 @@ server.listen(PORT, HOST, async () => {
     await seedDistroPlan();
   } else {
     console.log('[billing] Magnate not configured/discoverable — billing disabled');
+  }
+
+  // Atlas integration is optional (git export). No boot-time action required —
+  // the control plane only exposes /api/export/config + /api/export/validate.
+  if (atlasConfigured()) {
+    console.log(`[atlas] Atlas configured at ${process.env.ATLAS_URL} (git remote: ${process.env.ATLAS_GIT_REMOTE})`);
   }
 
   if (SYNC_INTERVAL_MS > 0) {

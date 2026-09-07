@@ -70,10 +70,9 @@ Atlas/Chef can generate a Convex backend for apps built in Distro:
 | Service | Distro uses | Atlas uses |
 |---|---|---|
 | OmniRoute | Model routing for agent | Model routing for Chef |
-| Magnate | Subscription billing | Subscription billing |
-| Authentik | User SSO | User SSO |
+| Magnate | Subscription billing (RevenueOps) | Subscription billing (paid dev seats) |
+| Cerulean (Authentik) | User SSO / DNS / TLS | User SSO / DNS / TLS |
 | Infisical | Secrets | Secrets |
-| Cerulean | DNS + TLS certs | DNS + TLS certs |
 | NPM Edge | Public routing | Public routing |
 
 ### 4. Cross-platform references
@@ -94,12 +93,14 @@ ATLAS_GIT_REMOTE=git@atlas.innotel.us       # Git SSH host for exports
 
 ## Deployment
 
-Both platforms run on the same WireGuard mesh:
+Both platforms run on the same WireGuard mesh and share the stack's platform
+services:
 
 - **Distro** — Group 5 (Server 5): web app + control plane; consumes the shared OmniRoute gateway (Server 2) via Consul
 - **Atlas** — Group 5 (Server 5): Gitea, Chef, Convex
 
-They share the same server and discover each other via Consul:
+They share the same server and discover each other over the compose network /
+WireGuard mesh:
 
 ```bash
 # Distro discovers Atlas
@@ -108,6 +109,29 @@ They share the same server and discover each other via Consul:
 # Atlas discovers Distro
 ./stack.sh discover distro  # → 10.10.5.1:5173
 ```
+
+### Shared Magnate + Cerulean wiring
+
+Both platforms point at the same Magnate instance for billing and the same
+Cerulean Authentik for identity. The relevant env vars:
+
+```bash
+# Magnate (RevenueOps) — both Distro and Atlas use it
+MAGNATE_URL=https://magnate.innotel.us
+MAGNATE_ENTITLEMENTS_TOKEN=<shared-secret>   # must equal Magnate's ENTITLEMENTS_API_TOKEN
+
+# Cerulean Authentik (IdentityOps / TrustOps) — both Distro and Atlas
+OIDC_ISSUER_URL=https://auth.cerulean.innotel.us/application/o/<app>/
+OIDC_CLIENT_ID=<app>-gitea|distro|chef
+OIDC_CLIENT_SECRET=<from Cerulean>
+```
+
+- Distro's control plane reaches Magnate's `/api/entitlements` for per-user
+  subscription checks and `/api/admin/plans` for the plans list / checkout.
+- Atlas's Chef codegen reaches the shared OmniRoute gateway for model calls;
+  Atlas never stores upstream provider keys.
+- DNS + wildcard TLS for both platforms' public hosts is provisioned by
+  Cerulean (RFC 2136 BIND zone updates + DNS-01).
 
 ## Summary
 
