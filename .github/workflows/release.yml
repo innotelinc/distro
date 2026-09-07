@@ -58,6 +58,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
+      - name: Verify GHCR login
+        run: docker pull ghcr.io/${{ env.IMAGE_NAMESPACE }}/control-plane:nonexistent 2>&1 || true
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
