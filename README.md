@@ -9,6 +9,7 @@ previews, and iterates on a full-stack codebase in your browser — no local dev
 environment required.
 
 [![CI](https://github.com/innotelinc/distro/actions/workflows/ci.yml/badge.svg)](https://github.com/innotelinc/distro/actions/workflows/ci.yml)
+[![Conformity](https://github.com/innotelinc/distro/actions/workflows/conform.yml/badge.svg)](https://github.com/innotelinc/distro/actions/workflows/conform.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
