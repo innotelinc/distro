@@ -52,6 +52,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { magnateConfigured, checkEntitlement, listPlans, gatedQuota } from './billing.js';
+import { magnateUrlSync } from './discovery.js';
 import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -426,8 +427,10 @@ export async function handler(req, res, { gateway }) {
 
     // Forward to Magnate checkout, passing the Distro user's email.
     const params = { planSlug, interval, email: me.email, username: me.email.split('@')[0] };
+    const magnateUrl = magnateUrlSync();
+    if (!magnateUrl) return send(400, { error: 'billing not configured (MAGNATE_URL)' });
     try {
-      const res = await fetch(`${process.env.MAGNATE_URL.replace(/\/+$/, '')}/api/checkout`, {
+      const res = await fetch(`${magnateUrl}/api/checkout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

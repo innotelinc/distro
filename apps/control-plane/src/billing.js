@@ -9,14 +9,19 @@
  *   MAGNATE_URL               – base URL of the Magnate instance (e.g. https://magnate.example.com)
  *   MAGNATE_ENTITLEMENTS_TOKEN – shared secret for the /api/entitlements gate (optional on trusted nets)
  *   MAGNATE_BILLING_SLUG      – plan slug to check (default "distro")
+ *
+ * MAGNATE_URL is optional: when unset it is resolved via Consul service
+ * discovery (see discovery.js) and billing stays disabled if that fails too.
  */
+import { magnateUrlSync } from './discovery.js';
 
-const MAGNATE_URL = (process.env.MAGNATE_URL || '').replace(/\/+$/, '');
 const MAGNATE_ENTITLEMENTS_TOKEN = process.env.MAGNATE_ENTITLEMENTS_TOKEN || '';
 const MAGNATE_BILLING_SLUG = process.env.MAGNATE_BILLING_SLUG || 'distro';
 
+const magnateUrl = () => magnateUrlSync() || '';
+
 export function magnateConfigured() {
-  return Boolean(MAGNATE_URL);
+  return Boolean(magnateUrl());
 }
 
 /**
@@ -25,6 +30,7 @@ export function magnateConfigured() {
  * Idempotent: if the plan already exists, this is a no-op.
  */
 export async function seedDistroPlan() {
+  const MAGNATE_URL = magnateUrl();
   if (!MAGNATE_URL) return;
 
   const headers = {};
@@ -86,6 +92,7 @@ export async function seedDistroPlan() {
  *   { entitled: null, source: 'unconfigured'|'unreachable', magnate_url: '' }
  */
 export async function checkEntitlement(usernameOrEmail) {
+  const MAGNATE_URL = magnateUrl();
   if (!MAGNATE_URL) {
     return { entitled: null, source: 'unconfigured', magnate_url: '' };
   }
@@ -119,6 +126,7 @@ export async function checkEntitlement(usernameOrEmail) {
  * Falls back to an empty list when Magnate is unreachable.
  */
 export async function listPlans() {
+  const MAGNATE_URL = magnateUrl();
   if (!MAGNATE_URL) return [];
 
   try {

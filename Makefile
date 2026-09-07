@@ -24,7 +24,7 @@ ps: ## Service status
 gateway-up: ## Start only the LOCAL fallback gateway + redis
 	docker compose --profile local-gateway up -d redis gateway
 
-discover-gateway: ## Consul-discover the remote gateway and pin its URLs in .env
+discover-gateway: ## Consul-discover the remote gateway + Magnate and pin their URLs in .env
 	./scripts/discover-gateway.sh
 
 web-up: ## Rebuild and start only Distro web
