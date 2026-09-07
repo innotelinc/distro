@@ -23,6 +23,19 @@ import {
   logAudit,
   listAudit,
   listAlerts,
+  listTemplates,
+  getTemplateBySlug,
+  createTemplate,
+  listWorkspaces,
+  listPublicWorkspaces,
+  getWorkspaceById,
+  createWorkspace,
+  updateWorkspace,
+  deleteWorkspace,
+  shareWorkspace,
+  getWorkspaceShares,
+  getUserSharedWithMe,
+  removeShare,
 } from './db.js';
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
 import { alert, alertsConfig } from './alerts.js';
@@ -443,6 +456,140 @@ export async function handler(req, res, { gateway }) {
     const result = validateRemote(remote);
     if (!result.valid) return send(400, { error: result.error });
     return send(200, { valid: true, remote });
+  }
+
+  // ---- templates ----
+  if (path === '/api/templates' && method === 'GET') {
+    const category = url.searchParams.get('category') || null;
+    const templates = listTemplates(category);
+    return send(200, { templates });
+  }
+
+  if (path === '/api/templates' && method === 'POST') {
+    const admin = requireAdmin(req);
+    if (!admin) return send(403, { error: 'admin required' });
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    if (!body.name || !body.slug) return send(400, { error: 'name and slug required' });
+    const existing = getTemplateBySlug(body.slug);
+    if (existing) return send(409, { error: 'slug already exists' });
+    const template = createTemplate({
+      name: body.name,
+      slug: body.slug,
+      description: body.description,
+      category: body.category,
+      icon: body.icon,
+      files: body.files,
+      prompt: body.prompt,
+      highlighted: body.highlighted,
+      createdBy: admin.id,
+    });
+    logAudit({ action: 'template.create', actorId: admin.id, actorEmail: admin.email, targetId: template.id, meta: { name: template.name, slug: template.slug } });
+    return send(201, { template });
+  }
+
+  // ---- workspaces ----
+  if (path === '/api/workspaces' && method === 'GET') {
+    const mine = listWorkspaces(me.id);
+    const shared = getUserSharedWithMe(me.id);
+    const publicWorkspaces = listPublicWorkspaces();
+    return send(200, { workspaces: mine, shared, publicWorkspaces });
+  }
+
+  if (path === '/api/workspaces' && method === 'POST') {
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    if (!body.name) return send(400, { error: 'name required' });
+    const ws = createWorkspace(me.id, {
+      name: body.name,
+      description: body.description,
+      templateId: body.templateId,
+      files: body.files,
+      messages: body.messages,
+      metadata: body.metadata,
+      isPublic: body.isPublic,
+    });
+    logAudit({ action: 'workspace.create', actorId: me.id, actorEmail: me.email, targetId: ws.id, meta: { name: ws.name } });
+    return send(201, { workspace: ws });
+  }
+
+  const wsMatch = path.match(/^\/api\/workspaces\/([^/]+)$/);
+  const wsShareMatch = path.match(/^\/api\/workspaces\/([^/]+)\/share$/);
+  if (wsMatch && !wsShareMatch) {
+    const wsId = decodeURIComponent(wsMatch[1]);
+    const ws = getWorkspaceById(wsId);
+    if (!ws) return send(404, { error: 'workspace not found' });
+
+    // Check access: owner, shared, or public
+    const isOwner = ws.user_id === me.id;
+    const shares = getWorkspaceShares(wsId);
+    const myShare = shares.find((s) => s.shared_with === me.id);
+    if (!isOwner && !myShare && !ws.is_public) {
+      return send(403, { error: 'access denied' });
+    }
+
+    if (method === 'GET') {
+      return send(200, { workspace: ws, shares, permission: isOwner ? 'owner' : myShare?.permission || 'view' });
+    }
+
+    if (method === 'PATCH') {
+      if (!isOwner && (!myShare || myShare.permission === 'view')) {
+        return send(403, { error: 'edit access required' });
+      }
+      const body = await readBody(req);
+      const updated = updateWorkspace(wsId, {
+        name: body.name,
+        description: body.description,
+        files: body.files,
+        messages: body.messages,
+        metadata: body.metadata,
+        isPublic: body.isPublic,
+      });
+      return send(200, { workspace: updated });
+    }
+
+    if (method === 'DELETE') {
+      if (!isOwner) return send(403, { error: 'owner required' });
+      deleteWorkspace(wsId);
+      logAudit({ action: 'workspace.delete', actorId: me.id, actorEmail: me.email, targetId: wsId, meta: { name: ws.name } });
+      return send(200, { deleted: true });
+    }
+  }
+
+  if (wsShareMatch && method === 'POST') {
+    const wsId = decodeURIComponent(wsShareMatch[1]);
+    const ws = getWorkspaceById(wsId);
+    if (!ws) return send(404, { error: 'workspace not found' });
+    if (ws.user_id !== me.id) return send(403, { error: 'owner required' });
+
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!email) return send(400, { error: 'email required' });
+    const target = getUserByEmail(email);
+    if (!target) return send(404, { error: 'user not found' });
+    if (target.id === me.id) return send(400, { error: 'cannot share with yourself' });
+
+    const permission = ['view', 'edit', 'admin'].includes(body.permission) ? body.permission : 'view';
+    shareWorkspace(wsId, target.id, permission, me.id);
+    logAudit({ action: 'workspace.share', actorId: me.id, actorEmail: me.email, targetId: wsId, meta: { sharedWith: email, permission } });
+    return send(200, { shared: true });
+  }
+
+  if (wsShareMatch && method === 'DELETE') {
+    const wsId = decodeURIComponent(wsShareMatch[1]);
+    const ws = getWorkspaceById(wsId);
+    if (!ws) return send(404, { error: 'workspace not found' });
+    if (ws.user_id !== me.id) return send(403, { error: 'owner required' });
+
+    const body = await readBody(req);
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!email) return send(400, { error: 'email required' });
+    const target = getUserByEmail(email);
+    if (!target) return send(404, { error: 'user not found' });
+    removeShare(wsId, target.id);
+    logAudit({ action: 'workspace.unshare', actorId: me.id, actorEmail: me.email, targetId: wsId, meta: { unsharedWith: email } });
+    return send(200, { unshared: true });
   }
 
   // ---- admin routes ----

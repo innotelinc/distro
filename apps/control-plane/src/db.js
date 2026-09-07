@@ -341,3 +341,125 @@ export function replaceUsageFromGateway(userId, { tokensIn, tokensOut, requests,
     );
   return getUsageToday(userId);
 }
+
+// ── templates ────────────────────────────────────────────────────────────
+export function listTemplates(category = null) {
+  if (category) {
+    return getDb()
+      .prepare('SELECT * FROM templates WHERE active = 1 AND category = ? ORDER BY sort_order, name')
+      .all(category);
+  }
+  return getDb()
+    .prepare('SELECT * FROM templates WHERE active = 1 ORDER BY sort_order, name')
+    .all();
+}
+
+export function getTemplateBySlug(slug) {
+  return getDb().prepare('SELECT * FROM templates WHERE slug = ? AND active = 1').get(slug);
+}
+
+export function getTemplateById(id) {
+  return getDb().prepare('SELECT * FROM templates WHERE id = ?').get(id);
+}
+
+export function createTemplate({ name, slug, description, category, icon, files, prompt, highlighted, createdBy }) {
+  const id = randomUUID();
+  getDb()
+    .prepare(
+      `INSERT INTO templates (id, name, slug, description, category, icon, files, prompt, highlighted, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(id, name, slug, description || null, category || 'general', icon || null,
+         JSON.stringify(files || {}), prompt || null, highlighted ? 1 : 0, createdBy || null);
+  return getTemplateById(id);
+}
+
+// ── workspaces ───────────────────────────────────────────────────────────
+export function listWorkspaces(userId) {
+  return getDb()
+    .prepare('SELECT * FROM workspaces WHERE user_id = ? ORDER BY updated_at DESC')
+    .all(userId);
+}
+
+export function listPublicWorkspaces() {
+  return getDb()
+    .prepare('SELECT id, name, description, user_id, created_at, updated_at FROM workspaces WHERE is_public = 1 ORDER BY updated_at DESC LIMIT 50')
+    .all();
+}
+
+export function getWorkspaceById(id) {
+  return getDb().prepare('SELECT * FROM workspaces WHERE id = ?').get(id);
+}
+
+export function createWorkspace(userId, { name, description, templateId, files, messages, metadata, isPublic }) {
+  const id = randomUUID();
+  getDb()
+    .prepare(
+      `INSERT INTO workspaces (id, user_id, name, description, template_id, files, messages, metadata, is_public)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(id, userId, name, description || null, templateId || null,
+         JSON.stringify(files || {}), JSON.stringify(messages || []),
+         JSON.stringify(metadata || {}), isPublic ? 1 : 0);
+  return getWorkspaceById(id);
+}
+
+export function updateWorkspace(id, fields) {
+  const set = ['updated_at = datetime("now")'];
+  const params = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    if (['id', 'user_id', 'created_at'].includes(key)) continue;
+    set.push(`${key} = ?`);
+    params.push(typeof value === 'object' ? JSON.stringify(value) : value);
+  }
+  getDb().prepare(`UPDATE workspaces SET ${set.join(', ')} WHERE id = ?`).run(...params, id);
+  return getWorkspaceById(id);
+}
+
+export function deleteWorkspace(id) {
+  getDb().prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+}
+
+// ── project shares ───────────────────────────────────────────────────────
+export function shareWorkspace(workspaceId, sharedWithUserId, permission, sharedByUserId) {
+  const id = randomUUID();
+  getDb()
+    .prepare(
+      `INSERT INTO project_shares (id, workspace_id, shared_with, permission, shared_by)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (workspace_id, shared_with) DO UPDATE SET permission = excluded.permission`,
+    )
+    .run(id, workspaceId, sharedWithUserId, permission || 'view', sharedByUserId);
+  return getWorkspaceShares(workspaceId);
+}
+
+export function getWorkspaceShares(workspaceId) {
+  return getDb()
+    .prepare(
+      `SELECT ps.*, u.email AS shared_with_email
+       FROM project_shares ps JOIN users u ON u.id = ps.shared_with
+       WHERE ps.workspace_id = ?`,
+    )
+    .all(workspaceId);
+}
+
+export function getUserSharedWithMe(userId) {
+  return getDb()
+    .prepare(
+      `SELECT w.id, w.name, w.description, w.user_id, w.created_at, w.updated_at,
+              ps.permission, ps.shared_by, u.email AS owner_email
+       FROM project_shares ps
+       JOIN workspaces w ON w.id = ps.workspace_id
+       JOIN users u ON u.id = w.user_id
+       WHERE ps.shared_with = ?
+       ORDER BY w.updated_at DESC`,
+    )
+    .all(userId);
+}
+
+export function removeShare(workspaceId, sharedWithUserId) {
+  getDb()
+    .prepare('DELETE FROM project_shares WHERE workspace_id = ? AND shared_with = ?')
+    .run(workspaceId, sharedWithUserId);
+}

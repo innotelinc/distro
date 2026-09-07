@@ -93,3 +93,51 @@ CREATE INDEX IF NOT EXISTS idx_alert_created ON alert_log(created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_gateway_keys_user ON gateway_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_usage_cache_user_date ON usage_cache(user_id, date);
+
+-- Project templates (starter apps users can clone)
+CREATE TABLE IF NOT EXISTS templates (
+  id            TEXT PRIMARY KEY,                 -- uuid
+  name          TEXT NOT NULL,
+  slug          TEXT NOT NULL UNIQUE,
+  description   TEXT,
+  category      TEXT NOT NULL DEFAULT 'general',  -- general, react, nextjs, svelte, etc.
+  icon          TEXT,                             -- emoji or icon name
+  files         TEXT NOT NULL DEFAULT '{}',        -- JSON: {path: content} starter files
+  prompt        TEXT,                             -- initial prompt to scaffold the app
+  highlighted   INTEGER NOT NULL DEFAULT 0,       -- 1 = featured on template picker
+  active        INTEGER NOT NULL DEFAULT 1,
+  sort_order    INTEGER NOT NULL DEFAULT 0,
+  created_by    TEXT REFERENCES users(id),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_templates_category ON templates(category);
+
+-- Saved workspaces (server-side persistence for projects)
+CREATE TABLE IF NOT EXISTS workspaces (
+  id            TEXT PRIMARY KEY,                 -- uuid
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  description   TEXT,
+  template_id   TEXT REFERENCES templates(id),    -- if cloned from a template
+  files         TEXT NOT NULL DEFAULT '{}',        -- JSON: {path: content} full snapshot
+  messages      TEXT NOT NULL DEFAULT '[]',        -- JSON: chat history
+  metadata      TEXT NOT NULL DEFAULT '{}',        -- JSON: {gitUrl, gitBranch, ...}
+  is_public     INTEGER NOT NULL DEFAULT 0,       -- 1 = visible to other users
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_workspaces_user ON workspaces(user_id);
+CREATE INDEX IF NOT EXISTS idx_workspaces_public ON workspaces(is_public) WHERE is_public = 1;
+
+-- Project sharing (access control for team collaboration)
+CREATE TABLE IF NOT EXISTS project_shares (
+  id            TEXT PRIMARY KEY,                 -- uuid
+  workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  shared_with   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission    TEXT NOT NULL DEFAULT 'view' CHECK (permission IN ('view', 'edit', 'admin')),
+  shared_by     TEXT NOT NULL REFERENCES users(id),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (workspace_id, shared_with)
+);
+CREATE INDEX IF NOT EXISTS idx_shares_workspace ON project_shares(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_shares_user ON project_shares(shared_with);
