@@ -9,7 +9,7 @@ It is a product assembled from two MIT-licensed upstream projects:
 | Layer | Upstream | Role |
 |---|---|---|
 | Builder / IDE / agent UI | [bolt.diy](https://github.com/stackblitz-labs/bolt.diy) (`stable`) — forked into `apps/web` | The in-browser IDE: chat-to-code, WebContainer sandbox, live preview, file tree, terminal, git/deploy. Rebranded as **Distro**. |
-| Model routing / gateway | [OmniRoute](https://github.com/diegosouzapw/OmniRoute) — run from its published image (source checkout kept in `vendor/`) | One OpenAI-compatible endpoint (`/v1/*`) that routes across many upstream providers with fallback, token/cost accounting and format translation. |
+| Model routing / gateway | [OmniRoute](https://github.com/diegosouzapw/OmniRoute) — consumed REMOTELY as a platform service (Innotel platform stack, Server 2; Consul service `omniroute`). A local fallback image ships behind the compose profile `local-gateway`. | One OpenAI-compatible endpoint (`/v1/*`) that routes across many upstream providers with fallback, token/cost accounting and format translation. |
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -39,8 +39,9 @@ accepts an arbitrary `baseURL` + key and fetches its model list from
 not an adapter:
 
 - `OPENAI_LIKE_API_BASE_URL` → the gateway's OpenAI-compatible endpoint
-  (must include `/v1`), e.g. `http://gateway:20129/v1` inside the compose
-  network or `http://127.0.0.1:20129/v1` from the host.
+  (must include `/v1`), e.g. `http://10.10.2.1:20129/v1` for the platform
+  gateway, `http://gateway:20129/v1` with the local fallback profile, or
+  `http://127.0.0.1:20129/v1` from the host.
 - `OPENAI_LIKE_API_KEY` → an API key issued by the OmniRoute dashboard.
 
 Distro-specific defaults added on top of upstream bolt.diy:
@@ -70,26 +71,28 @@ upstream provider keys.
 ```
 .
 ├── apps/web/          Distro — rebranded bolt.diy fork (pnpm, Remix + Cloudflare Pages)
-├── docker-compose.yml gateway + web as one stack (gateway ports bound to 127.0.0.1)
+├── docker-compose.yml web + control plane as one stack; local-gateway fallback profile
 ├── Makefile           up/down/doctor/bootstrap/sync-upstream …
 ├── scripts/           bootstrap, health checks, upstream sync, brand-asset generator
 ├── docs/              this doc, multi-tenant design, ops runbook, upstream sync notes
-└── vendor/            git-ignored upstream working copies (OmniRoute source, bolt.diy ref)
+└── vendor/            git-ignored bolt.diy reference checkout (apps/web diff base)
 ```
 
 ## Key security decisions (v1)
 
-- Gateway ports publish on the host interface from `GATEWAY_BIND_HOST`
-  (Distro's compose defaults to **0.0.0.0** for LAN access). The dashboard is
-  protected by a strong admin password (default `CHANGEME` is migrated only
-  for fresh DBs — change it via `docker compose exec gateway node
-  /app/bin/reset-password.mjs` or the DB-backed flow in `docs/ops.md`) and the
-  API by gateway keys. Tighten `GATEWAY_BIND_HOST=127.0.0.1` and front the web
-  app with a TLS reverse proxy for anything beyond a trusted LAN.
-- Upstream provider API keys live **only** in the gateway's encrypted SQLite
-  volume (`gateway-data`, env secrets `API_KEY_SECRET`/`JWT_SECRET`). Distro
-  holds a single gateway-issued key.
-- OmniRoute container memory is raised above its default pin
+- The gateway is REMOTE by default (platform OmniRoute, Server 2): Distro
+  holds only gateway-issued keys and never upstream provider keys. The LOCAL
+  fallback gateway (profile `local-gateway`) publishes its ports on
+  `GATEWAY_BIND_HOST`; its dashboard is protected by a strong admin password
+  (default `CHANGEME` is migrated only for fresh DBs — change it via
+  `docker compose --profile local-gateway exec gateway node
+  /app/bin/reset-password.mjs`) and its API by gateway keys. Tighten
+  `GATEWAY_BIND_HOST=127.0.0.1` and front the web app with a TLS reverse
+  proxy for anything beyond a trusted LAN.
+- Upstream provider API keys live **only** in the gateway (remote: its own
+  encrypted store; local: the `gateway-data` SQLite volume, env secret
+  `API_KEY_SECRET`). Distro holds gateway-issued keys only.
+- The LOCAL gateway container's memory is raised above its default pin
   (`GATEWAY_MAX_OLD_SPACE_MB=4096`) because coding-agent traffic carries
   large, overlapping contexts.
 
@@ -98,9 +101,9 @@ upstream provider keys.
 - `apps/web` keeps upstream code identifiers, CSS tokens (`--bolt-*`) and
   storage keys so syncing with upstream `stable` stays mechanical. Rebranding
   touches only user-visible copy + product identity.
-- The OmniRoute source tree (~294 MB) is **not committed**; the stack runs the
-  pinned published image and `scripts/sync-upstream.sh` fetches source on
-  demand. `docs/upstream.md` explains the trade-off.
+- The OmniRoute source tree is **not committed and not vendored**: the stack
+  consumes the remote platform gateway; the local fallback runs the pinned
+  published image. `docs/upstream.md` explains the trade-off.
 - The desktop (Electron) build ships from upstream config; only branding was
   renamed. Verifying/publishing desktop artifacts is a later-phase task.
 

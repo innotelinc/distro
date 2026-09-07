@@ -21,8 +21,8 @@ logs: ## Tail logs for all services
 ps: ## Service status
 	docker compose ps
 
-gateway-up: ## Start only the OmniRoute gateway
-	docker compose up -d redis gateway
+gateway-up: ## Start only the LOCAL fallback gateway + redis
+	docker compose --profile local-gateway up -d redis gateway
 
 web-up: ## Rebuild and start only Distro web
 	docker compose up -d --build web
@@ -30,12 +30,12 @@ web-up: ## Rebuild and start only Distro web
 build: ## Build images without starting
 	docker compose build
 
-doctor: ## Verify gateway + web health from the host
+doctor: ## Verify gateway (remote or local) + web health from the host
 	./scripts/healthcheck-gateway.sh
 	@echo "--- web ---"
 	@curl -fsS -o /dev/null -w "GET http://127.0.0.1:5173/ -> HTTP %{http_code}\n" http://127.0.0.1:5173/ || echo "web not reachable yet"
 
-sync-upstream: ## Refresh local upstream checkouts (apps/web ref + vendor/omniroute)
+sync-upstream: ## Refresh the local bolt.diy upstream reference checkout
 	./scripts/sync-upstream.sh
 
 backup: ## Back up control-plane + gateway DBs to ./backups

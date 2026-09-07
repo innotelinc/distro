@@ -10,16 +10,20 @@ docker --version && docker compose version     # Docker Engine + Compose v2
 
 # 1. clone the repo, then bootstrap
 ./scripts/bootstrap.sh                          # creates .env, generates secrets,
-                                                # starts redis + gateway, prints next steps
+                                                # discovers the REMOTE gateway (env
+                                                # override or Consul), prints next steps
 #    (alternatively: skip bootstrap and pull pre-built images — see GHCR section)
 ```
 # 2. in a browser: register providers + issue a gateway key
-#    dashboard http://127.0.0.1:20128  (login = INITIAL_PASSWORD from .env)
+#    REMOTE (platform stack): dashboard on Server 2 :20128 — discover it with
+#      ./stack.sh discover omniroute
+#    LOCAL fallback only: http://127.0.0.1:20128 (login = INITIAL_PASSWORD)
 #    → register upstream API keys (Anthropic/OpenAI/…)
 #    → Settings → API Keys → create a key
 
-# 3. put the key in .env, start the web app
-OPENAI_LIKE_API_KEY=<gateway-key>   # edit .env
+# 3. put the key + gateway URL in .env, start the web app
+OPENAI_LIKE_API_KEY=<gateway-key>            # edit .env
+OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20129/v1   # the gateway's /v1
 
 # model preselection + build heap (optional)
 VITE_DEFAULT_MODEL=gemini/gemini-2.5-flash   # catalog id, prefix included; empty = auto-pick
@@ -81,21 +85,36 @@ GHCR image), so no additional build-args are needed when pulling.
 
 | Service | Bind | Ports | Notes |
 |---|---|---|---|
-| `gateway` (OmniRoute) | `GATEWAY_BIND_HOST` (default 0.0.0.0) | 20128 dashboard · 20129 OpenAI-compatible API · 20132 live WS | LAN-accessible; protect with the admin password + gateway keys |
-| `redis` | compose net | (none published) | gateway rate-limiter backend |
+| `gateway` (OmniRoute, profile `local-gateway`) | `GATEWAY_BIND_HOST` (default 0.0.0.0) | 20128 dashboard · 20129 OpenAI-compatible API · 20132 live WS | LOCAL fallback only. The DEFAULT gateway is the shared platform OmniRoute (Server 2, Consul service `omniroute`) — pin it with `OPENAI_LIKE_API_BASE_URL`/`GATEWAY_DASHBOARD_URL` or let Consul discover it |
+| `redis` (profile `local-gateway`) | compose net | (none published) | rate-limiter backend for the LOCAL gateway fallback only |
 | `web` (Distro) | `WEB_BIND_HOST` (default 0.0.0.0) | 5173 | app at `/app`, landing at `/` — front with your TLS reverse proxy |
 | `control-plane` | `CONTROL_BIND_HOST` (default 0.0.0.0) | 20140 API · `/admin` console | accounts/quotas/keys — admin console requires an admin login |
 
 All services bind **0.0.0.0 by default** so the whole stack is reachable from
-other machines on the LAN (`http://<host-ip>:5173`, `…:20140/admin`, `…:20128`).
-Set `WEB_BIND_HOST`/`CONTROL_BIND_HOST`/`GATEWAY_BIND_HOST` to `127.0.0.1` in
-`.env` to pull any of them back to loopback-only. `LIVE_WS_ALLOWED_ORIGINS`
-controls which origins may open the gateway's live workspace websocket.
+other machines on the LAN (`http://<host-ip>:5173`, `…:20140/admin`). Set
+`WEB_BIND_HOST`/`CONTROL_BIND_HOST` (and, for the local fallback gateway,
+`GATEWAY_BIND_HOST`) to `127.0.0.1` in `.env` to pull any of them back to
+loopback-only. `LIVE_WS_ALLOWED_ORIGINS` controls which origins may open the
+(LOCAL) gateway's live workspace websocket.
 
-If the gateway and the web app run on *different* hosts, don't use the root
-compose `web` service: run `apps/web` standalone (see `apps/web/README.md`)
-and set `OPENAI_LIKE_API_BASE_URL` to the gateway's host, e.g.
-`https://gateway.example.com/v1`. Keep the dashboard on a private network.
+**Remote gateway (default).** The AI plane is the platform OmniRoute on
+Server 2 of the Innotel platform stack. Distro discovers it via Consul
+(`CONTROL_CONSUL_URL`, service `omniroute`) or pins it explicitly:
+
+```
+OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20129/v1   # web app → gateway API
+GATEWAY_DASHBOARD_URL=http://10.10.2.1:20128         # control plane → admin API (optional; Consul by default)
+```
+
+Verify with `make doctor`. To run everything self-contained instead (offline
+box, air-gapped lab), enable the bundled fallback:
+`docker compose --profile local-gateway up -d`.
+
+If the gateway and the web app run on *different* hosts without Consul, don't
+use the root compose `web` service: run `apps/web` standalone (see
+`apps/web/README.md`) and set `OPENAI_LIKE_API_BASE_URL` to the gateway's
+host, e.g. `https://gateway.example.com/v1`. Keep the dashboard on a private
+network.
 
 ## Secrets
 
@@ -128,10 +147,14 @@ docker compose exec gateway node healthcheck.mjs   # gateway self-check
   app ask the control plane before each chat turn (429 when over a daily
   cap) and report usage after it. Gateway-key spend caps still apply even if
   the control plane is down.
-- **Usage is gateway-authoritative**: the control plane syncs the gateway's
-  own per-key ledger (`usage_history` in the gateway SQLite volume, mounted
-  read-only) into `usage_cache` every `CONTROL_SYNC_INTERVAL_MS` (default
-  2 min). Manual run:
+- **Usage is chat-report-authoritative in remote-gateway mode**: the control
+  plane syncs the gateway's own per-key ledger (`usage_history` in the gateway
+  SQLite volume, mounted read-only) into `usage_cache` every
+  `CONTROL_SYNC_INTERVAL_MS` — but that volume only exists when the gateway
+  runs LOCALLY (profile `local-gateway`). With the remote platform gateway the
+  interval defaults to 0 (off) and quota accounting uses chat-traffic usage
+  reports plus key spend caps. Local deployments can re-enable the scheduled
+  sync by setting `CONTROL_SYNC_INTERVAL_MS`. Manual run:
   `docker compose exec control-plane node bin/control.mjs usage-sync`.
 - **Audit**: signups, key rotations/revokes, quota/role/disable changes and
   deletions are recorded in `audit_log` and shown in the admin console
@@ -145,10 +168,12 @@ docker compose exec gateway node healthcheck.mjs   # gateway self-check
   `control-data` volume path (`/data/control.sqlite`) with the stack stopped;
   the gateway copy goes to `/app/data/storage.sqlite` on `gateway-data`.
 
-- **Upgrading the gateway**: bump `OMNIROUTE_IMAGE_TAG` in `.env`, then
-  `docker compose up -d gateway`. Check the upstream changelog
-  (`vendor/omniroute/CHANGELOG.md` after `make sync-upstream`) for schema
+- **Upgrading the (LOCAL fallback) gateway**: bump `OMNIROUTE_IMAGE_TAG` in
+  `.env`, then `docker compose --profile local-gateway up -d gateway`. Check
+  the upstream changelog (pinned version notes in docs/upstream.md) for schema
   migrations — the SQLite volume is upgraded in place, so back it up first.
+  The REMOTE platform gateway is upgraded by the platform operators
+  (server 2); Distro only needs the right `OPENAI_LIKE_API_BASE_URL`/key.
 - **Upgrading Distro web**: `git pull` (or apply upstream bolt.diy changes per
   `docs/upstream.md`), then `docker compose up -d --build web`.  Alternatively,
   pull the latest GHCR image: `docker compose pull web && docker compose up -d web`.
@@ -158,7 +183,7 @@ docker compose exec gateway node healthcheck.mjs   # gateway self-check
 
 ## Sizing
 
-- The OmniRoute container's Node heap is set via
+- The LOCAL gateway container's Node heap is set via
   `GATEWAY_MAX_OLD_SPACE_MB` (default **4096**; upstream's own compose pins
   2048 and its docs warn the default container is tuned for dashboard/light
   chat — coding-agent traffic with large overlapping contexts will OOM a

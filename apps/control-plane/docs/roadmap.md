@@ -67,6 +67,9 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       gateway's per-key aggregates for the day — covering ALL traffic under
       the key (chat, direct /v1, dashboard usage), not just web chat turns.
       Scheduled via `CONTROL_SYNC_INTERVAL_MS`; CLI: `control.mjs usage-sync`.
+      NOTE: only possible with a LOCAL gateway (profile `local-gateway`); the
+      remote platform gateway has no shared volume, so the interval defaults
+      to 0 (off) there and usage reports + key spend caps carry the accounting.
 - [x] `GET /me/usage` (today snapshot) and quota decisions consume it, so
       daily request/token caps are gateway-authoritative after each sync.
 - [x] Minimal UI: admin console usage columns (`/admin`).
