@@ -39,6 +39,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { magnateConfigured, checkEntitlement, listPlans, gatedQuota } from './billing.js';
+import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -428,6 +429,20 @@ export async function handler(req, res, { gateway }) {
     } catch (err) {
       return send(502, { error: `magnate unreachable: ${err?.message || err}` });
     }
+  }
+
+  // ---- git export (Atlas integration) ----
+  if (path === '/api/export/config' && method === 'GET') {
+    return send(200, getAtlasConfig());
+  }
+
+  if (path === '/api/export/validate' && method === 'POST') {
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const remote = String(body.remote || '').trim();
+    const result = validateRemote(remote);
+    if (!result.valid) return send(400, { error: result.error });
+    return send(200, { valid: true, remote });
   }
 
   // ---- admin routes ----
