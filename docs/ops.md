@@ -224,6 +224,39 @@ server {
 Do **not** expose ports 20128/20129/20132 publicly — the gateway is
 internal-only; Distro is the only surface.
 
+### Cerulean / Authentik SSO (optional)
+
+Distro's control plane can sign users in through Cerulean's Authentik instead of
+email/password. Cerulean is the stack's **TrustOps** platform: it hosts the
+shared Authentik instance, automates DNS (RFC 2136 BIND nsupdate + TSIG), and
+issues wildcard Let's Encrypt certs via DNS-01. Atlas, Magnate and the rest of
+the stack sign in through the same Authentik.
+
+In Cerulean's Authentik: create an application + provider of type **OAuth2/OIDC
+Provider** with scopes `openid email profile`, then set these in Distro `.env`
+(control plane reads them on recreate — no rebuild):
+
+```
+OIDC_ISSUER_URL=https://auth.cerulean.innotel.us/application/o/distro/
+OIDC_CLIENT_ID=<from Cerulean>
+OIDC_CLIENT_SECRET=<from Cerulean>
+OIDC_REDIRECT_URI=https://app.example.com/cp/api/auth/oidc/callback
+```
+
+The redirect URI is the control-plane callback **as the browser sees it**
+(`/cp/...` under the same-origin proxy layout, or
+`http://<host>:20140/api/auth/oidc/callback` on direct LAN). Paste the same
+URL as the provider's redirect URI in Authentik. Leave all four empty to
+disable SSO — the button disappears from `/login`.
+
+SSO accounts are auto-provisioned on first sign-in (role: admin if the email is
+in `ADMIN_EMAILS` or it is the first account, otherwise `user`), get their own
+gateway key, and cannot use password login (their stored hash is an unusable
+`sso:` sentinel). The login page runs the flow in a popup and stores the session
+exactly like password login, so quotas and the admin console work unchanged. New
+SSO signups land in the audit log as `user.oidc-signup` (existing users:
+`user.oidc-login`).
+
 ### Why the live preview/terminal need HTTPS (or localhost)
 
 The preview and terminal run on WebContainer, which browsers only allow on
@@ -287,9 +320,12 @@ console work unchanged. New SSO signups land in the audit log as
 ## Magnate billing integration (optional)
 
 Distro can connect to [Magnate](https://github.com/innotelinc/magnate) for
-subscription billing. Magnate owns Stripe, plans and the revenue ledger;
-Distro checks entitlements via server-to-server API calls. There is no local
-Magnate — Distro consumes the platform-stack instance.
+subscription billing. Magnate is the stack's **RevenueOps** platform: it owns
+Stripe, plans, the revenue ledger and subscriber accounts (Cerulean/Authentik-
+first — passwords live in Cerulean's Authentik, not in Magnate's app DB). There
+is no local Magnate — Distro consumes the platform-stack instance. Distro
+checks entitlements via Magnate's server-to-server API and never holds Stripe
+keys.
 
 `MAGNATE_URL` resolution order: explicit env → Consul service discovery
 (service `magnate`, filled in by bootstrap / `make discover-gateway`) →
@@ -299,11 +335,15 @@ billing disabled (free/self-hosted mode with local quotas only).
 
 1. **In Magnate**: create a plan with slug `distro` (or any slug — set
    `MAGNATE_BILLING_SLUG` to match). Connect Stripe and set pricing.
+   If you want to gate the entitlements/purchase APIs, set Magnate's
+   `ENTITLEMENTS_API_TOKEN`; then Distro must send the same value as
+   `MAGNATE_ENTITLEMENTS_TOKEN`.
 
 2. **In Distro `.env`** (or let Consul discovery fill `MAGNATE_URL`):
    ```
-   MAGNATE_URL=http://10.10.1.1:3010            # optional — auto-discovered
-   MAGNATE_ENTITLEMENTS_TOKEN=<shared-secret>   # optional on trusted nets
+   MAGNATE_URL=https://magnate.innotel.us         # optional — auto-discovered via Consul
+   MAGNATE_ENTITLEMENTS_TOKEN=<shared-secret>     # optional on trusted nets;
+                                                  # must equal Magnate's ENTITLEMENTS_API_TOKEN
    MAGNATE_BILLING_SLUG=distro                  # default
    ```
 
@@ -311,12 +351,16 @@ billing disabled (free/self-hosted mode with local quotas only).
 
 ### How it works
 
-- **Entitlement check**: `GET /api/billing/entitlements` proxies to Magnate's
-  `/api/entitlements?plan=distro&user=<email>`. Returns `{ entitled, plan,
-  status, expires_at, source }`. The admin console shows this per user.
+- **Entitlement check**: `GET /api/billing/entitlements` (Distro control plane)
+  proxies to Magnate's `/api/entitlements?plan=distro&user=<email>`.
+  Returns `{ entitled, plan, status, expires_at, source }`. The admin console
+  shows this per user, and the quota middleware gates chat turns on it.
+- **Plans list**: `GET /api/billing/plans` fetches plans from Magnate's
+  `/api/admin/plans` (admin auth via `MAGNATE_ENTITLEMENTS_TOKEN` bearer when
+  that token is set on the Magnate side).
 - **Checkout**: `POST /api/billing/checkout` with `{ planSlug, interval }`
-  forwards to Magnate's checkout API and returns a Stripe Checkout session URL.
-- **Plans list**: `GET /api/billing/plans` fetches available plans from Magnate.
+  forwards to Magnate's `/api/checkout` and returns a Stripe Checkout session
+  URL.
 - **Graceful degradation**: when Magnate is unreachable, entitlements return
   `{ entitled: null, source: 'unreachable' }` — Distro falls back to local
   quotas. No features are blocked by billing failures.
@@ -327,6 +371,30 @@ The admin dashboard (`/admin`) shows:
 - **Billing status**: whether Magnate is configured and reachable
 - **Per-user entitlements**: each user's subscription plan, status and expiry
 - **Checkout link**: generates a Magnate checkout URL for a user
+
+### Magnate + Cerulean relationship
+
+Magnate is Cerulean/Authentik-first. Its `.env.sample` documents the shared
+`ENTITLEMENTS_API_TOKEN` that gates `GET /api/entitlements` and `POST
+/api/purchases`. Distro reuses the same token as `MAGNATE_ENTITLEMENTS_TOKEN`.
+The Magnate storefront and admin panel live under `magnate.innotel.us`; DNS +
+wildcard TLS for those hosts are provisioned by Cerulean the same way as every
+other platform host.
+
+## Atlas integration (git export)
+
+Distro builds apps live in the browser; Atlas is the stack's **CodeOps** home
+(Gitea repos + Chef AI app builder on self-hosted Convex). When
+`ATLAS_URL` + `ATLAS_GIT_REMOTE` are both set in Distro `.env`, the control
+plane exposes:
+
+- `GET /api/export/config` → `{ configured, url, remote }`
+- `POST /api/export/validate` → validates the remote URL (SSH or HTTPS)
+
+The web app uses these to push the current WebContainer project to an
+Atlas/Gitea remote (via ssh-agent or WebContainer's git API). Atlas itself
+consumes the same Magnate + Cerulean services Distro does, so billing and
+identity are shared across the stack.
 
 ## Where multi-tenant plugs in
 

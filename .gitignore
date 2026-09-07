@@ -1,5 +1,6 @@
 # secrets / env (keep tracked examples, never the real files)
 .env
+.env.local
 .env.*
 !.env.example
 
@@ -14,9 +15,11 @@ node_modules/
 *.log
 npm-debug.log*
 
+# backups
+backups/
+
 # OS / editor noise
 .DS_Store
 .idea/
 .vscode/
 .pnpm-store/
-backups/
