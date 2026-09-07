@@ -20,6 +20,63 @@ export function magnateConfigured() {
 }
 
 /**
+ * Seed the 'distro' plan in Magnate on first run.
+ * This ensures the plan exists for entitlements checks.
+ * Idempotent: if the plan already exists, this is a no-op.
+ */
+export async function seedDistroPlan() {
+  if (!MAGNATE_URL) return;
+
+  const headers = {};
+  if (MAGNATE_ENTITLEMENTS_TOKEN) {
+    headers['Authorization'] = `Bearer ${MAGNATE_ENTITLEMENTS_TOKEN}`;
+  }
+
+  try {
+    // Check if plan already exists
+    const checkRes = await fetch(`${MAGNATE_URL}/api/entitlements?plan=${MAGNATE_BILLING_SLUG}`, {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+    const checkData = await checkRes.json();
+    if (checkData.reason !== 'plan_not_found') {
+      console.log(`[billing] distro plan already exists in Magnate`);
+      return;
+    }
+
+    // Create the plan via Magnate's admin API
+    const createRes = await fetch(`${MAGNATE_URL}/api/admin/plans`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Distro',
+        slug: MAGNATE_BILLING_SLUG,
+        description: 'AI app-building platform — unlimited builds, all models.',
+        priceMonthlyCents: 1999,
+        priceYearlyCents: 19990,
+        features: [
+          'Unlimited app builds',
+          'Access to all AI models via OmniRoute',
+          'Live preview & terminal in-browser',
+          'Priority support'
+        ],
+        highlighted: true,
+        active: true,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (createRes.ok) {
+      console.log(`[billing] created distro plan in Magnate`);
+    } else {
+      console.warn(`[billing] failed to create distro plan: HTTP ${createRes.status}`);
+    }
+  } catch (err) {
+    console.warn(`[billing] seed failed: ${err?.message || err}`);
+  }
+}
+
+/**
  * Check a user's entitlement against Magnate.
  *
  * Returns the raw Magnate response shape:
