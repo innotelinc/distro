@@ -259,6 +259,46 @@ stores the session exactly like password login, so quotas and the admin
 console work unchanged. New SSO signups land in the audit log as
 `user.oidc-signup` (existing users: `user.oidc-login`).
 
+## Magnate billing integration (optional)
+
+Distro can connect to [Magnate](https://github.com/innotelinc/magnate) for
+subscription billing. Magnate owns Stripe, plans and the revenue ledger;
+Distro checks entitlements via server-to-server API calls. Leave
+`MAGNATE_URL` empty to run as a free/self-hosted tool with local quotas only.
+
+### Setup
+
+1. **In Magnate**: create a plan with slug `distro` (or any slug — set
+   `MAGNATE_BILLING_SLUG` to match). Connect Stripe and set pricing.
+
+2. **In Distro `.env`**:
+   ```
+   MAGNATE_URL=https://magnate.example.com
+   MAGNATE_ENTITLEMENTS_TOKEN=<shared-secret>   # optional on trusted nets
+   MAGNATE_BILLING_SLUG=distro                  # default
+   ```
+
+3. Restart the control plane: `docker compose up -d control-plane`
+
+### How it works
+
+- **Entitlement check**: `GET /api/billing/entitlements` proxies to Magnate's
+  `/api/entitlements?plan=distro&user=<email>`. Returns `{ entitled, plan,
+  status, expires_at, source }`. The admin console shows this per user.
+- **Checkout**: `POST /api/billing/checkout` with `{ planSlug, interval }`
+  forwards to Magnate's checkout API and returns a Stripe Checkout session URL.
+- **Plans list**: `GET /api/billing/plans` fetches available plans from Magnate.
+- **Graceful degradation**: when Magnate is unreachable, entitlements return
+  `{ entitled: null, source: 'unreachable' }` — Distro falls back to local
+  quotas. No features are blocked by billing failures.
+
+### Admin console
+
+The admin dashboard (`/admin`) shows:
+- **Billing status**: whether Magnate is configured and reachable
+- **Per-user entitlements**: each user's subscription plan, status and expiry
+- **Checkout link**: generates a Magnate checkout URL for a user
+
 ## Where multi-tenant plugs in
 
 See `docs/multi-tenant.md`. Short version: user auth + per-user gateway keys +
