@@ -57,6 +57,17 @@ else
     if [[ -n "$host" ]]; then
       GATEWAY_MODE="consul (http://${host}:20128)"
       echo "==> gateway discovered: http://${host}:20128 (dashboard), http://${host}:20129 (API)"
+      # Pin the discovered gateway into .env so the web app and control plane
+      # skip discovery on every boot. Only fills EMPTY values (never overwrites
+      # an explicit operator choice).
+      if grep -qE '^OPENAI_LIKE_API_BASE_URL=$' .env; then
+        sed -i "s|^OPENAI_LIKE_API_BASE_URL=$|OPENAI_LIKE_API_BASE_URL=http://${host}:20129/v1|" .env
+        echo "==> wrote OPENAI_LIKE_API_BASE_URL=http://${host}:20129/v1 to .env"
+      fi
+      if grep -qE '^GATEWAY_DASHBOARD_URL=$' .env; then
+        sed -i "s|^GATEWAY_DASHBOARD_URL=$|GATEWAY_DASHBOARD_URL=http://${host}:20128|" .env
+        echo "==> wrote GATEWAY_DASHBOARD_URL=http://${host}:20128 to .env"
+      fi
     fi
   fi
 fi
@@ -66,6 +77,10 @@ if [[ "$GATEWAY_MODE" == "none" ]]; then
   echo "   Starting the LOCAL fallback gateway instead (--profile local-gateway)."
   echo "   For the shared platform gateway, set GATEWAY_API_URL in .env, e.g."
   echo "     OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20129/v1"
+  if grep -qE '^OPENAI_LIKE_API_BASE_URL=.+' .env; then
+    echo "   NOTE: OPENAI_LIKE_API_BASE_URL is set in .env — empty it if you want"
+    echo "         the web app to use the local fallback gateway instead."
+  fi
   docker compose --profile local-gateway up -d redis gateway
 
   echo "==> waiting for the local gateway to become healthy"
