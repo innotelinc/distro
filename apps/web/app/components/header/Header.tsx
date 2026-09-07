@@ -60,9 +60,11 @@ export function Header() {
           </ClientOnly>
         </>
       )}
-      {/* Origin-mode indicator: which access mode the shell is in + one-click
-          HTTPS link when on a chat-only (plain HTTP) origin. */}
-      <span className="ml-auto pl-3 flex items-center">
+      {/* Billing link + origin-mode indicator */}
+      <span className="ml-auto pl-3 flex items-center gap-3">
+        <a href="/billing" className="text-xs text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-colors" title="Billing & Subscription">
+          <span className="i-ph:credit-card-duotone text-lg" />
+        </a>
         <OriginBadgeClient fallback={null}>{() => <OriginBadge />}</OriginBadgeClient>
       </span>
     </header>

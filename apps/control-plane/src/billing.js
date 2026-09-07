@@ -75,3 +75,29 @@ export async function listPlans() {
     return [];
   }
 }
+
+/**
+ * Feature gating: returns adjusted quota limits based on entitlement status.
+ *
+ * Free users (no active subscription) get reduced limits.
+ * Subscribed users get the full limits.
+ * When billing is disabled, everyone gets full limits.
+ */
+export function gatedQuota(entitlement, baseQuota) {
+  // If billing is not configured, no gating
+  if (!magnateConfigured()) return baseQuota;
+
+  // If entitlement check failed or user is not entitled, apply free tier limits
+  if (!entitlement || entitlement.entitled !== true) {
+    return {
+      ...baseQuota,
+      // Free tier: 10 requests/day, 50k tokens/day, $0.50 spend cap
+      requests_per_day: Math.min(baseQuota.requests_per_day ?? 1000, 10),
+      tokens_per_day: Math.min(baseQuota.tokens_per_day ?? 1000000, 50000),
+      spend_cap_usd: Math.min(baseQuota.spend_cap_usd ?? 100, 0.5),
+    };
+  }
+
+  // Subscribed user: full limits (or higher if plan specifies)
+  return baseQuota;
+}
