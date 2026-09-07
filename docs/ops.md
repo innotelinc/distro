@@ -183,6 +183,34 @@ Direct-LAN/localhost use needs neither: the app derives
 (same rebuild) sets the public HTTPS origin used by the header indicator's
 one-click link when you're on a plain-HTTP origin.
 
+### Authentik SSO (optional)
+
+Sign-in with Authentik instead of email/password. In Authentik: create an
+application and a provider of type **OAuth2/OIDC Provider** with scopes
+`openid email profile`, then set these in `.env` (control plane picks them up
+on recreate — no rebuild):
+
+```
+OIDC_ISSUER_URL=https://auth.example.com/application/o/distro/
+OIDC_CLIENT_ID=<from Authentik>
+OIDC_CLIENT_SECRET=<from Authentik>
+OIDC_REDIRECT_URI=https://app.example.com/cp/api/auth/oidc/callback
+```
+
+The redirect URI is the control-plane callback **as the browser sees it**
+(`/cp/...` under the same-origin proxy layout, or
+`http://<host>:20140/api/auth/oidc/callback` on direct LAN). Paste the same
+URL as the provider's redirect URI in Authentik. Leave all four empty to
+disable SSO — the button disappears from `/login`.
+
+SSO accounts are auto-provisioned on first sign-in (role: admin if the email
+is in `CONTROL_ADMIN_EMAILS` or it is the first account, otherwise `user`),
+get their own gateway key, and cannot use password login (their stored hash
+is an unusable `sso:` sentinel). The login page runs the flow in a popup and
+stores the session exactly like password login, so quotas and the admin
+console work unchanged. New SSO signups land in the audit log as
+`user.oidc-signup` (existing users: `user.oidc-login`).
+
 ## Where multi-tenant plugs in
 
 See `docs/multi-tenant.md`. Short version: user auth + per-user gateway keys +

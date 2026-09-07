@@ -31,6 +31,7 @@ free — no gateway forking required.
 | Passwords | `src/passwords.js` | scrypt (node:crypto), no deps |
 | Gateway client | `src/gateway.js` | management login, create/list/revoke keys against the dashboard API (verified v3.8.51) |
 | Identity (M1) | `POST /api/auth/signup`, `/api/auth/login`, `/api/auth/logout`, `GET /api/me` | first account = admin; otherwise role from `ADMIN_EMAILS` |
+| Authentik SSO | `src/oidc.js` + `/api/auth/oidc/{config,start,callback}` | OIDC authorization-code login via Authentik (popup posts the session back to the app); SSO accounts get an unusable `sso:` password hash, auto-provisioned with their own gateway key. Verified against a local OIDC mock |
 | Per-user keys (M2) | signup mints a key; `GET /api/me/gateway-key`; `POST /api/me/gateway-key/rotate` | key lifecycle driven through the gateway dashboard API |
 | Quota gate (M3) | `GET /api/internal/quota-check` + `POST /api/internal/usage-report` | the web app identifies the user by their gateway key and enforces/records before/after each chat turn (`DISTRO_ENFORCE_QUOTA`) |
 | Usage sync (M4) | `src/sync.js` + `src/gatewayUsage.js` | scheduled/CLI sync of the gateway's per-key ledger into `usage_cache` (gateway-data volume mounted ro) |
@@ -56,6 +57,13 @@ GET    /api/me/gateway-key                                        → { gatewayK
 POST   /api/me/gateway-key/rotate                                 → fresh key (old one revoked)
 GET    /api/me/usage                                              → today snapshot (M4: cache only)
 GET    /api/me/quota-status                                       → { allowed, reasons, quota }
+
+# Auth (session token) — same as the web UI; `GET /api/me` returns the current user
+
+# Authentik SSO (optional, OIDC) — popup flow
+GET    /api/auth/oidc/config                                      → { enabled, provider, issuerHost }
+GET    /api/auth/oidc/start                                       → 302 to Authentik authorize
+GET    /api/auth/oidc/callback                                    → exchanges code, posts session to opener
 
 # Internal — auth by the user's gateway key (`Authorization: Bearer sk-…`),
 # called server-side by the Distro web app; never exposed to browser JS.

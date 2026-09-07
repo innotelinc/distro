@@ -57,36 +57,54 @@ Open http://127.0.0.1:5173 → **Start building** (the workspace lives at
 `/app`). Distro is gateway-only by default: the only provider is OmniRoute,
 and the model picker lists whatever your gateway exposes.
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Distro landing](web/landing/assets/screenshot-landing.png) | ![Workspace with generated files](web/landing/assets/screenshot-workspace.png) |
+| ![Live preview of the built app](web/landing/assets/screenshot-preview.png) | Full gallery: [web/landing/index.html](web/landing/index.html) (also published to GitHub Pages) |
+
 ## Documentation
 
 | Doc | What it covers |
 |---|---|
+| [docs/stack.md](docs/stack.md) | Distro's role in the Innotel Platform Stack (BuilderOps) |
 | [docs/architecture.md](docs/architecture.md) | how the two upstreams fit together, the integration seam, where Distro's defaults live |
-| [docs/ops.md](docs/ops.md) | first boot, ports, secrets, day-2 ops, sizing, reverse proxy |
+| [docs/ops.md](docs/ops.md) | first boot, ports, secrets, day-2 ops, sizing, reverse proxy, Authentik SSO |
 | [docs/upstream.md](docs/upstream.md) | pinning + updating bolt.diy/OmniRoute, license/attribution |
 | [docs/multi-tenant.md](docs/multi-tenant.md) | Phase 2 design: accounts, per-user quotas, usage visibility |
 | [docs/testing.md](docs/testing.md) | first-build walkthrough, quota 429 demo, nginx proxy manager host setup |
-| [apps/control-plane](apps/control-plane/README.md) | the plan on disk: DB schema, gateway API inventory, milestone roadmap |
+| [apps/control-plane](apps/control-plane/README.md) | control plane: schema, gateway API inventory, milestone roadmap |
 | [apps/web/README.md](apps/web/README.md) | the bolt.diy fork itself (rebrand + gateway defaults, standalone run) |
 
 ## Repo layout
 
 ```
 apps/web/            Distro — rebranded bolt.diy fork (the front door)
-apps/control-plane/  multi-tenant layer — schema + gateway API inventory + roadmap (planned)
-docker-compose.yml   gateway (OmniRoute image) + web, gateway LAN-exposed via GATEWAY_BIND_HOST
-Makefile             up / down / doctor / bootstrap / sync-upstream / …
-scripts/             bootstrap · healthcheck-gateway · sync-upstream · gen-brand-assets
-docs/                architecture · ops · upstream · multi-tenant
-vendor/              git-ignored upstream working copies (OmniRoute source etc.)
+apps/control-plane/  multi-tenant layer — accounts, per-user gateway keys, quotas/usage, admin console
+web/landing/         static landing + screenshot gallery (GitHub Pages)
+docker-compose.yml   gateway (OmniRoute) + control plane + web, LAN-exposed bindings
+Makefile             up / down / doctor / bootstrap / backup / …
+scripts/             bootstrap · backup · healthcheck-gateway · sync-upstream · gen-brand-assets
+.githooks/           attribution guard (shared with CI)
+docs/                stack · architecture · ops · upstream · multi-tenant · testing
 ```
 
-## Notes & roadmap
+## Status
 
-- Status: **Phase 0/1 complete** — gateway boots, Distro rebranded and wired to
-  the gateway, gateway-only mode + landing page shipped; next is Phase 2
-  (multi-tenant auth/quotas, deploy targets) and Phase 3 differentiation
-  (model fallback ladder, prompt tuning, templates/workspaces). See the docs.
+Shipped and verified on the live stack: gateway-only provider mode with the
+model picker fed from OmniRoute; the full agent pipeline (browser → `/api/chat`
+→ gateway → model) streams artifacts that install and run in the WebContainer
+sandbox; multi-tenant control plane with per-user gateway keys, quota
+enforcement, spend tracking, alert webhooks, backups, and an admin console;
+Authentik SSO; proxy/HTTPS support (same-origin `/cp` layout); origin-mode
+indicator for the WebContainer secure-origin requirement.
+
+Roadmap beyond this (documented in the control-plane roadmap): billing hooks
+if paid tiers ever come in scope.
+
+## Notes
+
 - Routes: `/` is a landing page; the workspace is `/app` (saved chats at
   `/chat/:id`). Gateway ports publish on the LAN (`GATEWAY_BIND_HOST`, default
   `0.0.0.0`) — keep the dashboard password strong.
