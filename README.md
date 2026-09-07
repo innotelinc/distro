@@ -28,6 +28,12 @@ only place upstream provider keys live.
 └──────────────────────────────┘        └──────────────────────────────┘
 ```
 
+## Platform stack
+
+Distro is registered in the [**Innotel Platform Stack**](https://github.com/innotelinc/innotel-platform-stack)
+as **BuilderOps** — its role (owns / provides / consumes / does not own) is
+declared in [docs/stack.md](docs/stack.md).
+
 ## Quickstart (self-hosted, Docker)
 
 ```bash
