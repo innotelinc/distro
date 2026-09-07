@@ -37,6 +37,23 @@ import urllib.request
 def env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
+
+def default_forward_host() -> str:
+    """NPM upstream must be the Docker HOST's LAN address, not a loopback or
+    container address. Prefer NPM_FORWARD_HOST, else the host's LAN IPv4."""
+    host = env("NPM_FORWARD_HOST")
+    if host:
+        return host
+    try:
+        import socket
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("192.168.1.1", 9))  # UDP connect does not send traffic
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+
+
 NPM_API_URL = env("NPM_API_URL").rstrip("/")
 NPM_IDENTITY = env("NPM_API_IDENTITY")
 NPM_SECRET = env("NPM_API_SECRET")
@@ -47,10 +64,10 @@ DNS_CREDENTIALS_RAW = env("NPM_DNS_CREDENTIALS", "{}")
 HOSTS_JSON = env("NPM_HOSTS_JSON", "")
 
 DEFAULT_HOSTS = [
-    {"subdomain": "slots", "forward_host": "127.0.0.1", "forward_port": 5173, "ssl": True},
-    {"subdomain": "admin", "forward_host": "127.0.0.1", "forward_port": 20140, "ssl": True},
-    {"subdomain": "cp", "forward_host": "127.0.0.1", "forward_port": 20140, "ssl": True},
-    {"subdomain": "gateway", "forward_host": "127.0.0.1", "forward_port": 20128, "ssl": True, "private": True},
+    {"subdomain": "slots", "forward_host": None, "forward_port": 5173, "ssl": True},
+    {"subdomain": "admin", "forward_host": None, "forward_port": 20140, "ssl": True},
+    {"subdomain": "cp", "forward_host": None, "forward_port": 20140, "ssl": True},
+    {"subdomain": "gateway", "forward_host": None, "forward_port": 20128, "ssl": True, "private": True},
 ]
 
 def load_hosts() -> list:
@@ -166,7 +183,7 @@ def main():
     for h in hosts:
         subdomain = h["subdomain"]
         hostname = f"{subdomain}.{DOMAIN}"
-        fwd_host = h.get("forward_host", "127.0.0.1")
+        fwd_host = h.get("forward_host") or default_forward_host()
         fwd_port = h.get("forward_port", 5173)
         use_ssl = h.get("ssl", True)
         is_private = h.get("private", False)
