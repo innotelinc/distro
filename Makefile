@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 .PHONY: help up down logs ps gateway-up web-up build bootstrap doctor \
-        discover-gateway sync-upstream typecheck format clean backup
+        discover-gateway mesh-setup sync-upstream typecheck format clean backup
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -26,6 +26,9 @@ gateway-up: ## Start only the LOCAL fallback gateway + redis
 
 discover-gateway: ## Consul-discover the remote gateway + Magnate and pin their URLs in .env
 	./scripts/discover-gateway.sh
+
+mesh-setup: ## Auto-provision the platform-stack WireGuard mesh for this server
+	./scripts/mesh-setup.sh
 
 web-up: ## Rebuild and start only Distro web
 	docker compose up -d --build web
