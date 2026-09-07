@@ -47,7 +47,6 @@ async function main() {
     }
     case 'gateway-check': {
       const gateway = new GatewayClient({
-        dashboardUrl: process.env.GATEWAY_DASHBOARD_URL,
         adminPassword: process.env.GATEWAY_ADMIN_PASSWORD,
       });
       try {
