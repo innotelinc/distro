@@ -166,15 +166,22 @@ terminal pane prints the reason when it detects this condition.
 
 The browser logs in against the control plane directly (option A per-user
 gateway keys), so when `web` is served over HTTPS the control-plane base URL
-must also be HTTPS or browsers block it as mixed content. Two settings:
+must also be HTTPS or browsers block it. Two layouts:
 
-- `VITE_CONTROL_PLANE_URL=https://admin.example.com` (build-time; baked into
-the client bundle → rebuild web: `docker compose up -d --build web`).
-- `CONTROL_CORS_ORIGIN=https://app.example.com` (runtime; strict-origin CORS
-on the control plane — only that exact origin gets the allow header, and
-preflights from any other origin get 403). Leave both empty for direct-LAN
-use, where the app auto-derives `http://<app-hostname>:20140` and CORS is
-permissive `*`.
+- **Same-origin `/cp` (default, no env).** On a proxied HTTPS host the app
+auto-resolves the control plane to the same origin under `/cp`; add one
+advanced nginx location `location /cp/ { proxy_pass http://<host>:20140/; … }`
+(trailing `/` strips the prefix) to the app's NPM host. No CORS involved.
+Admin console rides along at `https://<host>/cp/admin`.
+- **Separate host (optional).** `VITE_CONTROL_PLANE_URL=https://admin.example.com`
+(build-time, baked into the client bundle → `docker compose up -d --build web`)
+plus `CONTROL_CORS_ORIGIN=https://app.example.com` (runtime, strict-origin: only
+that exact origin gets the allow header; other preflights get 403).
+
+Direct-LAN/localhost use needs neither: the app derives
+`http://<app-hostname>:20140` and CORS is permissive `*`. `VITE_PUBLIC_ORIGIN`
+(same rebuild) sets the public HTTPS origin used by the header indicator's
+one-click link when you're on a plain-HTTP origin.
 
 ## Where multi-tenant plugs in
 
