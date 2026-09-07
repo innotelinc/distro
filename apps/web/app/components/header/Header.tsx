@@ -4,6 +4,8 @@ import { chatStore } from '~/lib/stores/chat';
 import { classNames } from '~/utils/classNames';
 import { HeaderActionButtons } from './HeaderActionButtons.client';
 import { ChatDescription } from '~/lib/persistence/ChatDescription.client';
+import { OriginBadge } from '~/components/OriginBadge';
+import { ClientOnly as OriginBadgeClient } from 'remix-utils/client-only';
 
 export function Header() {
   const chat = useStore(chatStore);
@@ -58,6 +60,11 @@ export function Header() {
           </ClientOnly>
         </>
       )}
+      {/* Origin-mode indicator: which access mode the shell is in + one-click
+          HTTPS link when on a chat-only (plain HTTP) origin. */}
+      <span className="ml-auto pl-3 flex items-center">
+        <OriginBadgeClient fallback={null}>{() => <OriginBadge />}</OriginBadgeClient>
+      </span>
     </header>
   );
 }
