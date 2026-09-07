@@ -6,9 +6,11 @@
 //   node bin/control.mjs gateway-check
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { openDb, createUser, userCount, listUsers, getQuota, getGatewayKey } from '../src/db.js';
+import { mkdirSync } from 'node:fs';
+import { openDb, createUser, userCount, listUsers, getQuota, getGatewayKey, getDb } from '../src/db.js';
 import { hashPassword } from '../src/passwords.js';
 import { GatewayClient } from '../src/gateway.js';
+import { syncUsageFromGateway } from '../src/sync.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 openDb(process.env.CONTROL_DB_PATH || join(here, '..', 'data', 'control.sqlite'));
@@ -58,8 +60,24 @@ async function main() {
       }
       break;
     }
+    case 'usage-sync': {
+      const result = await syncUsageFromGateway();
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    }
+    case 'backup': {
+      // Online SQLite backup via better-sqlite3 .backup() — safe while live.
+      const outDir = args[0] || join(here, '..', 'data', 'backups');
+      mkdirSync(outDir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+      const dest = join(outDir, `control-${stamp}.sqlite`);
+      const db = getDb();
+      await db.backup(dest);
+      console.log(`backup written: ${dest}`);
+      break;
+    }
     default:
-      console.error('usage: control.mjs <health|create-admin|users|gateway-check>');
+      console.error('usage: control.mjs <health|create-admin|users|gateway-check|usage-sync|backup>');
       process.exit(1);
   }
 }

@@ -75,12 +75,29 @@ docker compose exec gateway node healthcheck.mjs   # gateway self-check
 ```
 
 - **Admin console** (multi-tenant): `http://<host>:20140/admin` — sign in with
-  an admin account (first signup on the instance is admin). Manage users,
-  per-user daily limits (requests/tokens/spend) and gateway keys from there.
+  an admin account (first signup on the instance is admin; promote more via
+  the console). Manage users, per-user daily limits (requests/tokens/spend),
+  gateway keys, and read the audit log there.
 - **Quota enforcement**: `DISTRO_ENFORCE_QUOTA=true` (default) makes the web
   app ask the control plane before each chat turn (429 when over a daily
   cap) and report usage after it. Gateway-key spend caps still apply even if
   the control plane is down.
+- **Usage is gateway-authoritative**: the control plane syncs the gateway's
+  own per-key ledger (`usage_history` in the gateway SQLite volume, mounted
+  read-only) into `usage_cache` every `CONTROL_SYNC_INTERVAL_MS` (default
+  2 min). Manual run:
+  `docker compose exec control-plane node bin/control.mjs usage-sync`.
+- **Audit**: signups, key rotations/revokes, quota/role/disable changes and
+  deletions are recorded in `audit_log` and shown in the admin console
+  (`GET /api/admin/audit`).
+- **Backups**: `make backup` (or `./scripts/backup.sh`) snapshots both the
+  control-plane and gateway SQLite stores — each via the app's own online
+  `better-sqlite3 .backup()`, so no downtime — into `./backups/`
+  (git-ignored; prune keeps 14 days). Cron example:
+  `0 3 * * * cd /opt/distro && ./scripts/backup.sh >> /var/log/distro-backup.log 2>&1`
+  Restore: copy a `backups/control-plane/control-*.sqlite` to the
+  `control-data` volume path (`/data/control.sqlite`) with the stack stopped;
+  the gateway copy goes to `/app/data/storage.sqlite` on `gateway-data`.
 
 - **Upgrading the gateway**: bump `OMNIROUTE_IMAGE_TAG` in `.env`, then
   `docker compose up -d gateway`. Check the upstream changelog

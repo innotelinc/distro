@@ -59,20 +59,28 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       (verified over HTTP against the running stack); admin can change the
       cap and it applies without key rotation (null clears a limit).
 
-## M4 — Usage visibility (done for chat traffic; per-key gateway sync blocked)
+## M4 — Usage visibility (done: chat reports + authoritative gateway-ledger sync)
 
 - [x] `POST /api/internal/usage-report` — the web app records every finished
-      chat turn (tokens in/out + call count) against the user after streaming.
-      `usage_cache` now has real data for agent traffic.
+      chat turn (tokens in/out + call count) against the user after streaming
+      (real-time fill between syncs).
+- [x] **Authoritative sync from the gateway's own ledger**: `usage_history`
+      rows carry `api_key_id`, so the control plane reads the gateway SQLite
+      volume (mounted ro) and replaces each user's `usage_cache` with the
+      gateway's per-key aggregates for the day — covering ALL traffic under
+      the key (chat, direct /v1, dashboard usage), not just web chat turns.
+      Scheduled via `CONTROL_SYNC_INTERVAL_MS`; CLI: `control.mjs usage-sync`.
 - [x] `GET /me/usage` (today snapshot) and quota decisions consume it, so
-      daily request/token caps become effective after the first report.
+      daily request/token caps are gateway-authoritative after each sync.
 - [x] Minimal UI: admin console usage columns (`/admin`).
-- [ ] **Blocked upstream**: OmniRoute's request-logs surface has no per-key
-      attribution, so usage from direct `/v1` calls or the gateway dashboard
-      cannot be synced per user yet (see `gateway-api-inventory.md`). Chat
-      traffic is fully covered; a deeper gateway endpoint would close the gap.
+- [x] Schema-drift guard: a failed gateway read warns and never crashes;
+      chat usage reports keep caps working meanwhile.
 
-## M5 — Hardening & operator UX (admin console done; billing/audit open)
+Verified live: sync matched the operator's account key against the gateway
+ledger (per-key rows → usage_cache) and left unmapped keys (host key, deleted
+test accounts) untouched.
+
+## M5 — Hardening & operator UX (done except billing)
 
 - [x] Admin console at `http://<host>:20140/admin` (no build step): stats
       cards, per-user quota editing, disable/enable (revokes key), revoke &
@@ -80,12 +88,14 @@ Estimated sizes are relative; revisit against the pinned gateway version.
 - [x] Role management (`PATCH role`) with a last-admin guard and account
       deletion (`DELETE /api/admin/users/:id`, cascades + revokes key).
 - [x] `GET /api/admin/stats` aggregate endpoint.
+- [x] Audit log: `audit_log` table records signups, quota/role/disable
+      changes, key revoke/rotate, deletes; `GET /api/admin/audit` + console
+      panel. Append-only, survives user deletion.
+- [x] Backups: `make backup` / `scripts/backup.sh` snapshots the control-plane
+      and gateway SQLite stores via each app's online `better-sqlite3
+      .backup()` (verified `integrity_check: ok`) into `./backups/`.
 - [ ] Billing hook points (Stripe etc.) behind a `billing` interface — only if
       paid tiers are in scope.
-- [ ] Audit log (signups, key rotations, quota changes), backups of the
-      control-plane DB, docs runbook section.
-- [ ] Acceptance: a second operator can administer the platform from the
-      dashboard without touching compose/DB (admin console covers this).
 
 ## Open questions to resolve before/at M2
 

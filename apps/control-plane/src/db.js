@@ -81,6 +81,34 @@ export function deleteUser(id) {
   getDb().prepare('DELETE FROM users WHERE id = ?').run(id);
 }
 
+// ── audit log ────────────────────────────────────────────────────────────
+export function logAudit({ actorId = null, actorEmail = null, action, targetId = null, targetEmail = null, meta = null }) {
+  getDb()
+    .prepare(
+      `INSERT INTO audit_log (actor_id, actor_email, action, target_id, target_email, meta)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(actorId, actorEmail, action, targetId, targetEmail, meta ? JSON.stringify(meta) : null);
+}
+
+export function listAudit(limit = 200) {
+  return getDb()
+    .prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?')
+    .all(Math.max(1, Math.min(1000, limit)))
+    .map((row) => ({
+      ...row,
+      meta: row.meta ? safeJsonParse(row.meta) : null,
+    }));
+}
+
+function safeJsonParse(s) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return s;
+  }
+}
+
 // ── sessions ─────────────────────────────────────────────────────────────
 export function createSession(userId, tokenHash, expiresAt) {
   const id = randomUUID();
@@ -149,6 +177,20 @@ export function getUserByGatewayKey(gatewayKey) {
          WHERE k.gateway_key = ? AND k.revoked_at IS NULL AND u.disabled_at IS NULL`,
       )
       .get(gatewayKey) || null
+  );
+}
+
+/** Resolve the active user owning a gateway key id (M4 sync: the gateway's
+ *  usage_history.api_key_id ↔ our gateway_keys.gateway_key_id). */
+export function getUserByGatewayKeyId(keyId) {
+  if (!keyId) return null;
+  return (
+    getDb()
+      .prepare(
+        `SELECT u.* FROM gateway_keys k JOIN users u ON u.id = k.user_id
+         WHERE k.gateway_key_id = ? AND k.revoked_at IS NULL AND u.disabled_at IS NULL`,
+      )
+      .get(keyId) || null
   );
 }
 
@@ -222,4 +264,24 @@ export function getUsageToday(userId) {
       )
       .get(userId) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
   );
+}
+
+/** M4: make the gateway's own per-key aggregates authoritative for today.
+ *  Every chat turn also flows through the gateway with the user's key, so
+ *  this REPLACES (not adds to) the day's totals — chat-usage reports merely
+ *  fill the gap between syncs. */
+export function replaceUsageFromGateway(userId, { tokensIn, tokensOut, requests }) {
+  const day = new Date().toISOString().slice(0, 10);
+  getDb()
+    .prepare(
+      `INSERT INTO usage_cache (user_id, date, tokens_in, tokens_out, requests, cost_usd, updated_at)
+       VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
+       ON CONFLICT (user_id, date) DO UPDATE SET
+         tokens_in = excluded.tokens_in,
+         tokens_out = excluded.tokens_out,
+         requests = excluded.requests,
+         updated_at = datetime('now')`,
+    )
+    .run(userId, day, Math.max(0, tokensIn), Math.max(0, tokensOut), Math.max(0, requests));
+  return getUsageToday(userId);
 }

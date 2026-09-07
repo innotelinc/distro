@@ -63,5 +63,18 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Audit log (M5): signups, key lifecycle, quota/role/disable changes.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  actor_id      TEXT,                              -- user id or NULL (system/CLI)
+  actor_email   TEXT,
+  action        TEXT NOT NULL,                     -- e.g. signup, disable, quota.change, key.revoke
+  target_id     TEXT,
+  target_email  TEXT,
+  meta          TEXT                               -- JSON details (limits, key ids, …)
+);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_gateway_keys_user ON gateway_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_usage_cache_user_date ON usage_cache(user_id, date);
