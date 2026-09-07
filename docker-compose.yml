@@ -87,6 +87,10 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+    extra_hosts:
+      # Lets CONTROL_ALERT_WEBHOOK_URL point at a receiver on the host, e.g.
+      # http://host.docker.internal:8080/hook
+      - 'host.docker.internal:host-gateway'
     ports:
       # Browser-facing (the Distro web UI logs in / fetches per-user gateway
       # keys directly). Bind like the gateway: LAN via 0.0.0.0, loopback via

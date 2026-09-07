@@ -3,6 +3,7 @@ import { openDb } from './db.js';
 import { GatewayClient } from './gateway.js';
 import { handler } from './http.js';
 import { syncUsageFromGateway } from './sync.js';
+import { alert } from './alerts.js';
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 20140);
@@ -18,16 +19,25 @@ async function runUsageSync() {
     const result = await syncUsageFromGateway();
     if (!result.ok) {
       console.warn(`[control-plane] usage sync skipped: ${result.reason}`);
+      void alert('sync.failed', {
+        title: 'Gateway usage sync unavailable',
+        message: result.reason,
+      });
       return;
     }
     if (result.keys > 0) {
       console.log(
         `[control-plane] usage sync: ${result.matched} user(s) matched, ${result.unknownKeys} unmapped key(s), ` +
-          `${result.total.requests} req / ${result.total.tokensIn + result.total.tokensOut} tok today`,
+          `${result.total.requests} req / ${result.total.tokensIn + result.total.tokensOut} tok ` +
+          `(~$${result.total.costUsd.toFixed(4)}) today`,
       );
     }
   } catch (err) {
     console.warn(`[control-plane] usage sync failed: ${err?.message || err}`);
+    void alert('sync.failed', {
+      title: 'Gateway usage sync failed',
+      message: err?.message || String(err),
+    });
   }
 }
 

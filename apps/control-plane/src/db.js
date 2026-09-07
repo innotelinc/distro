@@ -270,18 +270,26 @@ export function getUsageToday(userId) {
  *  Every chat turn also flows through the gateway with the user's key, so
  *  this REPLACES (not adds to) the day's totals — chat-usage reports merely
  *  fill the gap between syncs. */
-export function replaceUsageFromGateway(userId, { tokensIn, tokensOut, requests }) {
+export function replaceUsageFromGateway(userId, { tokensIn, tokensOut, requests, costUsd = 0 }) {
   const day = new Date().toISOString().slice(0, 10);
   getDb()
     .prepare(
       `INSERT INTO usage_cache (user_id, date, tokens_in, tokens_out, requests, cost_usd, updated_at)
-       VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
        ON CONFLICT (user_id, date) DO UPDATE SET
          tokens_in = excluded.tokens_in,
          tokens_out = excluded.tokens_out,
          requests = excluded.requests,
+         cost_usd = excluded.cost_usd,
          updated_at = datetime('now')`,
     )
-    .run(userId, day, Math.max(0, tokensIn), Math.max(0, tokensOut), Math.max(0, requests));
+    .run(
+      userId,
+      day,
+      Math.max(0, tokensIn),
+      Math.max(0, tokensOut),
+      Math.max(0, requests),
+      Math.max(0, Number(costUsd) || 0),
+    );
   return getUsageToday(userId);
 }
