@@ -72,6 +72,29 @@ else
   fi
 fi
 
+# ── Magnate (billing) discovery — independent of the gateway path, optional ───
+# Fills an empty/missing MAGNATE_URL from consul; never overwrites a pin.
+if [[ -z "$(envget MAGNATE_URL)" ]]; then
+  magnate_service="${MAGNATE_CONSUL_SERVICE:-$(envget MAGNATE_CONSUL_SERVICE)}"
+  magnate_service="${magnate_service:-magnate}"
+  if entry="$(curl -fsS -m 5 "${CONTROL_CONSUL_URL:-http://10.10.1.1:8500}/v1/health/service/${magnate_service}?passing=true" 2>/dev/null)" \
+     && [[ "$entry" != "[]" ]]; then
+    mhost="$(node -e 'const e=JSON.parse(process.argv[1]);const s=e[0]?.Service,n=e[0]?.Node;console.log(s?.Address||n?.Address||"")' "$entry" 2>/dev/null || true)"
+    mport="$(node -e 'const e=JSON.parse(process.argv[1]);console.log(e[0]?.Service?.Port||3010)' "$entry" 2>/dev/null || echo 3010)"
+    if [[ -n "$mhost" ]]; then
+      if grep -qE '^MAGNATE_URL=$' .env; then
+        sed -i "s|^MAGNATE_URL=$|MAGNATE_URL=http://${mhost}:${mport}|" .env
+        echo "==> wrote MAGNATE_URL=http://${mhost}:${mport} to .env"
+      elif ! grep -qE '^MAGNATE_URL=' .env; then
+        echo "MAGNATE_URL=http://${mhost}:${mport}" >> .env
+        echo "==> appended MAGNATE_URL=http://${mhost}:${mport} to .env"
+      fi
+    fi
+  else
+    echo "==> magnate not discoverable via consul — billing stays disabled"
+  fi
+fi
+
 if [[ "$GATEWAY_MODE" == "none" ]]; then
   echo "!! no remote gateway found via env or consul"
   echo "   Starting the LOCAL fallback gateway instead (--profile local-gateway)."
