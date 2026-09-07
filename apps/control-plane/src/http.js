@@ -27,6 +27,14 @@ import {
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
 import { alert, alertsConfig } from './alerts.js';
 import { estimateCostUsd } from './pricing.js';
+import { randomBytes } from 'node:crypto';
+import {
+  oidcEnabled,
+  oidcPublicConfig,
+  oidcAuthorizeUrl,
+  oidcExchangeCode,
+  oidcUserinfo,
+} from './oidc.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -180,6 +188,9 @@ export async function handler(req, res, { gateway }) {
     const body = await readBody(req);
     const email = String(body.email || '').trim().toLowerCase();
     const user = getUserByEmail(email);
+    if (user && String(user.password_hash || '').startsWith('sso:')) {
+      return send(401, { error: 'This account signs in with Authentik — use "Continue with Authentik" below.' });
+    }
     if (!user || userIsDisabled(user.id) || !verifyPassword(String(body.password || ''), user.password_hash)) {
       return send(401, { error: 'invalid credentials' });
     }
@@ -189,6 +200,92 @@ export async function handler(req, res, { gateway }) {
   if (path === '/api/auth/logout' && method === 'POST') {
     closeSession(req);
     return send(204, {});
+  }
+
+  // ---- Authentik (OIDC) SSO ----
+  if (path === '/api/auth/oidc/config' && method === 'GET') {
+    return send(200, oidcPublicConfig());
+  }
+
+  if (path === '/api/auth/oidc/start' && method === 'GET') {
+    if (!oidcEnabled()) return send(404, { error: 'OIDC sign-in is not configured' });
+    const state = randomBytes(16).toString('hex');
+    let authorizeUrl;
+    try {
+      authorizeUrl = await oidcAuthorizeUrl(state);
+    } catch (err) {
+      console.warn('[oidc] authorize URL failed:', err?.message || err);
+      return send(502, { error: `Authentik unreachable: ${err?.message || err}` });
+    }
+    res.writeHead(302, {
+      Location: authorizeUrl,
+      'Set-Cookie': `distro_oidc_state=${state}; Path=/; Max-Age=600; HttpOnly; SameSite=Lax`,
+    });
+    return res.end();
+  }
+
+  if (path === '/api/auth/oidc/callback' && method === 'GET') {
+    const url = new URL(req.url, 'http://localhost');
+    const code = url.searchParams.get('code') || '';
+    const state = url.searchParams.get('state') || '';
+    const cookieState = (req.headers.cookie || '').match(/(?:^|;\s*)distro_oidc_state=([^;]+)/)?.[1] || '';
+    res.setHeader('Set-Cookie', 'distro_oidc_state=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax');
+    const html = (message) => `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Sign-in</title></head><body style="font-family:system-ui;background:#0b0f1a;color:#e6edf7;display:grid;place-items:center;height:100vh;margin:0"><p>${message}</p></body></html>`;
+    const htmlResp = (status, message) => {
+      const buf = Buffer.from(html(message));
+      res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': buf.length });
+      return res.end(buf);
+    };
+    if (!code || !state || state !== cookieState) {
+      return htmlResp(400, 'Sign-in failed: invalid or expired state. Close this window and try again.');
+    }
+    if (!oidcEnabled()) return htmlResp(404, 'Sign-in with Authentik is not configured on this instance.');
+
+    let profile;
+    try {
+      const { accessToken } = await oidcExchangeCode(code);
+      profile = await oidcUserinfo(accessToken);
+    } catch (err) {
+      console.warn('[oidc] exchange/userinfo failed:', err?.message || err);
+      return htmlResp(502, 'Sign-in failed: Authentik did not complete the exchange. Close this window and try again.');
+    }
+    const email = String(profile.email || '').trim().toLowerCase();
+    if (!email) return htmlResp(400, 'Sign-in failed: Authentik returned no email address.');
+
+    let user = getUserByEmail(email);
+    let isNew = false;
+    if (!user) {
+      isNew = true;
+      const admins = (process.env.ADMIN_EMAILS || '')
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean);
+      const role = userCount() === 0 || admins.includes(email) ? 'admin' : 'user';
+      user = createUser({ email, passwordHash: `sso:${randomBytes(18).toString('hex')}`, role });
+      const quota = upsertQuota(user.id, { plan: 'free' });
+      try {
+        await gateway.login();
+        const key = await gateway.createApiKey(`distro-user-${user.id.slice(0, 8)}`, {
+          dailyUsageLimitUsd: quota.spend_cap_usd ?? undefined,
+          weeklyUsageLimitUsd: quota.spend_cap_usd != null ? quota.spend_cap_usd * 7 : undefined,
+        });
+        setGatewayKey(user.id, { gatewayKeyId: key.id, gatewayKey: key.key });
+      } catch (err) {
+        updateUser(user.id, { disabled_at: new Date().toISOString() });
+        console.warn('[oidc] gateway provisioning failed for', email, ':', err?.message || err);
+        return htmlResp(502, 'Sign-in failed: could not provision a gateway key for the new account. Contact the administrator.');
+      }
+      logAudit({ action: 'user.oidc-signup', targetId: user.id, targetEmail: email, meta: { provider: 'Authentik', role } });
+    }
+    if (userIsDisabled(user.id)) return htmlResp(403, 'Sign-in failed: this account is disabled.');
+    if (!isNew) logAudit({ action: 'user.oidc-login', targetId: user.id, targetEmail: email, meta: { provider: 'Authentik' } });
+    const token = openSession(user.id);
+    const payload = JSON.stringify({ token, user: publicUser(user) })
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e');
+    const page = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Signed in</title></head><body><script>const d=${payload};window.opener&&window.opener.postMessage({source:'distro-oidc',token:d.token,user:d.user},'*');window.close();</script><noscript><p style="font-family:system-ui">Signed in — close this window and return to Distro.</p></noscript></body></html>`;
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(page);
   }
 
   // ---- internal routes (auth by gateway key, called server-side by the web
