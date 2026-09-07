@@ -97,6 +97,29 @@ services:
       # CONTROL_BIND_HOST=127.0.0.1. Protect with CONTROL_CORS_ORIGIN.
       - '${CONTROL_BIND_HOST:-0.0.0.0}:20140:20140'
 
+  # ── Magnate (subscription billing platform) ─────────────────────────────────
+  magnate:
+    build: .
+    container_name: distro-magnate
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - APP_URL=${MAGNATE_URL:-http://localhost:3000}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - STRIPE_CURRENCY=${STRIPE_CURRENCY:-usd}
+      - MAGNATE_PORT=3000
+    ports:
+      - '${MAGNATE_BIND_HOST:-127.0.0.1}:3000:3000'
+    volumes:
+      - magnate-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
   # ── Distro web (rebranded bolt.diy) ────────────────────────────────────────
   web:
     build:
@@ -145,3 +168,4 @@ volumes:
   gateway-data:
   redis-data:
   control-data:
+  magnate-data:
