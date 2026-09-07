@@ -11,17 +11,58 @@ export const CONTROL_PLANE_PORT = Number(import.meta.env.VITE_CONTROL_PLANE_PORT
 // manager) the control plane usually sits behind its own host/HTTPS rather
 // than raw hostname:20140 — set VITE_CONTROL_PLANE_URL to that absolute base
 // URL (scheme + host, optional path). Empty = derive from the page origin
-// (direct LAN mode).
+// (see controlPlaneBase below).
 export const CONTROL_PLANE_URL = ((import.meta.env.VITE_CONTROL_PLANE_URL as string | undefined) || '').replace(/\/+$/, '');
+
+// Public HTTPS origin used by the origin-mode indicator's one-click link
+// (e.g. https://app.example.com). Empty = hide the link unless it can be
+// derived (same hostname over HTTPS).
+export const PUBLIC_ORIGIN = ((import.meta.env.VITE_PUBLIC_ORIGIN as string | undefined) || '').replace(/\/+$/, '');
 
 const TOKEN_KEY = 'distro_token';
 const USER_KEY = 'distro_user';
 const PROVIDER = 'OpenAILike'; // the OmniRoute gateway provider
 
+export function isLocalHostname(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+/** Which access mode the page is running in. The full shell (WebContainer
+ *  preview/terminal) needs a trustworthy origin: HTTPS or localhost. Plain
+ *  HTTP from a LAN IP/hostname is chat-only. */
+export function pageOriginMode(): 'unknown' | 'local' | 'https' | 'insecure' {
+  if (typeof window === 'undefined') return 'unknown';
+  const { protocol, hostname } = window.location;
+  if (isLocalHostname(hostname)) return 'local';
+  return protocol === 'https:' ? 'https' : 'insecure';
+}
+
+/** Best-guess public HTTPS origin for the one-click link. An explicit
+ *  VITE_PUBLIC_ORIGIN wins; otherwise the same hostname over HTTPS (only for
+ *  hostnames — a bare IP usually has no certificate). */
+export function httpsOriginHint(): string {
+  if (PUBLIC_ORIGIN) return PUBLIC_ORIGIN;
+  if (typeof window === 'undefined') return '';
+  const h = window.location.hostname;
+  if (!h || /^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return '';
+  return `https://${h}`;
+}
+
 export function controlPlaneBase(): string {
   if (typeof window === 'undefined') return '';
   if (CONTROL_PLANE_URL) return CONTROL_PLANE_URL;
-  return `${window.location.protocol}//${window.location.hostname}:${CONTROL_PLANE_PORT}`;
+  const { protocol, hostname, origin } = window.location;
+  // Proxied HTTPS host (reverse proxy, e.g. nginx proxy manager): the browser
+  // cannot reach a raw :20140 port behind the proxy, so the control plane is
+  // expected at the SAME origin under /cp (an NPM "advanced" location that
+  // forwards /cp/ -> <host>:20140/, stripping the prefix). Same-origin means
+  // no CORS is involved. Override with VITE_CONTROL_PLANE_URL for a separate
+  // host layout.
+  if (protocol === 'https:' && !isLocalHostname(hostname)) {
+    return `${origin}/cp`;
+  }
+  // Direct LAN / localhost mode: the control-plane port is reachable directly.
+  return `${protocol}//${hostname}:${CONTROL_PLANE_PORT}`;
 }
 
 export function getToken(): string | null {

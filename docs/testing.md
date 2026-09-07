@@ -81,29 +81,47 @@ Cron it (see docs/ops.md). `make doctor` after restore.
 
 NPM (this repo's recommended front door) proxies hostnames → `host:port`.
 The app itself needs **no websocket** proxying — the sandbox/preview runs in
-the browser via WebContainers. Suggested host entries:
+the browser via WebContainers. The simplest layout is ONE public hostname for
+the whole product:
 
 | NPM host | Forward to | Notes |
 |---|---|---|
 | `app.example.com` | `http://<host>:5173` | Distro web app (public) |
-| `admin.example.com` | `http://<host>:20140` | Admin console + control-plane API — restrict access (NPM access list / client certs) |
-| `gateway.example.com` | `http://<host>:20128` | OmniRoute dashboard — keep private/restricted; enable **WebSockets** for its live views if you use them |
+| `app.example.com` **+ advanced location** | `http://<host>:20140` | see the `/cp` snippet below (control plane on the same origin) |
+| `gateway.example.com` | `http://<host>:20128` | OmniRoute dashboard — keep private/restricted |
 
-If the web app runs under HTTPS/`app.example.com`, two more settings make the
-multi-user login work over TLS (browsers block plain-HTTP cross-origin calls
-from an HTTPS page):
+**Same-origin `/cp` layout (recommended).** Browsers on an HTTPS page cannot
+call a raw `:20140` port behind the proxy, so when the web app is served on a
+proxied HTTPS host it automatically looks for the control plane at the same
+origin under `/cp` — no CORS, no second host, no env to set. Add this to the
+NPM host's **Advanced** tab (nginx custom config):
 
-1. Rebuild the web app with the control-plane's public base baked in:
-   `.env`: `VITE_CONTROL_PLANE_URL=https://admin.example.com` →
-   `docker compose up -d --build web`.
-2. Tell the control plane which origins may call it:
-   `.env`: `CONTROL_CORS_ORIGIN=https://app.example.com` →
-   `docker compose up -d control-plane`.
+```nginx
+location /cp/ {
+    proxy_pass http://<host-lan-ip>:20140/;   # trailing / strips the /cp prefix
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+}
+```
 
-Then: user opens `https://app.example.com` → login calls
-`https://admin.example.com/api/...` → CORS allows the app origin. (Without a
-reverse proxy — direct LAN use — leave `VITE_CONTROL_PLANE_URL` empty and the
-app auto-derives `http://<app-hostname>:20140`.)
+Then `https://app.example.com` serves everything: the web app at `/`, login
+at `/cp/api/auth/login`, the admin console at `/cp/admin`. Login on any
+plain-HTTP origin (LAN/localhost) keeps using `http://<host>:20140` directly,
+so localhost still works without the snippet.
+
+**Separate-host layout (optional).** If you prefer a dedicated
+`admin.example.com → :20140` host instead, keep the default auto-resolution
+OFF by baking the control plane's base: `.env`
+`VITE_CONTROL_PLANE_URL=https://admin.example.com` → rebuild web, and lock
+CORS with `CONTROL_CORS_ORIGIN=https://app.example.com` → restart
+control-plane.
+
+Optionally set the app's public HTTPS origin for the header indicator's
+one-click link: `.env` `VITE_PUBLIC_ORIGIN=https://app.example.com` →
+rebuild web.
 
 **This mode is verified live** (local nginx + self-signed certs for
 `app.distro.test` / `admin.distro.test`, proxy-mode env set, stack rebuilt): a

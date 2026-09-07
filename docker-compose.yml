@@ -107,6 +107,7 @@ services:
         VITE_DISTRO_GATEWAY_ONLY: ${DISTRO_GATEWAY_ONLY:-true}
         VITE_DISTRO_CONTROL_PLANE: ${DISTRO_CONTROL_PLANE:-false}
         VITE_CONTROL_PLANE_URL: ${VITE_CONTROL_PLANE_URL:-}
+        VITE_PUBLIC_ORIGIN: ${VITE_PUBLIC_ORIGIN:-}
         BUILD_HEAP_MB: ${BUILD_HEAP_MB:-4096}
     image: distro-web:local
     container_name: distro-web
