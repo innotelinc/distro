@@ -1,110 +1,86 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# seed-distro-plan.sh — Create the "distro" plan in Magnate's SQLite database
+# seed-distro-plan.sh — Create the "distro" plan in the REMOTE Magnate instance
 #
-# Run after Magnate is up:
+# Magnate runs on the platform stack (server 1); Distro talks to it over HTTP.
+# The control plane auto-seeds this plan on boot when billing is configured
+# (apps/control-plane/src/billing.js → seedDistroPlan). Use this script to
+# (re-)run the seed manually without restarting the control plane:
+#
 #   ./scripts/seed-distro-plan.sh
 #
-# This seeds a single plan with slug "distro" that Distro checks via the
-# entitlements API. Adjust prices/features as needed.
+# Magnate URL resolution: $MAGNATE_URL → .env → consul (service "magnate").
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-MAGNATE_CONTAINER="${MAGNATE_CONTAINER:-distro-magnate}"
-DB_PATH="/data/storage.sqlite"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 
-echo "==> Checking if Magnate is running..."
-if ! docker inspect "$MAGNATE_CONTAINER" >/dev/null 2>&1; then
-  echo "ERROR: container $MAGNATE_CONTAINER not found. Start Magnate first."
-  exit 1
+envget() { grep -E "^${1}=" .env 2>/dev/null | head -1 | cut -d= -f2- || true; }
+
+url="${MAGNATE_URL:-$(envget MAGNATE_URL)}"
+if [[ -z "$url" ]]; then
+  consul="${CONTROL_CONSUL_URL:-$(envget CONTROL_CONSUL_URL)}"
+  consul="${consul:-http://10.10.1.1:8500}"
+  service="${MAGNATE_CONSUL_SERVICE:-$(envget MAGNATE_CONSUL_SERVICE)}"
+  service="${service:-magnate}"
+  echo "==> MAGNATE_URL not set — discovering via consul ($consul, service $service)…"
+  if entry="$(curl -fsS -m 5 "${consul}/v1/health/service/${service}?passing=true" 2>/dev/null)" && [[ "$entry" != "[]" ]]; then
+    host="$(node -e 'const e=JSON.parse(process.argv[1]);const s=e[0]?.Service,n=e[0]?.Node;console.log(s?.Address||n?.Address||"")' "$entry" 2>/dev/null || true)"
+    port="$(node -e 'const e=JSON.parse(process.argv[1]);console.log(e[0]?.Service?.Port||3010)' "$entry" 2>/dev/null || echo 3010)"
+    [[ -n "$host" ]] && url="http://${host}:${port}"
+  fi
 fi
 
-echo "==> Seeding distro plan in $MAGNATE_CONTAINER..."
-docker exec "$MAGNATE_CONTAINER" node -e "
-const Database = require('better-sqlite3');
-const db = new Database('$DB_PATH');
+if [[ -z "$url" ]]; then
+  echo "ERROR: Magnate not configured and not discoverable via consul."
+  echo "       Set MAGNATE_URL in .env (e.g. MAGNATE_URL=http://10.10.1.1:3010)."
+  exit 1
+fi
+url="${url%/}"
 
-// Create plans table if it doesn't exist (Magnate's schema)
-db.exec(\`
-  CREATE TABLE IF NOT EXISTS plans (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    slug TEXT NOT NULL UNIQUE,
-    description TEXT,
-    price_monthly_cents INTEGER NOT NULL DEFAULT 0,
-    price_yearly_cents INTEGER NOT NULL DEFAULT 0,
-    stripe_product_id TEXT,
-    stripe_price_monthly_id TEXT,
-    stripe_price_yearly_id TEXT,
-    features TEXT NOT NULL DEFAULT '[]',
-    highlighted INTEGER NOT NULL DEFAULT 0,
-    active INTEGER NOT NULL DEFAULT 1,
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-\`);
+token="${MAGNATE_ENTITLEMENTS_TOKEN:-$(envget MAGNATE_ENTITLEMENTS_TOKEN)}"
+slug="${MAGNATE_BILLING_SLUG:-$(envget MAGNATE_BILLING_SLUG)}"
+slug="${slug:-distro}"
 
-// Insert the distro plan (upsert by slug)
-const existing = db.prepare('SELECT id FROM plans WHERE slug = ?').get('distro');
-if (existing) {
-  console.log('Plan \"distro\" already exists (id=' + existing.id + '), updating...');
-  db.prepare(\`
-    UPDATE plans SET
-      name = 'Distro',
-      description = 'AI app-building platform — unlimited builds, all models.',
-      price_monthly_cents = 1999,
-      price_yearly_cents = 19990,
-      features = ?,
-      active = 1,
-      sort_order = 0
-    WHERE slug = 'distro'
-  \`).run(JSON.stringify([
-    'Unlimited app builds',
-    'Access to all AI models via OmniRoute',
-    'Live preview & terminal in-browser',
-    'Priority support'
-  ]));
-  console.log('Updated distro plan.');
-} else {
-  db.prepare(\`
-    INSERT INTO plans (name, slug, description, price_monthly_cents, price_yearly_cents, features, highlighted, active, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  \`).run(
-    'Distro',
-    'distro',
-    'AI app-building platform — unlimited builds, all models.',
-    1999,  // \$19.99/month
-    19990, // \$199.90/year
-    JSON.stringify([
-      'Unlimited app builds',
-      'Access to all AI models via OmniRoute',
-      'Live preview & terminal in-browser',
-      'Priority support'
-    ]),
-    1,  // highlighted
-    1,  // active
-    0   // sort_order
-  );
-  console.log('Created distro plan (id=' + db.prepare('SELECT last_insert_rowid() as id').get().id + ')');
+auth=()
+[[ -n "$token" ]] && auth=(-H "Authorization: Bearer ${token}")
+
+echo "==> Checking for existing '${slug}' plan in Magnate at $url…"
+check="$(curl -fsS -m 5 "${auth[@]}" "${url}/api/entitlements?plan=${slug}" 2>/dev/null || true)"
+if [[ -n "$check" ]] && [[ "$check" != *'"plan_not_found"'* ]]; then
+  echo "==> Plan '${slug}' already exists in Magnate — nothing to do."
+  exit 0
+fi
+
+echo "==> Creating '${slug}' plan via Magnate admin API…"
+payload=$(cat <<EOF
+{
+  "name": "Distro",
+  "slug": "${slug}",
+  "description": "AI app-building platform — unlimited builds, all models.",
+  "priceMonthlyCents": 1999,
+  "priceYearlyCents": 19990,
+  "features": [
+    "Unlimited app builds",
+    "Access to all AI models via OmniRoute",
+    "Live preview & terminal in-browser",
+    "Priority support"
+  ],
+  "highlighted": true,
+  "active": true
 }
+EOF
+)
+status="$(curl -fsS -m 10 -o /dev/null -w '%{http_code}' -X POST "${auth[@]}" \
+  -H 'Content-Type: application/json' -d "$payload" "${url}/api/admin/plans" 2>/dev/null || echo 000)"
 
-db.close();
-console.log('Done.');
-"
+case "$status" in
+  200|201) echo "==> Created '${slug}' plan in Magnate ✓" ;;
+  409)     echo "==> Plan '${slug}' already exists (HTTP 409) — nothing to do." ;;
+  000)     echo "ERROR: Magnate unreachable at $url"; exit 1 ;;
+  *)       echo "ERROR: Magnate admin API returned HTTP $status (check MAGNATE_ENTITLEMENTS_TOKEN / admin access)"; exit 1 ;;
+esac
 
-echo "==> Verifying plan exists..."
-docker exec "$MAGNATE_CONTAINER" node -e "
-const Database = require('better-sqlite3');
-const db = new Database('$DB_PATH');
-const plan = db.prepare('SELECT * FROM plans WHERE slug = ?').get('distro');
-if (plan) {
-  console.log('✓ Plan found: ' + plan.name + ' (slug: ' + plan.slug + ', \$' + (plan.price_monthly_cents/100).toFixed(2) + '/mo)');
-} else {
-  console.error('✗ Plan not found!');
-  process.exit(1);
-}
-db.close();
-"
-
-echo "==> Done! Distro can now check entitlements via:"
-echo "    GET /api/entitlements?plan=distro&user=<email>"
+echo "==> Done. Distro checks entitlements via:"
+echo "    GET ${url}/api/entitlements?plan=${slug}&user=<email>"

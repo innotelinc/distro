@@ -288,17 +288,21 @@ console work unchanged. New SSO signups land in the audit log as
 
 Distro can connect to [Magnate](https://github.com/innotelinc/magnate) for
 subscription billing. Magnate owns Stripe, plans and the revenue ledger;
-Distro checks entitlements via server-to-server API calls. Leave
-`MAGNATE_URL` empty to run as a free/self-hosted tool with local quotas only.
+Distro checks entitlements via server-to-server API calls. There is no local
+Magnate — Distro consumes the platform-stack instance.
+
+`MAGNATE_URL` resolution order: explicit env → Consul service discovery
+(service `magnate`, filled in by bootstrap / `make discover-gateway`) →
+billing disabled (free/self-hosted mode with local quotas only).
 
 ### Setup
 
 1. **In Magnate**: create a plan with slug `distro` (or any slug — set
    `MAGNATE_BILLING_SLUG` to match). Connect Stripe and set pricing.
 
-2. **In Distro `.env`**:
+2. **In Distro `.env`** (or let Consul discovery fill `MAGNATE_URL`):
    ```
-   MAGNATE_URL=https://magnate.example.com
+   MAGNATE_URL=http://10.10.1.1:3010            # optional — auto-discovered
    MAGNATE_ENTITLEMENTS_TOKEN=<shared-secret>   # optional on trusted nets
    MAGNATE_BILLING_SLUG=distro                  # default
    ```

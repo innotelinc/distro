@@ -36,7 +36,8 @@ platform owns, consumes, provides, and explicitly does not own.
 - Infisical — secrets target for gateway/control-plane credentials (currently
   `.env` on the host; see convergence note)
 - Magnate — subscription billing (entitlements check, plans, checkout via
-  Stripe). Distro never holds Stripe keys.
+  Stripe), discovered via Consul like the gateway. Distro never holds Stripe
+  keys and runs no billing stack locally.
 - Cerulean — DNS automation (RFC 2136 BIND zone updates) and TLS certificate
   lifecycle (wildcard Let's Encrypt via DNS-01 challenge). The
   `scripts/npm-proxy-hosts.py` script provisions NPM proxy hosts and

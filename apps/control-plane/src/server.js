@@ -4,8 +4,8 @@ import { GatewayClient } from './gateway.js';
 import { handler } from './http.js';
 import { syncUsageFromGateway } from './sync.js';
 import { alert } from './alerts.js';
-import { magnateConfigured, seedDistroPlan } from './billing.js';
-import { resolveGatewayUrls } from './discovery.js';
+import { seedDistroPlan } from './billing.js';
+import { resolveGatewayUrls, resolveMagnateUrl } from './discovery.js';
 
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 20140);
@@ -66,10 +66,14 @@ server.listen(PORT, HOST, async () => {
   console.log(`[control-plane] listening on http://${HOST}:${PORT}`);
   console.log(`[control-plane] gateway dashboard: ${urls.dashboardUrl} (via ${urls.source})`);
 
-  // Auto-seed distro plan in Magnate if billing is configured
-  if (magnateConfigured()) {
-    console.log(`[billing] Magnate configured at ${process.env.MAGNATE_URL}`);
+  // Magnate billing: resolve via env override or Consul, then seed the distro
+  // plan. When neither resolves, billing stays disabled (free/self-hosted mode).
+  const magnate = await resolveMagnateUrl();
+  if (magnate) {
+    console.log(`[billing] Magnate at ${magnate.url} (via ${magnate.source})`);
     await seedDistroPlan();
+  } else {
+    console.log('[billing] Magnate not configured/discoverable — billing disabled');
   }
 
   if (SYNC_INTERVAL_MS > 0) {
