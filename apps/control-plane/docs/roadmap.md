@@ -1,8 +1,8 @@
 # Control-plane roadmap
 
-> Progress: **M0, M1 and the M2 key-lifecycle slice are DONE** (service +
-> gateway client + identity + mint-on-signup/rotate/revoke, verified live
-> against the gateway). Remaining below are M3+ and the web-app integration.
+> Progress: **M0–M5 are DONE** (service + gateway client + identity +
+> per-user keys + quotas + usage sync + admin console + Magnate billing).
+> Integration option A (browser holds key) was chosen; see docs/ops.md.
 
 Milestones are ordered so each one is runnable and shippable on its own.
 Estimated sizes are relative; revisit against the pinned gateway version.
@@ -35,13 +35,10 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       `gateway_keys` (verified: key authenticates on /v1/models).
 - [x] On disable/delete: revoke gateway key (verified: key 401s after disable).
 - [x] Key rotation endpoint (`POST /api/me/gateway-key/rotate`).
-- [ ] Decide integration option A vs B (needed before web integration):
-      - **A (browser holds key)**: web app calls control plane
-        `/me/gateway-key` at login and uses it as its `OpenAILike` key. Simplest
-        to implement; key is visible to the user (acceptable — it's their key).
-      - **B (server proxy)**: control plane terminates /v1 and stamps each
-        request with the session's key. More work; key never reaches the
-        browser; enables server-side quotas naturally.
+- [x] Decide integration option A vs B (chosen: **A — browser holds key**).
+      Web app fetches `/me/gateway-key` at login and uses it as its
+      `OpenAILike` key; quota gating lives in the web-app middleware calling
+      `/api/internal/quota-check` (M3).
 - [x] Acceptance: each user's requests are attributed to their own gateway key
       (key-per-user visible in the gateway dashboard).
 
@@ -94,8 +91,11 @@ test accounts) untouched.
 - [x] Backups: `make backup` / `scripts/backup.sh` snapshots the control-plane
       and gateway SQLite stores via each app's online `better-sqlite3
       .backup()` (verified `integrity_check: ok`) into `./backups/`.
-- [ ] Billing hook points (Stripe etc.) behind a `billing` interface — only if
-      paid tiers are in scope.
+- [x] Billing: Magnate integration (`src/billing.js`) — entitlements check,
+      plans list, checkout forwarding, plan auto-seed on boot, free-tier
+      quota gating (`gatedQuota`), `/billing` web route + header link.
+      Env: `MAGNATE_URL` / `MAGNATE_ENTITLEMENTS_TOKEN` / `MAGNATE_BILLING_SLUG`;
+      runbook: docs/ops.md § "Magnate billing integration".
 
 ## Open questions to resolve before/at M2
 
