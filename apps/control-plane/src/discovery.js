@@ -1,5 +1,7 @@
-// Gateway discovery: resolve the remote OmniRoute gateway's dashboard/API
-// base URLs without hardcoding them.
+// Service discovery for the remote platform services Distro consumes.
+//
+// Gateway: resolve the remote OmniRoute gateway's dashboard/API base URLs
+// without hardcoding them.
 //
 // Resolution order (first hit wins):
 //   1. Explicit env overrides — GATEWAY_DASHBOARD_URL / GATEWAY_API_URL
@@ -14,12 +16,15 @@
 
 const CONSUL_URL = (process.env.CONTROL_CONSUL_URL || 'http://10.10.1.1:8500').replace(/\/+$/, '');
 const CONSUL_SERVICE = process.env.GATEWAY_CONSUL_SERVICE || 'omniroute';
+const MAGNATE_CONSUL_SERVICE = process.env.MAGNATE_CONSUL_SERVICE || 'magnate';
 const DISCOVERY_TIMEOUT_MS = Number(process.env.GATEWAY_DISCOVERY_TIMEOUT_MS || 3000);
 
 let cache = null; // { dashboardUrl, apiUrl, source }
+let magnate = undefined; // undefined = unresolved; null = not found; { url, source }
 
 export function resetDiscoveryCache() {
   cache = null;
+  magnate = undefined;
 }
 
 async function consulLookup(service) {
@@ -92,4 +97,43 @@ export async function resolveGatewayUrls() {
     };
   }
   return cache;
+}
+
+/**
+ * Synchronously read the currently-known Magnate base URL, if any.
+ * Prefers the MAGNATE_URL env override; otherwise returns the Consul result
+ * once resolveMagnateUrl() has run (null until then / when not discoverable).
+ */
+export function magnateUrlSync() {
+  if (magnate) return magnate.url;
+  return (process.env.MAGNATE_URL || '').replace(/\/+$/, '') || null;
+}
+
+/**
+ * Resolve Magnate's base URL (billing service on the platform stack).
+ *   1. MAGNATE_URL env override
+ *   2. Consul — service `magnate` (MAGNATE_CONSUL_SERVICE) on CONTROL_CONSUL_URL
+ *   3. null — billing stays disabled (graceful, billing is optional)
+ * Cached per process. Never throws.
+ */
+export async function resolveMagnateUrl() {
+  if (magnate !== undefined) return magnate;
+
+  const envUrl = (process.env.MAGNATE_URL || '').replace(/\/+$/, '');
+  if (envUrl) {
+    magnate = { url: envUrl, source: 'env' };
+    return magnate;
+  }
+
+  try {
+    const url = await consulLookup(MAGNATE_CONSUL_SERVICE);
+    magnate = { url, source: `consul:${MAGNATE_CONSUL_SERVICE}` };
+  } catch (err) {
+    console.warn(
+      `[discovery] consul lookup for '${MAGNATE_CONSUL_SERVICE}' at ${CONSUL_URL} failed (${err?.message || err}); ` +
+        `billing disabled (set MAGNATE_URL to enable)`,
+    );
+    magnate = null;
+  }
+  return magnate;
 }
