@@ -105,6 +105,21 @@ Then: user opens `https://app.example.com` → login calls
 reverse proxy — direct LAN use — leave `VITE_CONTROL_PLANE_URL` empty and the
 app auto-derives `http://<app-hostname>:20140`.)
 
+**This mode is verified live** (local nginx + self-signed certs for
+`app.distro.test` / `admin.distro.test`, proxy-mode env set, stack rebuilt): a
+headless-browser E2E signing up over HTTPS — signup → workspace → gateway-key
+adoption → build prompt → artifact — passes end-to-end through the proxy. CORS
+is strict-origin: when `CONTROL_CORS_ORIGIN` is set, only requests whose
+`Origin` matches get the allow-origin header, and preflights from any other
+origin get `403` (no CORS grant). Reverted to LAN defaults after the test; the
+running stack binds direct-LAN mode as shipped.
+
+Nginx tips that mattered in the test: use `proxy_buffering off` on the app
+server block (the chat endpoint streams; buffering delays first tokens) and
+set `Connection ""` with HTTP/1.1 rather than upgrade headers unless you also
+proxy WebSockets (bolt.diy previews run in-browser, so no WS needed for the
+IDE itself).
+
 ## 6. Checks & troubleshooting
 
 - `make doctor` — gateway dashboard/API/chat smoke + web reachability.

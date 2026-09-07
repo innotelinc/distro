@@ -241,13 +241,19 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
               // Distro (M4): record the finished turn against the user's
               // account so daily caps and the usage widget reflect chat
-              // traffic. Fire-and-forget; never blocks the response.
+              // traffic. Fire-and-forget; never blocks the response. The
+              // model id (from the last user message header) lets the
+              // control plane estimate spend.
+              const lastUser = messages.filter((m) => m.role === 'user').slice(-1)[0];
+              const lastModel = lastUser ? extractPropertiesFromMessage(lastUser).model : undefined;
+
               reportChatUsage(
                 gatewayKey,
                 {
                   tokensIn: cumulativeUsage.promptTokens,
                   tokensOut: cumulativeUsage.completionTokens,
                   requests: llmCalls + auxCalls,
+                  model: lastModel,
                 },
                 context.cloudflare?.env as any,
               ).catch(() => {});
