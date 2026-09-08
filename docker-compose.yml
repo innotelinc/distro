@@ -47,6 +47,10 @@ services:
     image: diegosouzapw/omniroute:${OMNIROUTE_IMAGE_TAG:-latest}
     container_name: distro-gateway
     restart: unless-stopped
+    # Memory posture (docs/service-audit.md): coding-agent traffic is
+    # memory-hungry; cap at 4g (matches GATEWAY_MAX_OLD_SPACE_MB=4096).
+    mem_limit: 4g
+    memswap_limit: 4g
     env_file: .env
     environment:
       - DATA_DIR=/app/data
@@ -105,6 +109,10 @@ services:
 
   # ── Distro web (rebranded bolt.diy) ────────────────────────────────────────
   web:
+    # Memory posture (docs/service-audit.md): the in-browser IDE's server shell
+    # peaks ~750 MiB; cap at 1.5g with swap off.
+    mem_limit: 1536m
+    memswap_limit: 1536m
     build:
       context: ./apps/web
       target: bolt-ai-production
