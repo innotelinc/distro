@@ -29,6 +29,19 @@ export function oidcEnabled() {
   return Boolean(ISSUER && CLIENT_ID && CLIENT_SECRET && REDIRECT_URI);
 }
 
+// Password sign-in is the BREAK-GLASS path, not the default. Identity lives in
+// Cerulean Authentik (the stack's IdentityOps platform); this control plane is
+// SSO-only unless an operator explicitly re-enables the local fallback by
+// setting BREAKGLASS_LOGIN=1 and restarting.
+//
+// The flag gates BOTH halves: the login/signup handlers refuse locally-issued
+// sessions, and the admin console hides the password form. Recovery is: set
+// BREAKGLASS_LOGIN=1, restart the control plane, sign in, then unset it.
+export function localLoginEnabled() {
+  const v = String(process.env.BREAKGLASS_LOGIN || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
 export function oidcPublicConfig() {
   let host = null;
   try {
@@ -36,7 +49,16 @@ export function oidcPublicConfig() {
   } catch {
     host = ISSUER || null;
   }
-  return { enabled: oidcEnabled(), provider: 'Authentik', issuerHost: host };
+  return {
+    enabled: oidcEnabled(),
+    provider: 'Authentik',
+    issuerHost: host,
+    // Whether the password form is offered. False = Authentik only.
+    localLogin: localLoginEnabled(),
+    // True when the instance is SSO-only *and* OIDC is unusable — the console
+    // must say so loudly instead of rendering a dead sign-in page.
+    misconfigured: !localLoginEnabled() && !oidcEnabled(),
+  };
 }
 
 async function discovery() {

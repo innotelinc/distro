@@ -134,7 +134,7 @@ export async function checkEntitlement(usernameOrEmail) {
  * Falls back to an empty list when Magnate is unreachable or the control plane
  * can't authenticate (ENTITLEMENTS_API_TOKEN required on the Magnate side).
  *
- * Magnate contract (see magnate-subscription-platform/app/api/admin/plans/route.ts):
+ * Magnate contract (see magnate/app/api/admin/plans/route.ts):
  *   GET /api/admin/plans  →  200 { plans: […] }   (admin auth via
  *   ENTITLEMENTS_API_TOKEN bearer when that token is set; else 401)
  */

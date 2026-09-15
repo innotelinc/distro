@@ -9,8 +9,10 @@
 //      Consul on server 1), looking up the `omniroute` service registered
 //      there (`./stack.sh discover omniroute` in the platform stack resolves
 //      the same way). Only the first healthy instance is used.
-//   3. Fallback — the legacy local compose address (gateway:20128/20129),
-//      which keeps `--profile local-gateway` deployments working unchanged.
+//   3. Fallback — the shared platform gateway's mesh address
+//      (`MESH_GATEWAY_HOST`, default 10.10.2.1). The bundled local gateway is
+//      gone (convergence §4.1), so there is no compose service name to fall
+//      back to any more: the mesh address is the only place a gateway can be.
 //
 // Discovery is cached per process; call resetDiscoveryCache() in tests.
 
@@ -18,6 +20,13 @@ const CONSUL_URL = (process.env.CONTROL_CONSUL_URL || 'http://10.10.1.1:8500').r
 const CONSUL_SERVICE = process.env.GATEWAY_CONSUL_SERVICE || 'omniroute';
 const MAGNATE_CONSUL_SERVICE = process.env.MAGNATE_CONSUL_SERVICE || 'magnate';
 const DISCOVERY_TIMEOUT_MS = Number(process.env.GATEWAY_DISCOVERY_TIMEOUT_MS || 3000);
+
+// Last-resort addresses: the shared gateway on the WireGuard mesh. Used when
+// nothing is pinned and Consul cannot be reached, so the control plane still
+// boots and names what it is talking to.
+const MESH_GATEWAY_HOST = (process.env.MESH_GATEWAY_HOST || '').trim() || '10.10.2.1';
+const FALLBACK_DASHBOARD_URL = `http://${MESH_GATEWAY_HOST}:20128`;
+const FALLBACK_API_URL = `http://${MESH_GATEWAY_HOST}:20129`;
 
 let cache = null; // { dashboardUrl, apiUrl, source }
 let magnate = undefined; // undefined = unresolved; null = not found; { url, source }
@@ -67,8 +76,8 @@ export async function resolveGatewayUrls() {
       apiUrl = dashboardUrl.replace(/:20128(\/|$)/, ':20129$1');
     }
     cache = {
-      dashboardUrl: dashboardUrl || 'http://gateway:20128',
-      apiUrl: apiUrl || 'http://gateway:20129',
+      dashboardUrl: dashboardUrl || FALLBACK_DASHBOARD_URL,
+      apiUrl: apiUrl || FALLBACK_API_URL,
       source: 'env',
     };
     return cache;
@@ -88,12 +97,12 @@ export async function resolveGatewayUrls() {
   } catch (err) {
     console.warn(
       `[discovery] consul lookup for '${CONSUL_SERVICE}' at ${CONSUL_URL} failed (${err?.message || err}); ` +
-        `falling back to local compose gateway`,
+        `falling back to the shared gateway on the mesh (${MESH_GATEWAY_HOST})`,
     );
     cache = {
-      dashboardUrl: 'http://gateway:20128',
-      apiUrl: 'http://gateway:20129',
-      source: 'fallback-local',
+      dashboardUrl: FALLBACK_DASHBOARD_URL,
+      apiUrl: FALLBACK_API_URL,
+      source: 'fallback-mesh',
     };
   }
   return cache;

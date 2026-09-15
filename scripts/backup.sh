@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Back up the Distro state DBs (control plane + OmniRoute gateway) to ./backups.
+# Back up the Distro state DB (the control plane) to ./backups.
 #
 # Uses each app's own SQLite online-backup path (better-sqlite3 .backup) so the
 # files are consistent even while services are live. Writes a timestamped copy
@@ -24,23 +24,13 @@ docker compose cp control-plane:/data/backups/. "$OUT_DIR/control-plane/" 2>/dev
   || (docker cp "distro-control-plane:/data/backups/." "$OUT_DIR/control-plane/")
 echo "control-plane backups -> $OUT_DIR/control-plane/"
 
-# 2. Gateway DB (settings, encrypted provider keys, usage_history/call_logs).
-#    Upstream keeps its own db_backups too; this adds a host copy.
-docker compose exec -T gateway node -e "
-const Database = require('better-sqlite3');
-const fs = require('fs');
-const dir = '/app/data/backups';
-fs.mkdirSync(dir, { recursive: true });
-const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
-const dest = dir + '/storage-' + stamp + '.sqlite';
-const src = new Database('/app/data/storage.sqlite', { readonly: true });
-src.backup(dest).then(() => { console.log('gateway backup written: ' + dest); process.exit(0); }).catch((e) => { console.error(e.message); process.exit(1); });
-"
-mkdir -p "$OUT_DIR/gateway"
-docker compose exec -T gateway sh -c "ls -t /app/data/backups | head -1" > /tmp/distro-gw-latest.txt
-LATEST="$(cat /tmp/distro-gw-latest.txt)"
-docker compose cp "gateway:/app/data/backups/$LATEST" "$OUT_DIR/gateway/$LATEST"
-echo "gateway backup -> $OUT_DIR/gateway/$LATEST"
+# 2. Gateway DB — NOT backed up here. The gateway is the shared platform
+#    service (Server 2): its settings, encrypted provider keys and
+#    usage_history/call_logs live in its own volume, and backing that up is the
+#    platform operators' job. Distro's only copy of anything gateway-side is the
+#    per-user usage ledger the control plane caches in its own usage_cache
+#    (covered by the control-plane backup above).
+echo "gateway DB: remote (platform service) — not backed up here"
 
 # Prune old host backups (keep 14)
 find "$OUT_DIR" -name '*.sqlite' -mtime +14 -delete 2>/dev/null || true

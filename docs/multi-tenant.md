@@ -1,7 +1,12 @@
 # Distro — Multi-Tenant Design
 
-> Implementation plan lives in **`apps/control-plane/`** (schema.sql, gateway
-> API inventory, milestone roadmap). This document is the design it follows.
+> **Status: implemented and live.** The control plane is `apps/control-plane/`
+> (schema.sql, gateway API inventory, milestone roadmap); this document is the
+> design it follows. References to the Distro web app (`apps/web`, the bolt.diy
+> fork) are historical: the front door retired in the build-plane convergence
+> (§5.2), and the control plane now serves the ecosystem's builder surface
+> (Studio) through its token-gated `/api/internal/*` routes — the per-user
+> gateway key design below is unchanged, only the client in front of it.
 
 Distro is being built **multi-tenant** (Phase 2 of the master plan): accounts,
 per-user quotas and usage visibility sitting in front of the shared OmniRoute

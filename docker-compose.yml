@@ -1,21 +1,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Distro — single-host compose stack
 #
-#   gateway   OmniRoute — the AI plane is a PLATFORM service and runs remotely
-#             in the Innotel platform stack (Server 2; Consul service
-#             `omniroute`). Distro does NOT ship its own gateway by default:
-#             set OPENAI_LIKE_API_KEY and the gateway is discovered via Consul
-#             (CONTROL_CONSUL_URL) or pinned with GATEWAY_API_URL /
-#             GATEWAY_DASHBOARD_URL.
-#             A LOCAL gateway (+redis) is still available as a fallback for
-#             offline/single-host deployments via the `local-gateway` profile:
+#   control-plane — the control plane (accounts, per-user gateway keys,
+#             quotas/usage, admin console, OIDC SSO, billing entitlements).
+#             This is Distro's remaining deliverable: the tenancy layer for
+#             whatever builder surface the ecosystem runs (Studio today).
 #
-#               docker compose --profile local-gateway up -d
-#
-#             The local gateway publishes :20128/:20129/:20132 — the dashboard
-#             is protected by the admin password and the API by gateway keys;
-#             never run it without both set.
-#   web       Distro (fork of bolt.diy, apps/web) built locally
+#             The builder front door (the bolt.diy fork, apps/web) is retired:
+#             one web UI (Studio) serves the ecosystem. See
+#             ips/docs/convergence-onyx-olympus-distro-atlas.md §5 for the
+#             change list, and docs/ops.md for the runbook.
 #
 # Before first run: cp .env.example .env and fill in secrets. Then:
 #   docker compose up -d --build
@@ -26,62 +20,9 @@
 name: distro
 
 services:
-  # ── Redis (rate-limiter backend used by the LOCAL gateway) ─────────────────
-  redis:
-    profiles: ['local-gateway']
-    image: docker.io/library/redis:8.6.5-alpine
-    restart: unless-stopped
-    # no host port: reachable only on the compose network (redis:6379)
-    volumes:
-      - redis-data:/data
-    command: redis-server --save 60 1 --loglevel warning
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  # ── OmniRoute AI gateway (LOCAL fallback; remote via Consul by default) ───
-  gateway:
-    profiles: ['local-gateway']
-    image: diegosouzapw/omniroute:${OMNIROUTE_IMAGE_TAG:-latest}
-    container_name: distro-gateway
-    restart: unless-stopped
-    # Memory posture (docs/service-audit.md): coding-agent traffic is
-    # memory-hungry; cap at 4g (matches GATEWAY_MAX_OLD_SPACE_MB=4096).
-    mem_limit: 4g
-    memswap_limit: 4g
-    env_file: .env
-    environment:
-      - DATA_DIR=/app/data
-      - PORT=20128
-      - DASHBOARD_PORT=20128
-      - API_PORT=20129
-      - API_HOST=0.0.0.0
-      - LIVE_WS_PORT=20132
-      - LIVE_WS_HOST=0.0.0.0
-      - REDIS_URL=redis://redis:6379
-      - LIVE_WS_ALLOWED_ORIGINS=${LIVE_WS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
-      - NODE_OPTIONS=--max-old-space-size=${GATEWAY_MAX_OLD_SPACE_MB:-4096}
-    volumes:
-      - gateway-data:/app/data
-    depends_on:
-      redis:
-        condition: service_healthy
-    ports:
-      # LAN exposure (0.0.0.0). To go loopback-only again, prepend 127.0.0.1:
-      - '${GATEWAY_BIND_HOST:-0.0.0.0}:20128:20128' # dashboard
-      - '${GATEWAY_BIND_HOST:-0.0.0.0}:20129:20129' # OpenAI-compatible API (/v1/*)
-      - '${GATEWAY_BIND_HOST:-0.0.0.0}:20132:20132' # live workspace websocket
-    healthcheck:
-      test: ['CMD', 'node', 'healthcheck.mjs']
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
   # ── Control plane (multi-tenant accounts, per-user gateway keys) ──────────
-  # Phase 2 (M0-M2 skeleton). No published ports: only web/gateway reach it.
+  # Accounts, per-user gateway keys, quotas/usage, admin console. Publishes
+  # 20140: the web UI calls it both from the browser and server-side.
   control-plane:
     build:
       context: ./apps/control-plane
@@ -91,8 +32,7 @@ services:
     env_file: .env
     environment:
       # Gateway address is resolved at runtime: GATEWAY_DASHBOARD_URL /
-      # GATEWAY_API_URL env overrides → Consul (CONTROL_CONSUL_URL) →
-      # local compose fallback (for --profile local-gateway runs).
+      # GATEWAY_API_URL env overrides → Consul (CONTROL_CONSUL_URL).
       - GATEWAY_ADMIN_PASSWORD=${INITIAL_PASSWORD}
       - ADMIN_EMAILS=${CONTROL_ADMIN_EMAILS:-}
     volumes:
@@ -102,58 +42,10 @@ services:
       # http://host.docker.internal:8080/hook
       - 'host.docker.internal:host-gateway'
     ports:
-      # Browser-facing (the Distro web UI logs in / fetches per-user gateway
-      # keys directly). Bind like the gateway: LAN via 0.0.0.0, loopback via
+      # Browser-facing (the admin console at /admin; Studio and the builder
+      # surface call the same API). Bind LAN via 0.0.0.0, loopback via
       # CONTROL_BIND_HOST=127.0.0.1. Protect with CONTROL_CORS_ORIGIN.
       - '${CONTROL_BIND_HOST:-0.0.0.0}:20140:20140'
 
-  # ── Distro web (rebranded bolt.diy) ────────────────────────────────────────
-  web:
-    # Memory posture (docs/service-audit.md): the in-browser IDE's server shell
-    # peaks ~750 MiB; cap at 1.5g with swap off.
-    mem_limit: 1536m
-    memswap_limit: 1536m
-    build:
-      context: ./apps/web
-      target: bolt-ai-production
-      args:
-        VITE_DEFAULT_MODEL: ${VITE_DEFAULT_MODEL:-}
-        VITE_DISTRO_GATEWAY_ONLY: ${DISTRO_GATEWAY_ONLY:-true}
-        VITE_DISTRO_CONTROL_PLANE: ${DISTRO_CONTROL_PLANE:-false}
-        VITE_CONTROL_PLANE_URL: ${VITE_CONTROL_PLANE_URL:-}
-        VITE_PUBLIC_ORIGIN: ${VITE_PUBLIC_ORIGIN:-}
-        BUILD_HEAP_MB: ${BUILD_HEAP_MB:-4096}
-    image: distro-web:local
-    container_name: distro-web
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      - NODE_ENV=production
-      - RUNNING_IN_DOCKER=true
-      # Gateway address comes from the environment (GATEWAY_API_URL or
-      # OPENAI_LIKE_API_BASE_URL). Set OPENAI_LIKE_API_BASE_URL explicitly for
-      # remote-gateway deployments, e.g. http://10.10.2.1:20129/v1 (the
-      # default below matches the local-gateway profile fallback).
-      - OPENAI_LIKE_API_BASE_URL=${OPENAI_LIKE_API_BASE_URL:-http://gateway:20129/v1}
-      - OPENAI_LIKE_API_KEY=${OPENAI_LIKE_API_KEY}
-      # Runtime vars must be listed here (not just in .env): the worker runtime
-      # only binds vars declared in `environment:`.
-      - DISTRO_ENFORCE_QUOTA=${DISTRO_ENFORCE_QUOTA:-true}
-      - CONTROL_PLANE_INTERNAL_URL=${CONTROL_PLANE_INTERNAL_URL:-http://control-plane:20140}
-    ports:
-      # LAN exposure like the gateway: 0.0.0.0 by default. Loopback-only via
-      # WEB_BIND_HOST=127.0.0.1.
-      - '${WEB_BIND_HOST:-0.0.0.0}:5173:5173'
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
-    healthcheck:
-      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1 || exit 1']
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-
 volumes:
-  gateway-data:
-  redis-data:
   control-data:

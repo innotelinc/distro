@@ -1,20 +1,22 @@
 # Distro ↔ Atlas Integration
 
-**Distro is where you build. Atlas is where you ship.**
+**The builder surface is where you build (Studio). Atlas is where you ship.
+Distro is the tenancy layer underneath the building.**
 
-These two platforms are separate by design — single-responsibility architecture —
+These platforms are separate by design — single-responsibility architecture —
 but work together as a seamless workflow.
 
 ## The workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        DISTRO                               │
-│  "Build it live"                                            │
+│          BUILDER SURFACE (Studio) + DISTRO CONTROL PLANE    │
+│  "Build it, accounted for"                                  │
 │                                                             │
-│  1. Describe app in natural language                        │
-│  2. AI writes code in-browser (WebContainer)                │
-│  3. Live preview, iterate, refine                           │
+│  1. Describe app in natural language (Studio)               │
+│  2. AI writes code; Distro's control plane gates the turn   │
+│     (identity → quota-check → user's own gateway key)       │
+│  3. Iterate, refine — usage reported per turn               │
 │  4. Happy? → Export to Git                                  │
 └──────────────────────────┬──────────────────────────────────┘
                            │ git push
@@ -24,7 +26,7 @@ but work together as a seamless workflow.
 │  "Ship it"                                                  │
 │                                                             │
 │  5. Code lands in Gitea repo                                │
-│  6. Chef scaffolds Convex backend (optional)                │
+│  6. Convex backend, if the plan chose that target           │
 │  7. CI/CD builds + tests                                    │
 │  8. Deploy to production                                    │
 └─────────────────────────────────────────────────────────────┘
@@ -32,37 +34,31 @@ but work together as a seamless workflow.
 
 ## Integration points
 
-### 1. Export to Git (Distro → Atlas)
+### 1. Export to Git (builder surface → Atlas)
 
-Distro can push the current project to an Atlas/Gitea remote:
+The builder surface can push the current project to an Atlas/Gitea remote:
 
 ```bash
-# In Distro's web UI: Export → Git
-# Or via the control plane API:
-POST /api/projects/export
-{
-  "remote": "git@atlas.innotel.us:username/project.git",
-  "branch": "main"
-}
+# In Studio: Export → Git
+# Export config is served by the Distro control plane:
+GET /api/export/config     # → { configured, url, remote }
+POST /api/export/validate  # validates the remote URL (SSH or HTTPS)
 ```
 
 **Setup:**
 1. Create a repo in Atlas/Gitea
-2. In Distro settings, add the Gitea remote
-3. Distro pushes the WebContainer project to the remote
+2. Set `ATLAS_URL` + `ATLAS_GIT_REMOTE` in Distro `.env`
+3. The builder surface pushes the project to the remote
 
-### 2. Chef scaffold (Atlas → Distro)
+### 2. Convex backend (Atlas)
 
-Atlas/Chef can generate a Convex backend for apps built in Distro:
+Apps that target Convex get a backend on Atlas's self-hosted Convex
+(Chef retired as a *builder*; Convex stays as a plan-selectable target):
 
-```bash
-# In Atlas: Chef → "Scaffold backend for Distro project"
-# Chef generates:
-#   - Convex schema (db/schema.ts)
-#   - Auth integration
-#   - API routes
-#   - Realtime subscriptions
-#   → Commits to the same repo Distro exported to
+```
+# The generated client reads CONVEX_URL; packaging passes a
+# deployment-scoped CONVEX_DEPLOY_KEY as a build arg — never an ENV.
+# → functions land in the same repo the builder surface exported to
 ```
 
 ### 3. Shared infrastructure
@@ -72,14 +68,15 @@ Atlas/Chef can generate a Convex backend for apps built in Distro:
 | OmniRoute | Model routing for agent | Model routing for Chef |
 | Magnate | Subscription billing (RevenueOps) | Subscription billing (paid dev seats) |
 | Cerulean (Authentik) | User SSO / DNS / TLS | User SSO / DNS / TLS |
-| Infisical | Secrets | Secrets |
+| Cerulean Vault | Secrets | Secrets |
 | NPM Edge | Public routing | Public routing |
 
 ### 4. Cross-platform references
 
-- **Distro** → Atlas: "Export to Git" button pushes to Gitea
-- **Atlas** → Distro: "Build in Distro" link opens the current repo in Distro's IDE
+- **Builder surface** → Atlas: "Export to Git" pushes to Gitea
+- **Atlas** → builder surface: "Open in Studio" for the repo's project
 - **Both** share the same user accounts (Authentik) and billing (Magnate)
+- **Distro** underpins the building: per-user gateway keys, quotas, audit
 
 ## Environment variables
 
@@ -96,8 +93,8 @@ ATLAS_GIT_REMOTE=git@atlas.innotel.us       # Git SSH host for exports
 Both platforms run on the same WireGuard mesh and share the stack's platform
 services:
 
-- **Distro** — Group 5 (Server 5): web app + control plane; consumes the shared OmniRoute gateway (Server 2) via Consul
-- **Atlas** — Group 5 (Server 5): Gitea, Chef, Convex
+- **Distro** — Group 5 (Server 5): control plane (tenancy); consumes the shared OmniRoute gateway (Server 2) via Consul
+- **Atlas** — Group 5 (Server 5): Gitea, Convex
 
 They share the same server and discover each other over the compose network /
 WireGuard mesh:
@@ -106,8 +103,8 @@ WireGuard mesh:
 # Distro discovers Atlas
 ./stack.sh discover atlas   # → 10.10.5.1:3000
 
-# Atlas discovers Distro
-./stack.sh discover distro  # → 10.10.5.1:5173
+# The mesh discovers Distro's control plane
+./stack.sh discover distro  # → 10.10.5.1:20140
 ```
 
 ### Shared Magnate + Cerulean wiring
@@ -137,7 +134,8 @@ OIDC_CLIENT_SECRET=<from Cerulean>
 
 | Platform | Role | Runtime | Output |
 |---|---|---|---|
-| **Distro** | Build | WebContainer (browser) | Source code |
+| **Studio** | Build | Olympus (Group 4) | Source code |
+| **Distro** | Tenancy for the build | Control plane (Group 5) | Accounts, keys, quotas, audit |
 | **Atlas** | Ship | Convex + Gitea CI/CD | Deployed app |
 
 They're better together — but each does one job well.

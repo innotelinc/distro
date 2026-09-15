@@ -2,9 +2,11 @@
 
 **Classification: BuilderOps**
 
-Self-hosted AI app-building platform: describe an application and Distro's
-agent writes, runs, previews, and iterates on a full-stack codebase in the
-browser — no local dev environment required.
+The tenancy service for AI app building: accounts, one OmniRoute gateway key
+per user, quota/usage enforcement, spend tracking, and an admin console. Its
+builder surface — the rebranded bolt.diy in-browser IDE — is retired
+(convergence §5.2); one web UI, Olympus Studio, serves the ecosystem and
+consumes this control plane's service API per model turn.
 
 This page declares Distro's role in the
 [**Innotel Platform Stack**](https://github.com/innotelinc/innotel-platform-stack) —
@@ -14,67 +16,81 @@ platform owns, consumes, provides, and explicitly does not own.
 
 ## Owns
 
-- The in-browser builder shell (fork of bolt.diy): chat-to-code agent UI,
-  WebContainer sandbox, live preview, file tree, terminal
-- Running and iterating on the apps a user asks for (in-browser execution)
-- Multi-tenant accounts for the builder (Distro control plane): signup/login,
-  one OmniRoute gateway key per user, quota/usage enforcement, admin console
+- Multi-tenant accounts for AI app building (Distro control plane):
+  signup/login, one OmniRoute gateway key per user, quota/usage enforcement,
+  admin console
 - Per-user model spend accounting and webhook alerting
+- The token-gated service API (`/api/internal/*`) the builder surface calls
 
 ## Provides
 
-- An AI app-building front door for the ecosystem: browser → Distro →
-  OmniRoute gateway → upstream models
+- Tenancy for the ecosystem's builder surface: identity → account + per-user
+  gateway key, quota gating before each turn, usage/audit recording after it
 - Per-user gateway keys + quotas so builder traffic is attributable and capped
 
 ## Consumes
 
 - OmniRoute — the AI plane (OpenAI-compatible gateway to upstream model
-  providers). Distro never holds upstream provider keys.
-- NPM Edge — public TLS routing and hostnames (`slots.innotel.us`: web at `/`,
-  control plane at `/cp`)
-- Infisical — secrets target for gateway/control-plane credentials (currently
-  `.env` on the host; see convergence note)
+  providers). Distro never holds upstream provider keys; its service key only
+  mints and revokes per-user keys via the gateway's dashboard API.
+- NPM Edge — public TLS routing and hostnames: control plane at `/cp` (and
+  the admin console). The retired web app's `slots.` host is gone.
+- Cerulean Vault — the secret store (SecretOps). `.env` carries
+  `vault://<mount>/<path>#<key>` references rather than values, resolved by
+  the control plane at import (`apps/control-plane/src/secrets.js`).
 - Magnate — subscription billing (RevenueOps). Distro checks entitlements via
   Magnate's server-to-server `/api/entitlements` and fetches plans from
   `/api/admin/plans`; it never holds Stripe keys and runs no billing stack
   locally (Magnate is discovered via Consul like the gateway). Magnate itself
   is Cerulean/Authentik-first (subscriber accounts + passwords live in
   Cerulean's Authentik).
-- Cerulean — TrustOps: Authentik SSO (optional OIDC sign-in for the Distro
-  control plane), DNS automation (RFC 2136 BIND zone updates) and TLS
-  certificate lifecycle (wildcard Let's Encrypt via DNS-01 challenge). The
-  `scripts/npm-proxy-hosts.py` script provisions NPM proxy hosts and
-  wildcard certs for `*.innotel.us`. Cerulean also hosts the shared Authentik
-  instance the whole stack signs in through.
+- Cerulean — TrustOps: Authentik SSO (optional OIDC sign-in for the control
+  plane), DNS automation (RFC 2136 BIND zone updates) and TLS certificate
+  lifecycle (wildcard Let's Encrypt via DNS-01 challenge). The
+  `scripts/npm-proxy-hosts.py` script provisions NPM proxy hosts and wildcard
+  certs for `*.innotel.us`. Cerulean also hosts the shared Authentik instance
+  the whole stack signs in through.
 
 ## Explicitly does NOT own
 
+- The builder web UI — Olympus Studio is the ecosystem's one web UI; Distro's
+  bolt.diy fork (`apps/web`) is retired (§5.2), its license text retained in
+  `licenses/`
+- In-browser app execution (WebContainer) — went with the front door; the
+  studio-side equivalents (file tree, terminal pane) are Studio work
 - Identity (Authentik / Cerulean) — Distro runs its own control-plane accounts
   today; Cerulean's Authentik SSO is the convergence target
-- Secrets (Infisical)
+- Secrets (Cerulean Vault)
 - Storage (ONYX)
 - The LLM gateway itself (OmniRoute) — it is an ecosystem extension
   (`extensions/llm`) that any group may enable
 - Billing (Magnate) — Distro consumes it, Magnate owns the revenue ledger
 - DNS / TLS / trust (Cerulean) — Distro consumes it, Cerulean owns it
-- Git hosting / code review / CI / AI app building (Atlas) — Distro exports to
-  Atlas/Gitea; Atlas is the stack's CodeOps home
+- Git hosting / code review / CI / AI app building (Atlas) — the builder
+  surface exports to Atlas/Gitea; Atlas is the stack's CodeOps home
 
 > **Current state:** Distro consumes the shared platform OmniRoute gateway
-> (Server 2, Consul service `omniroute`) — no local gateway is bundled by
-> default; a local fallback lives behind the compose profile
-> `local-gateway` for offline/single-host use. Convergence targets: move
-> secrets into Infisical and adopt Cerulean's Authentik as the identity
-> provider, with Magnate (billing) + Cerulean (trust/DNS/TLS) + Atlas
-> (git export) wired in.
+> (Server 2, Consul service `omniroute`) and bundles **no** gateway of its own —
+> the `local-gateway` profile was removed (convergence §4.1) and the builder
+> front door retired (§5.2), so there is no offline/single-host fallback and no
+> Distro web app. Secrets live in **Cerulean Vault** with `vault://` references
+> resolved at startup (§6.1). Remaining convergence target: adopt Cerulean's
+> Authentik as the identity provider for the control plane, with Magnate
+> (billing) + Cerulean (trust/DNS/TLS) + Atlas (git export) already wired in.
+>
+> **Convergence:** see the [**build-plane convergence plan**](https://github.com/innotelinc/innotel-platform-stack/blob/main/docs/convergence-onyx-olympus-distro-atlas.md)
+> — one web UI (Studio), one terminal UI, one full-stack app builder, one
+> OmniRoute. Distro's part is done: the `local-gateway` profile is removed
+> (§4.1) and the control plane **is** the builder's tenancy layer (§5), now the
+> repo's only deliverable.
 
 ## Cross-platform integration
 
 | Flow | Path |
 |---|---|
+| Tenancy (build) | Studio → Distro `/api/internal/{identity,quota-check,usage-report,audit}` (service token) |
 | Billing | Distro control plane → Magnate `/api/entitlements` + `/api/admin/plans` |
 | Identity (optional) | Cerulean Authentik OIDC → Distro `/api/auth/oidc/*` |
 | DNS / TLS | Cerulean BIND (nsupdate + TSIG, DNS-01) → NPM Edge → Distro hosts |
-| Git export | Distro WebContainer → Atlas/Gitea remote (`ATLAS_URL` + `ATLAS_GIT_REMOTE`) |
-| Model plane | Distro agent → OmniRoute gateway → upstream providers (shared with Atlas Chef) |
+| Git export | builder surface → Atlas/Gitea remote (`ATLAS_URL` + `ATLAS_GIT_REMOTE` config in the control plane) |
+| Model plane | builder surface → OmniRoute gateway (each user's own key) → upstream providers (shared with Atlas) |

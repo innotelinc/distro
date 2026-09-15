@@ -16,6 +16,8 @@ import {
   usageAll,
   userIsDisabled,
   getUserByGatewayKey,
+  getUserByOidcSub,
+  setUserOidcSub,
   touchGatewayKey,
   recordUsage,
   setUserRole,
@@ -40,13 +42,14 @@ import {
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
 import { alert, alertsConfig } from './alerts.js';
 import { estimateCostUsd } from './pricing.js';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   oidcEnabled,
   oidcPublicConfig,
   oidcAuthorizeUrl,
   oidcExchangeCode,
   oidcUserinfo,
+  localLoginEnabled,
 } from './oidc.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +57,7 @@ import { dirname, join } from 'node:path';
 import { magnateConfigured, checkEntitlement, listPlans, gatedQuota } from './billing.js';
 import { magnateUrlSync } from './discovery.js';
 import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
+import { readBuildQueue } from './buildQueue.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -158,7 +162,18 @@ export async function handler(req, res, { gateway }) {
   }
 
   // ---- auth ----
+  //
+  // Password auth is break-glass only: identity is Cerulean Authentik, so these
+  // two handlers refuse unless BREAKGLASS_LOGIN=1 (see oidc.js). The OIDC
+  // routes below are the normal path.
+  const localAuthOffBody = {
+    error:
+      'Password sign-in is disabled — sign in with Authentik (Cerulean SSO). ' +
+      'Set BREAKGLASS_LOGIN=1 and restart the control plane to re-enable the local fallback.',
+  };
+
   if (path === '/api/auth/signup' && method === 'POST') {
+    if (!localLoginEnabled()) return send(403, localAuthOffBody);
     const body = await readBody(req);
     if (body.__invalid) return send(400, { error: 'invalid JSON' });
     const email = String(body.email || '').trim().toLowerCase();
@@ -201,6 +216,7 @@ export async function handler(req, res, { gateway }) {
   }
 
   if (path === '/api/auth/login' && method === 'POST') {
+    if (!localLoginEnabled()) return send(403, localAuthOffBody);
     const body = await readBody(req);
     const email = String(body.email || '').trim().toLowerCase();
     const user = getUserByEmail(email);
@@ -304,8 +320,171 @@ export async function handler(req, res, { gateway }) {
     return res.end(page);
   }
 
-  // ---- internal routes (auth by gateway key, called server-side by the web
-  //      app's quota middleware — never exposed to browser JS) ----
+  // ---- internal routes (called server-side by a sibling platform, never
+  //      exposed to browser JS) ----
+  //
+  // Two different callers, so two different credentials, and neither is a user
+  // session:
+  //   * the quota routes identify the ACCOUNT by the user's gateway key
+  //     (Authorization: Bearer <gateway key>) — the web app holds it already;
+  //   * the provisioning/audit routes are service-to-service, so they present
+  //     CONTROL_INTERNAL_TOKEN (x-control-internal-token). They mint and read
+  //     credentials, so an unset token turns them OFF rather than open.
+  function internalTokenOk() {
+    const expected = String(process.env.CONTROL_INTERNAL_TOKEN || '');
+    if (!expected) return false;
+    const provided = String(req.headers['x-control-internal-token'] || '');
+    if (provided.length !== expected.length) return false;
+    return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  }
+
+  function internalDenied(send) {
+    if (!String(process.env.CONTROL_INTERNAL_TOKEN || '')) {
+      return send(503, { error: 'internal API not configured (CONTROL_INTERNAL_TOKEN)' });
+    }
+    return send(401, { error: 'unauthorized' });
+  }
+
+  /**
+   * One gateway key per account, minted on first sight.
+   *
+   * The key is the account's identity for the internal quota routes, so a
+   * caller that has an account but no key is not usable and this is where that
+   * is fixed — including for an account that predates this endpoint.
+   */
+  async function ensureGatewayKey(user) {
+    const existing = getGatewayKey(user.id);
+    if (existing && existing.gateway_key) return existing;
+
+    const quota = getQuota(user.id);
+    await gateway.login();
+    const key = await gateway.createApiKey(`studio-user-${user.id.slice(0, 8)}`, {
+      dailyUsageLimitUsd: quota.spend_cap_usd ?? undefined,
+      weeklyUsageLimitUsd: quota.spend_cap_usd != null ? quota.spend_cap_usd * 7 : undefined,
+    });
+    return setGatewayKey(user.id, { gatewayKeyId: key.id, gatewayKey: key.key });
+  }
+
+  // Provision/lookup an account from an Authentik identity (build-plane
+  // convergence plan §5.2). Studio signs a user in through Authentik and knows
+  // their `sub`; the account, its quota and its gateway key live here. Called
+  // once per user per process by Studio, which caches the answer.
+  if (path === '/api/internal/identity' && method === 'POST') {
+    if (!internalTokenOk()) return internalDenied(send);
+
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+
+    const sub = String(body.sub || '').trim();
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!sub) return send(400, { error: 'sub required' });
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return send(400, { error: 'valid email required' });
+    }
+
+    let user = getUserByOidcSub(sub);
+    let created = false;
+
+    if (!user) {
+      const byEmail = getUserByEmail(email);
+      if (byEmail) {
+        // An account already exists for this address (a password signup, or an
+        // earlier OIDC login). Adopt it rather than creating a second account
+        // for one human — but never rebind: a subject that disagrees with the
+        // one on the account is a conflict an operator has to look at.
+        if (byEmail.oidc_sub && byEmail.oidc_sub !== sub) {
+          return send(409, { error: 'this email is already linked to a different identity' });
+        }
+        user = setUserOidcSub(byEmail.id, sub);
+        logAudit({
+          action: 'user.oidc-link',
+          targetId: user.id,
+          targetEmail: user.email,
+          meta: { sub, source: 'studio' },
+        });
+      } else {
+        const admins = (process.env.ADMIN_EMAILS || '')
+          .split(',')
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean);
+        const role = userCount() === 0 || admins.includes(email) ? 'admin' : 'user';
+        user = createUser({ email, passwordHash: `sso:${randomBytes(18).toString('hex')}`, role });
+        user = setUserOidcSub(user.id, sub);
+        upsertQuota(user.id, { plan: 'free' });
+        created = true;
+
+        try {
+          await ensureGatewayKey(user);
+        } catch (err) {
+          // A brand-new account that could not get a key is not usable: disable
+          // it so the next attempt re-provisions instead of half-existing.
+          updateUser(user.id, { disabled_at: new Date().toISOString() });
+          console.warn('[identity] gateway provisioning failed for', email, ':', err?.message || err);
+          return send(502, { error: `gateway unreachable: ${err.message}` });
+        }
+
+        logAudit({
+          action: 'user.provisioned',
+          targetId: user.id,
+          targetEmail: user.email,
+          meta: { sub, role, source: 'studio' },
+        });
+      }
+    }
+
+    if (userIsDisabled(user.id)) return send(403, { error: 'account disabled' });
+
+    let key = getGatewayKey(user.id);
+    if (!key || !key.gateway_key) {
+      // An adopted account (or one whose key was revoked) needs one now: the
+      // caller is a signed-in user about to spend the model pool.
+      try {
+        key = await ensureGatewayKey(user);
+      } catch (err) {
+        return send(502, { error: `gateway unreachable: ${err.message}` });
+      }
+    }
+
+    return send(200, {
+      user: publicUser(user),
+      oidcSub: user.oidc_sub || sub,
+      created,
+      gatewayKeyId: key.gateway_key_id,
+      gatewayKey: key.gateway_key,
+      quota: getQuota(user.id),
+      usageToday: getUsageToday(user.id),
+    });
+  }
+
+  // Audit rows for actions a sibling platform performs (build, publish, export)
+  // — the three that touch a public name or the repository. The actor is the
+  // identity the caller names, resolved to an account when this plane knows it.
+  if (path === '/api/internal/audit' && method === 'POST') {
+    if (!internalTokenOk()) return internalDenied(send);
+
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+
+    const action = String(body.action || '').trim();
+    if (!/^[a-z][a-z0-9._-]{0,79}$/.test(action)) {
+      return send(400, { error: 'action must be a lowercase dotted name (e.g. build.publish)' });
+    }
+
+    const sub = String(body.sub || '').trim();
+    const actor = sub ? getUserByOidcSub(sub) : undefined;
+    const meta = body.meta && typeof body.meta === 'object' && !Array.isArray(body.meta) ? body.meta : null;
+
+    logAudit({
+      actorId: actor?.id || null,
+      actorEmail: actor?.email || (body.actorEmail ? String(body.actorEmail).toLowerCase() : null),
+      action,
+      targetId: body.targetId ? String(body.targetId).slice(0, 200) : null,
+      targetEmail: body.targetEmail ? String(body.targetEmail).slice(0, 200) : null,
+      meta,
+    });
+    return send(201, { ok: true });
+  }
+
   if (path === '/api/internal/quota-check' && method === 'GET') {
     const user = await userFromGatewayKey(req);
     if (!user) return send(401, { error: 'unknown or revoked gateway key' });
@@ -449,10 +628,11 @@ export async function handler(req, res, { gateway }) {
 
   // ---- git export (Atlas integration) ----
   // Atlas is the CodeOps platform in the Innotel Platform Stack (Gitea repos +
-  // Chef AI app builder on self-hosted Convex). Distro builds apps live in the
-  // browser; Atlas ships them via Gitea + Chef/Convex. When
-  // ATLAS_URL + ATLAS_GIT_REMOTE are set in .env, Distro can push projects to
-  // an Atlas/Gitea remote (ssh-agent or WebContainer git).
+  // self-hosted Convex). The builder is Studio (Olympus) — Distro's bolt.diy
+  // front door retired and this control plane is now the tenancy service, so
+  // the export path is Studio's package landing on an Atlas/Gitea remote. When
+  // ATLAS_URL + ATLAS_GIT_REMOTE are set in .env, the control plane can push a
+  // project to that remote over ssh-agent.
   if (path === '/api/export/config' && method === 'GET') {
     return send(200, getAtlasConfig());
   }
@@ -650,6 +830,15 @@ export async function handler(req, res, { gateway }) {
   if (path === '/api/admin/alerts' && method === 'GET') {
     const limit = Number(url.searchParams.get('limit')) || 100;
     return send(200, { entries: listAlerts(limit) });
+  }
+
+  // Read-only view of the builder's queue (convergence §5.2): Studio's queue is
+  // where the work is, and this is where the users and quotas are. `configured:
+  // false` when STUDIO_BUILD_QUEUE_DIR is unset — a view of an unconfigured
+  // feature, not an error, so the console can say which it is.
+  if (path === '/api/admin/build-queue' && method === 'GET') {
+    const limit = Number(url.searchParams.get('limit')) || undefined;
+    return send(200, readBuildQueue({ limit }));
   }
 
   const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);

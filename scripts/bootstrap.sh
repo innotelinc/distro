@@ -26,6 +26,10 @@ fill_secret() {
 }
 fill_secret JWT_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
 fill_secret API_KEY_SECRET "$(openssl rand -hex 32)"
+# Service-to-service token for the control plane's provisioning/audit routes
+# (`/api/internal/identity`, `/api/internal/audit`). Studio presents the same
+# value; until it is set those routes refuse rather than open.
+fill_secret CONTROL_INTERNAL_TOKEN "$(openssl rand -hex 32)"
 
 # env var from .env (or environment)
 envget() { grep -E "^${1}=" .env 2>/dev/null | head -1 | cut -d= -f2-; }
@@ -56,13 +60,13 @@ else
     host="$(node -e 'const e=JSON.parse(process.argv[1]);const s=e[0]?.Service,n=e[0]?.Node;console.log(s?.Address||n?.Address||"")' "$entry" 2>/dev/null || true)"
     if [[ -n "$host" ]]; then
       GATEWAY_MODE="consul (http://${host}:20128)"
-      echo "==> gateway discovered: http://${host}:20128 (dashboard), http://${host}:20129 (API)"
+      echo "==> gateway discovered: http://${host}:20128 (dashboard + API, one port)"
       # Pin the discovered gateway into .env so the web app and control plane
       # skip discovery on every boot. Only fills EMPTY values (never overwrites
       # an explicit operator choice).
       if grep -qE '^OPENAI_LIKE_API_BASE_URL=$' .env; then
-        sed -i "s|^OPENAI_LIKE_API_BASE_URL=$|OPENAI_LIKE_API_BASE_URL=http://${host}:20129/v1|" .env
-        echo "==> wrote OPENAI_LIKE_API_BASE_URL=http://${host}:20129/v1 to .env"
+        sed -i "s|^OPENAI_LIKE_API_BASE_URL=$|OPENAI_LIKE_API_BASE_URL=http://${host}:20128/v1|" .env
+        echo "==> wrote OPENAI_LIKE_API_BASE_URL=http://${host}:20128/v1 to .env"
       fi
       if grep -qE '^GATEWAY_DASHBOARD_URL=$' .env; then
         sed -i "s|^GATEWAY_DASHBOARD_URL=$|GATEWAY_DASHBOARD_URL=http://${host}:20128|" .env
@@ -96,30 +100,14 @@ if [[ -z "$(envget MAGNATE_URL)" ]]; then
 fi
 
 if [[ "$GATEWAY_MODE" == "none" ]]; then
-  echo "!! no remote gateway found via env or consul"
-  echo "   Starting the LOCAL fallback gateway instead (--profile local-gateway)."
-  echo "   For the shared platform gateway, set GATEWAY_API_URL in .env, e.g."
-  echo "     OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20129/v1"
-  if grep -qE '^OPENAI_LIKE_API_BASE_URL=.+' .env; then
-    echo "   NOTE: OPENAI_LIKE_API_BASE_URL is set in .env — empty it if you want"
-    echo "         the web app to use the local fallback gateway instead."
-  fi
-  docker compose --profile local-gateway up -d redis gateway
-
-  echo "==> waiting for the local gateway to become healthy"
-  for _ in $(seq 1 60); do
-    status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' distro-gateway 2>/dev/null || echo starting)"
-    if [[ "$status" == "healthy" ]]; then
-      echo "==> local gateway is healthy"
-      GATEWAY_MODE="local (http://127.0.0.1:20128)"
-      break
-    fi
-    if [[ "$status" == "unhealthy" ]]; then
-      echo "!! local gateway reported unhealthy — check: docker compose logs gateway"
-      exit 1
-    fi
-    sleep 2
-  done
+  echo "!! no gateway found via env or consul"
+  echo "   Distro does not bundle an OmniRoute — one gateway serves the ecosystem."
+  echo "   Point this stack at the shared platform gateway:"
+  echo "     OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20128/v1   # web app -> /v1"
+  echo "     GATEWAY_DASHBOARD_URL=http://10.10.2.1:20128        # control plane (optional)"
+  echo "   or set CONTROL_CONSUL_URL so it is discovered as service 'omniroute'."
+  echo "   See docs/ops.md, section 'Remote gateway'."
+  exit 1
 fi
 
 cat <<EOF
@@ -130,22 +118,23 @@ cat <<EOF
  Next steps (once per deployment):
 
  1. Get a gateway API key:
-      REMOTE  — open the OmniRoute dashboard (server 2 :20128), register
-                upstream provider keys, then Settings → API Keys → create
-      LOCAL   — open http://127.0.0.1:20128 (INITIAL_PASSWORD in .env) and
-                do the same
+      Open the OmniRoute dashboard on the platform host (server 2 :20128),
+      register upstream provider keys, then Settings → API Keys → create.
+      Distro runs no gateway of its own.
 
- 2. Put it in .env:
+ 2. Put the service key in .env:
 
-      OPENAI_LIKE_API_KEY=<gateway key>
-      OPENAI_LIKE_API_BASE_URL=<gateway /v1 url>   # e.g. http://10.10.2.1:20129/v1
+      OPENAI_LIKE_API_KEY=<gateway key>   # mints/revokes per-user keys
+      OPENAI_LIKE_API_BASE_URL=<gateway /v1 url>   # e.g. http://10.10.2.1:20128/v1
 
- 3. Start the Distro web app and verify end-to-end:
+ 3. Start the control plane and verify:
 
       docker compose up -d --build
       make doctor
-      # open http://127.0.0.1:5173, pick the OpenAILike/Distro provider
+      # admin console: http://127.0.0.1:20140/admin
 
+ Builder surfaces (Studio) consume this control plane's
+ quota/usage/identity APIs — there is no Distro web app to open anymore.
  Upstream provider keys NEVER go into Distro — they live in the gateway.
  See docs/ops.md and docs/architecture.md.
 ────────────────────────────────────────────────────────────────────────

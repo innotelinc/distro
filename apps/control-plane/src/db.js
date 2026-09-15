@@ -14,7 +14,33 @@ export function openDb(path = process.env.CONTROL_DB_PATH || join(here, '..', 'd
   db.pragma('foreign_keys = ON');
   const schema = readFileSync(join(here, '..', 'schema.sql'), 'utf8');
   db.exec(schema);
+  migrate(db);
   return db;
+}
+
+/**
+ * Columns added after a database may exist already.
+ *
+ * `CREATE TABLE IF NOT EXISTS` is a no-op on an existing database, so a column
+ * added to schema.sql lands on fresh installs and nowhere else. Each step here
+ * is idempotent — it reads the table's columns first — so running it on every
+ * boot is the migration: there is no version table to fall out of date.
+ *
+ * It runs AFTER schema.sql, which is why an index over a new column belongs
+ * here and not there: on a database that predates the column, schema.sql's
+ * `CREATE INDEX` would run before the `ALTER TABLE` and fail the boot on exactly
+ * the deployments the migration exists for. (The legacy-schema test in
+ * `test/internal-api.test.mjs` pins this.)
+ */
+function migrate(database) {
+  const columns = new Set(database.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+  if (!columns.has('oidc_sub')) {
+    database.exec('ALTER TABLE users ADD COLUMN oidc_sub TEXT');
+  }
+  // Partial, so the many rows with no subject are not competing for one NULL slot.
+  database.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub) WHERE oidc_sub IS NOT NULL',
+  );
 }
 
 export function getDb() {
@@ -45,6 +71,26 @@ export function getUserByEmail(email) {
 
 export function getUserById(id) {
   return getDb().prepare('SELECT * FROM users WHERE id = ?').get(id);
+}
+
+/**
+ * The account bound to an Authentik subject, or undefined.
+ *
+ * This is the lookup a sibling platform's `sub` resolves through: identity
+ * comes from Cerulean's Authentik (one IdP), the account and its per-user
+ * gateway key live here (one tenancy layer), and this column is the one join
+ * between them.
+ */
+export function getUserByOidcSub(sub) {
+  const value = String(sub || '').trim();
+  if (!value) return undefined;
+  return getDb().prepare('SELECT * FROM users WHERE oidc_sub = ?').get(value);
+}
+
+/** Bind an account to a subject. Throws on a subject already bound elsewhere. */
+export function setUserOidcSub(id, sub) {
+  getDb().prepare('UPDATE users SET oidc_sub = ? WHERE id = ?').run(String(sub).trim(), id);
+  return getUserById(id);
 }
 
 export function listUsers() {

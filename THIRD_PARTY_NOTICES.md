@@ -1,15 +1,20 @@
 # Third-Party Notices
 
-Distro is a product assembled from the following open-source projects. Both
-are MIT-licensed; their full license texts are retained in-tree.
+Distro's live product is the multi-tenant control plane (tenancy service:
+accounts, per-user gateway keys, quotas/usage, admin console). Its surfaces
+are assembled from the open-source projects below; where a component is no
+longer shipped, its license text is retained in-tree as the record of the
+version that was used.
 
 ## bolt.diy
 
 - Project: https://github.com/stackblitz-labs/bolt.diy (branch `stable`)
 - License: MIT — Copyright (c) 2024 StackBlitz, Inc. and bolt.diy contributors
-- License text: [`apps/web/LICENSE`](apps/web/LICENSE)
-- Used as: `apps/web` — the Distro front door (rebranded fork: in-browser
-  agent IDE, WebContainer sandbox, live preview, terminal, git/deploy).
+- License text: [`licenses/bolt.diy.LICENSE`](licenses/bolt.diy.LICENSE)
+- Used as: the retired builder front door (`apps/web`, a rebranded fork:
+  in-browser agent IDE, WebContainer sandbox, live preview, terminal,
+  git/deploy). Retired as a surface in the build-plane convergence (§5.2);
+  one web UI (Studio) serves the ecosystem. Retained here as the record.
 
 ## OmniRoute
 
@@ -20,9 +25,8 @@ are MIT-licensed; their full license texts are retained in-tree.
 - Used as: the AI model routing gateway providing the single
   OpenAI-compatible `/v1/*` endpoint Distro calls. Consumed remotely as a
   platform service (Innotel platform stack, Server 2; Consul service
-  `omniroute`); the LOCAL fallback (compose profile `local-gateway`) runs the
-  published image `diegosouzapw/omniroute` (tag pinned via
-  `OMNIROUTE_IMAGE_TAG` in `.env`).
+  `omniroute`). Distro runs no OmniRoute image of its own and pins no tag —
+  the published `diegosouzapw/omniroute` image is the platform's.
 
 ## Notes
 

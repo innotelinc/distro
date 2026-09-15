@@ -4,10 +4,12 @@ npm-proxy-hosts.py — provision Nginx Proxy Manager proxy hosts + wildcard SSL.
 
 Creates the Distro subdomains on an Nginx Proxy Manager instance via its API:
 
-    slots.<DOMAIN>      -> http://127.0.0.1:5173  (Distro web app)
     admin.<DOMAIN>      -> http://127.0.0.1:20140 (control plane /admin)
     cp.<DOMAIN>         -> http://127.0.0.1:20140 (control plane API under /cp)
     gateway.<DOMAIN>    -> http://127.0.0.1:20128 (OmniRoute dashboard, private)
+
+(The retired Distro web app used to take slots.<DOMAIN> → :5173; the builder
+surface is Studio now.)
 
 A wildcard Let's Encrypt certificate ( *.DOMAIN + DOMAIN ) is issued via the
 DNS challenge so every subdomain gets SSL automatically. Requires NPM >= 2.11
@@ -64,7 +66,6 @@ DNS_CREDENTIALS_RAW = env("NPM_DNS_CREDENTIALS", "{}")
 HOSTS_JSON = env("NPM_HOSTS_JSON", "")
 
 DEFAULT_HOSTS = [
-    {"subdomain": "slots", "forward_host": None, "forward_port": 5173, "ssl": True},
     {"subdomain": "admin", "forward_host": None, "forward_port": 20140, "ssl": True},
     {"subdomain": "cp", "forward_host": None, "forward_port": 20140, "ssl": True},
     {"subdomain": "gateway", "forward_host": None, "forward_port": 20128, "ssl": True, "private": True},

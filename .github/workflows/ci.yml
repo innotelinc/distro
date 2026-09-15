@@ -24,8 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           # Only the scripts we author: .githooks guard infra and repo-root
-          # scripts/. Everything under apps/web is vendored upstream bolt.diy
-          # shell code and is excluded, like any third-party tree.
+          # scripts/.
           mapfile -t scripts < <(git ls-files '.githooks/*' 'scripts/*.sh')
           echo "Checking ${#scripts[@]} scripts"
           docker run --rm -v "$PWD":/mnt:ro -w /mnt \
@@ -57,3 +56,13 @@ jobs:
             node --check "$f"
           done
           echo "All ${#files[@]} control-plane sources parse"
+
+      - name: Internal API tests (schema migration, identity, quota, audit)
+        working-directory: apps/control-plane
+        run: |
+          set -euo pipefail
+          # The one dependency is a native SQLite binding; these tests open a real
+          # database file, which is the point — the migration and the subject join
+          # are exactly what a stubbed store would hide.
+          npm install --no-audit --no-fund
+          npm test

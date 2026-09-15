@@ -66,10 +66,16 @@
 <div class="login-wrap" id="loginWrap">
   <h2>Admin sign in</h2>
   <p>Manage accounts, quotas and gateway keys. Only instance admins can sign in.</p>
-  <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="admin@example.com" /></div>
-  <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••" /></div>
+  <button id="oidcBtn" class="hidden" style="width:100%">Continue with Authentik</button>
+  <div id="localLoginBlock">
+    <div style="display:flex;align-items:center;gap:10px;margin:12px 0;color:var(--muted);font-size:12px">
+      <span style="flex:1;height:1px;background:var(--line)"></span>or<span style="flex:1;height:1px;background:var(--line)"></span>
+    </div>
+    <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="admin@example.com" /></div>
+    <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••" /></div>
+    <button id="loginBtn" style="width:100%">Sign in</button>
+  </div>
   <div class="err" id="loginErr"></div>
-  <button id="loginBtn" style="width:100%">Sign in</button>
 </div>
 
 <main id="app" class="hidden">
@@ -93,6 +99,16 @@
         <th>Today (req / tok / $)</th><th>7d (tok / $)</th><th>Key</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:18px">
+    <div class="title">Build queue — read-only <span id="queueCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Requested</th><th>State</th><th>Action</th><th>App</th><th>Kind</th><th>By</th><th>Finished</th><th>Result</th></tr></thead>
+      <tbody id="queueRows"></tbody>
     </table>
     </div>
   </div>
@@ -201,6 +217,9 @@ async function loadAll() {
       const { entries } = await api('/api/admin/alerts?limit=50');
       renderAlerts(entries);
     } catch { /* alerts are non-critical */ }
+    try {
+      renderBuildQueue(await api('/api/admin/build-queue'));
+    } catch { /* the builder's queue is non-critical here */ }
   } catch (e) {
     toast('Load failed: ' + e.message);
     if (/unauthorized|403/i.test(e.message)) { localStorage.removeItem(TOKEN_KEY); showLogin(); }
@@ -270,6 +289,66 @@ function renderRows(users) {
   }
 }
 
+// Studio's queue, as this control plane sees it. Read-only by construction: the
+// endpoint only reads, and this renders what it returns. `configured: false`
+// means the directory is not mounted HERE — which is a normal deployment shape,
+// not a fault, so it says so instead of looking like an empty queue.
+function renderBuildQueue(view) {
+  const cfg = $('#queueCfg');
+  const tb = $('#queueRows');
+  tb.innerHTML = '';
+
+  if (!view || !view.configured) {
+    cfg.innerHTML = '<span class="pill off">not mounted</span> — set STUDIO_BUILD_QUEUE_DIR to Studio\'s queue directory';
+    tb.innerHTML = '<tr><td colspan="8" class="muted">Studio\'s build queue is not visible from this container.</td></tr>';
+    return;
+  }
+
+  const runner = view.runner || {};
+  const counts = view.counts || {};
+  const runnerPill = runner.live
+    ? '<span class="pill ok">runner live</span>'
+    : '<span class="pill off">no runner</span>';
+  cfg.innerHTML =
+    runnerPill +
+    ' · ' + esc(String(counts.queued || 0)) + ' queued · ' + esc(String(counts.running || 0)) + ' running' +
+    ' · <span class="badge">' + esc(view.dir || '') + '</span>' +
+    (runner.host ? ' · ' + esc(runner.host) + (runner.busyWith ? ' busy with <code>' + esc(runner.busyWith) + '</code>' : '') : '');
+
+  if (!view.readable) {
+    tb.innerHTML = '<tr><td colspan="8" class="muted">The queue directory is configured but could not be read.</td></tr>';
+    return;
+  }
+  if (!view.jobs || !view.jobs.length) {
+    tb.innerHTML = '<tr><td colspan="8" class="muted">Nothing in the queue.</td></tr>';
+    return;
+  }
+
+  for (const j of view.jobs) {
+    const tr = document.createElement('tr');
+    const stateCls = j.state === 'succeeded' ? 'ok' : j.state === 'failed' || j.state === 'cancelled' ? 'off' : j.state === 'running' ? 'admin' : 'user';
+    // What the operator wants next: the name it was published on, or why it did
+    // not get that far.
+    // Linkified only for http(s): the URL comes from a file another process
+    // writes, and a bare `esc` would still render a `javascript:` one as a link.
+    const result = j.publishedUrl && /^https?:\/\//i.test(j.publishedUrl)
+      ? '<a href="' + esc(j.publishedUrl) + '" target="_blank" rel="noopener">' + esc(j.publishedUrl) + '</a>'
+      : j.publishedUrl || j.previewUrl
+        ? esc(j.publishedUrl || j.previewUrl)
+        : esc(j.message || (j.exitCode != null ? 'exit ' + String(j.exitCode) : ''));
+    tr.innerHTML =
+      '<td class="badge">' + esc(j.requestedAt || '') + '</td>' +
+      '<td><span class="pill ' + stateCls + '">' + esc(j.state) + '</span></td>' +
+      '<td><code>' + esc(j.action) + '</code></td>' +
+      '<td>' + esc(j.title || j.slug || '') + '</td>' +
+      '<td>' + esc(j.kind || '') + '</td>' +
+      '<td>' + esc(j.requestedBy || '') + '</td>' +
+      '<td class="badge">' + esc(j.finishedAt || '') + '</td>' +
+      '<td class="muted">' + result + '</td>';
+    tb.appendChild(tr);
+  }
+}
+
 function renderAlerts(entries) {
   const tb = $('#alertRows');
   tb.innerHTML = '';
@@ -318,8 +397,49 @@ function renderAudit(entries) {
 }
 
 // login
+//
+// Posture: identity is Cerulean Authentik, so the console renders the SSO
+// button and hides the password form unless the operator turned the local
+// fallback back on (BREAKGLASS_LOGIN=1 — see src/oidc.js).
 $('#loginBtn').onclick = doLogin;
 $('#password').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+
+async function bootLogin() {
+  let cfg = { enabled: false, localLogin: false, misconfigured: false };
+  try { cfg = await api('/api/auth/oidc/config'); } catch { /* offline */ }
+  const sso = $('#oidcBtn');
+  if (cfg.enabled) {
+    sso.classList.remove('hidden');
+    sso.onclick = openOidc;
+  } else {
+    sso.classList.add('hidden');
+  }
+  if (!cfg.localLogin) $('#localLoginBlock').classList.add('hidden');
+  if (cfg.misconfigured) {
+    $('#loginErr').textContent =
+      'Authentik SSO is not configured on this control plane and password sign-in is disabled. ' +
+      'Set the OIDC_* variables (or BREAKGLASS_LOGIN=1 for recovery).';
+  }
+}
+
+let oidcPopup = null;
+function openOidc() {
+  oidcPopup = window.open('/api/auth/oidc/start', 'distro-oidc', 'width=520,height=680,menubar=no,toolbar=no');
+}
+
+window.addEventListener('message', (e) => {
+  const d = e.data;
+  if (!d || d.source !== 'distro-oidc' || !d.token) return;
+  if (oidcPopup && !oidcPopup.closed) oidcPopup.close();
+  if (d.user && d.user.role !== 'admin') {
+    $('#loginErr').textContent = 'this account is not an admin';
+    return;
+  }
+  localStorage.setItem(TOKEN_KEY, d.token);
+  localStorage.setItem('distro_admin_user', JSON.stringify(d.user));
+  showApp(d.user);
+});
+
 async function doLogin() {
   const btn = $('#loginBtn');
   btn.disabled = true;
@@ -347,10 +467,10 @@ $('#logoutBtn').onclick = () => {
 // boot
 (function boot() {
   const token = localStorage.getItem(TOKEN_KEY);
-  if (!token) return showLogin();
+  if (!token) { showLogin(); bootLogin(); return; }
   api('/api/admin/users')
     .then(() => showApp(currentUser()))
-    .catch(() => { localStorage.removeItem(TOKEN_KEY); showLogin(); });
+    .catch(() => { localStorage.removeItem(TOKEN_KEY); showLogin(); bootLogin(); });
 })();
 </script>
 </body>

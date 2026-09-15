@@ -9,7 +9,7 @@
  *   - OmniRoute  → Chef's codegen model plane (shared gateway)
  *   - Magnate    → paid developer-seat billing / entitlements
  *   - Cerulean   → Authentik SSO + DNS + TLS for git/chef/convex hosts
- *   - Infisical  → secrets (Atlas .env is derived from it)
+ *   - Cerulean Vault → secrets (Atlas .env is derived from it)
  *
  * This module only provides the server-side configuration + remote validation
  * for the Export-to-Git flow. The actual push is done client-side by the web
