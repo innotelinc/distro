@@ -59,6 +59,56 @@ import { magnateUrlSync } from './discovery.js';
 import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
 import { readBuildQueue } from './buildQueue.js';
 
+/* ---- auth rate limiting ------------------------------------------------- */
+//
+// 0.2.0 (M6): the local password path is break-glass only, but while it is
+// enabled it accepts a password on a public route, and nothing stopped a script
+// from guessing or mass-creating accounts. This is a small fixed-window limiter
+// for exactly those two handlers.
+//
+// It is process-local and best-effort on purpose: the distributed limiter is
+// the edge (NPM / Authentik), and this is the in-process backstop that still
+// exists when the control plane is reached over the LAN directly. A second
+// replica would keep its own counters — noted rather than pretended away.
+//
+//   CONTROL_AUTH_RATE_LIMIT     attempts allowed per window (default 10)
+//   CONTROL_AUTH_RATE_WINDOW_MS window length in ms (default 60000)
+// Set the limit to 0 to disable it (e.g. a load test against a throwaway host).
+const AUTH_RATE_LIMIT = Number(process.env.CONTROL_AUTH_RATE_LIMIT ?? 10);
+const AUTH_RATE_WINDOW_MS = Number(process.env.CONTROL_AUTH_RATE_WINDOW_MS ?? 60_000);
+const authHits = new Map(); // `${bucket}:${ip}` -> { count, resetAt }
+
+function clientIp(req) {
+  // Behind the edge the real client is the first hop of X-Forwarded-For; a
+  // direct LAN caller has no header and falls back to the socket address.
+  const forwarded = String(req.headers['x-forwarded-for'] || '')
+    .split(',')[0]
+    .trim();
+  return forwarded || (req.socket && req.socket.remoteAddress) || 'unknown';
+}
+
+/** True when this request is over budget for `bucket`. Counts the attempt. */
+function rateLimited(bucket, req) {
+  if (!Number.isFinite(AUTH_RATE_LIMIT) || AUTH_RATE_LIMIT <= 0) return false;
+
+  const key = `${bucket}:${clientIp(req)}`;
+  const now = Date.now();
+  const entry = authHits.get(key);
+
+  if (!entry || entry.resetAt <= now) {
+    // Drop expired keys while the map is being written, so a long-lived process
+    // cannot accumulate one entry per address it has ever seen.
+    if (authHits.size > 5000) {
+      for (const [k, v] of authHits) if (v.resetAt <= now) authHits.delete(k);
+    }
+    authHits.set(key, { count: 1, resetAt: now + AUTH_RATE_WINDOW_MS });
+    return false;
+  }
+
+  entry.count += 1;
+  return entry.count > AUTH_RATE_LIMIT;
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 
 function json(res, status, body) {
@@ -174,6 +224,9 @@ export async function handler(req, res, { gateway }) {
 
   if (path === '/api/auth/signup' && method === 'POST') {
     if (!localLoginEnabled()) return send(403, localAuthOffBody);
+    if (rateLimited('signup', req)) {
+      return send(429, { error: 'too many signup attempts — try again shortly' });
+    }
     const body = await readBody(req);
     if (body.__invalid) return send(400, { error: 'invalid JSON' });
     const email = String(body.email || '').trim().toLowerCase();
@@ -217,6 +270,9 @@ export async function handler(req, res, { gateway }) {
 
   if (path === '/api/auth/login' && method === 'POST') {
     if (!localLoginEnabled()) return send(403, localAuthOffBody);
+    if (rateLimited('login', req)) {
+      return send(429, { error: 'too many login attempts — try again shortly' });
+    }
     const body = await readBody(req);
     const email = String(body.email || '').trim().toLowerCase();
     const user = getUserByEmail(email);
