@@ -10,7 +10,13 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,                    -- argon2id/bcrypt (>=12 rounds)
   role          TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  disabled_at   TEXT                              -- NULL = active
+  disabled_at   TEXT,                             -- NULL = active
+  -- Authentik subject this account is bound to, once a sibling platform has
+  -- identified the caller. It is how Studio reaches an account it did not
+  -- create a password for: the account is keyed on the control-plane user id,
+  -- and this column is the OIDC identity it was matched to (convergence plan
+  -- §5.2 — "re-key on the control-plane user id, store the sub beside it").
+  oidc_sub      TEXT
 );
 
 -- One gateway API key per user (the OmniRoute key id/key are stored here).
@@ -92,6 +98,11 @@ CREATE TABLE IF NOT EXISTS alert_log (
 CREATE INDEX IF NOT EXISTS idx_alert_created ON alert_log(created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_gateway_keys_user ON gateway_keys(user_id);
+-- NOTE: the unique index over users(oidc_sub) is created in db.js migrate(),
+-- NOT here. On a database that predates the column, this file's statements run
+-- BEFORE the ALTER TABLE that adds it, so an index naming oidc_sub here would
+-- fail the boot on exactly the deployments that need the migration. The same
+-- applies to any future column, index or constraint over a new column.
 CREATE INDEX IF NOT EXISTS idx_usage_cache_user_date ON usage_cache(user_id, date);
 
 -- Project templates (starter apps users can clone)

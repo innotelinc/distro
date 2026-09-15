@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Consul-discover the remote platform services and pin their URLs into .env:
 #
-#   OPENAI_LIKE_API_BASE_URL=http://<host>:20129/v1   (web app → gateway API)
+#   OPENAI_LIKE_API_BASE_URL=http://<host>:20128/v1   (web app → gateway API)
 #   GATEWAY_DASHBOARD_URL=http://<host>:20128         (control plane → admin API)
 #   MAGNATE_URL=http://<host>:<port>                  (control plane → billing; optional)
 #
@@ -86,4 +86,4 @@ fi
 
 echo
 echo "Gateway discovered: ${dashboard} (dashboard) / ${api} (API)"
-echo "Restart the stack to pick it up: docker compose up -d control-plane web"
+echo "Restart the stack to pick it up: docker compose up -d control-plane"

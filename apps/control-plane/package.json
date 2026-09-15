@@ -10,7 +10,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "cli": "node bin/control.mjs"
+    "cli": "node bin/control.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0"

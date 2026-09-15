@@ -30,21 +30,17 @@ if [[ -z "$api_base" || -z "$dashboard" ]]; then
     host="$(node -e 'const e=JSON.parse(process.argv[1]);const s=e[0]?.Service,n=e[0]?.Node;console.log(s?.Address||n?.Address||"")' "$entry" 2>/dev/null || true)"
     if [[ -n "$host" ]]; then
       dashboard="${dashboard:-http://${host}:20128}"
-      api_base="${api_base:-http://${host}:20129/v1}"
+      api_base="${api_base:-http://${host}:20128/v1}"
       echo "--- gateway via consul: $host ---"
     fi
   fi
 fi
-# Local compose fallback (only actually up under --profile local-gateway).
-dashboard="${dashboard:-http://127.0.0.1:20128}"
-api_base="${api_base:-http://127.0.0.1:20129/v1}"
+# No local gateway: this stack runs none, so the default target is the platform
+# gateway on the mesh (Server 2) unless .env pins another address.
+dashboard="${dashboard:-http://10.10.2.1:20128}"
+api_base="${api_base:-http://10.10.2.1:20128/v1}"
 
-if docker compose ps gateway 2>/dev/null | grep -q distro-gateway; then
-  echo "--- local gateway container ---"
-  docker compose ps gateway redis
-else
-  echo "--- local gateway container: not running (remote gateway mode) ---"
-fi
+echo "--- local gateway container: none (remote gateway mode) ---"
 
 echo "--- dashboard ($dashboard) ---"
 code="$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$dashboard/" || true)"
@@ -56,7 +52,7 @@ if [[ -n "$api_key" && "$api_key" != "CHANGEME" ]]; then
   echo "HTTP $code (authenticated)"
 else
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$api_base/models" || true)"
-  echo "HTTP $code (no OPENAI_LIKE_API_KEY set in .env — expected 401/403)"
+  echo "HTTP $code (no OPENAI_LIKE_API_KEY service key in .env — expected 401/403)"
 fi
 
 echo "--- /v1/chat/completions smoke test ---"
@@ -71,5 +67,5 @@ if [[ -n "$api_key" && "$api_key" != "CHANGEME" ]]; then
     | head -c 600
   echo
 else
-  echo "skipped (set OPENAI_LIKE_API_KEY to run the smoke test)"
+  echo "skipped (set the OPENAI_LIKE_API_KEY service key to run the smoke test)"
 fi

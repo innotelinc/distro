@@ -67,9 +67,10 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       gateway's per-key aggregates for the day — covering ALL traffic under
       the key (chat, direct /v1, dashboard usage), not just web chat turns.
       Scheduled via `CONTROL_SYNC_INTERVAL_MS`; CLI: `control.mjs usage-sync`.
-      NOTE: only possible with a LOCAL gateway (profile `local-gateway`); the
-      remote platform gateway has no shared volume, so the interval defaults
-      to 0 (off) there and usage reports + key spend caps carry the accounting.
+      NOTE: requires the gateway's data dir mounted read-only at
+      `GATEWAY_DATA_DIR`. With the shared remote gateway there is no such
+      volume, so the interval defaults to 0 (off) and usage reports + key spend
+      caps carry the accounting.
 - [x] `GET /me/usage` (today snapshot) and quota decisions consume it, so
       daily request/token caps are gateway-authoritative after each sync.
 - [x] Minimal UI: admin console usage columns (`/admin`).
@@ -102,8 +103,8 @@ test accounts) untouched.
 
 ## Open questions to resolve before/at M2
 
-- Gateway version drift: re-verify the inventory endpoints on the pinned
-  `OMNIROUTE_IMAGE_TAG` before each milestone.
+- Gateway version drift: re-verify the inventory endpoints against the shared
+  platform gateway's version before each milestone.
 - Whether OmniRoute exposes per-key **model-level** usage (M4 granularity).
 - Option A vs B above (user-agent key handling / proxy) — affects M2–M4.
 - Where the quota check lives if option A is chosen (web app middleware needs

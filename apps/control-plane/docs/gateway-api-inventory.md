@@ -40,8 +40,9 @@ row per proxied call in **`usage_history`** with **`api_key_id`** (and
 `status`, `timestamp` — the per-key ledger. `call_logs` carries the same
 `api_key_id`/`api_key_name` columns with more detail (method/path/errors).
 
-Mechanism: compose mounts `gateway-data:/gateway-data:ro` into the control
-plane; `syncUsageFromGateway()` aggregates `usage_history` for today grouped
+Mechanism: with the gateway's data dir mounted read-only into the control plane
+at `GATEWAY_DATA_DIR` (unset by default, because the shared gateway is remote),
+`syncUsageFromGateway()` aggregates `usage_history` for today grouped
 by `api_key_id`, maps ids to users via `gateway_keys.gateway_key_id`, and
 replaces that user's `usage_cache` (authoritative — every chat turn also
 flows through the gateway under the user's key). Schema drift is guarded:

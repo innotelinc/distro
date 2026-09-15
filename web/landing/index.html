@@ -373,13 +373,13 @@
     <!-- Hero -->
     <div class="hero">
       <div class="wrap hero-inner">
-        <p class="kicker"><span class="pulse" aria-hidden="true"></span> v1.0 · BuilderOps live</p>
-        <h1>Describe an app.<br>Watch it get built — <span class="accent">in your browser</span>.</h1>
+        <p class="kicker"><span class="pulse" aria-hidden="true"></span> BuilderOps · tenancy service</p>
+        <h1>Every build, accounted for — <span class="accent">per user, per key, per turn</span>.</h1>
         <p class="lede">
-          Distro is a self-hosted AI app-building platform: its agent writes, runs, previews,
-          and iterates on a full-stack codebase live in your browser — no local dev environment,
-          no cloud VM. It assembles bolt.diy (the in-browser IDE) and OmniRoute (the AI gateway)
-          and operates them as one service.
+          Distro began as an in-browser AI app builder (the bolt.diy fork) and now ships the
+          part that was always its own: the multi-tenant control plane. Accounts, one OmniRoute
+          gateway key per user, quota and spend enforcement, an admin console — the tenancy
+          layer the ecosystem's builder surface (Studio) calls for every model turn.
         </p>
         <div class="cta-row">
           <a class="btn btn-primary" href="https://github.com/innotelinc/distro#quickstart-self-hosted-docker">Get started</a>
@@ -390,10 +390,10 @@
           <button class="copy" id="copy-btn" type="button" aria-label="Copy quick start command">copy</button>
         </div>
         <div class="stats">
-          <div class="stat"><b>Chat-to-code</b><span>agent writes &amp; runs apps</span></div>
-          <div class="stat"><b>WebContainer</b><span>Node in the tab — no cloud VM</span></div>
+          <div class="stat"><b>Per-user keys</b><span>every turn attributable</span></div>
+          <div class="stat"><b>Quotas</b><span>429 before tokens burn</span></div>
           <div class="stat"><b>OmniRoute</b><span>one gateway, every provider</span></div>
-          <div class="stat"><b>Multi-tenant</b><span>per-user keys · quotas · spend</span></div>
+          <div class="stat"><b>Audited</b><span>provision · build · export</span></div>
         </div>
       </div>
     </div>
@@ -401,15 +401,15 @@
     <!-- Features -->
     <section id="features">
       <div class="wrap">
-        <h2>The whole build loop, in one tab<span class="accent">.</span></h2>
-        <p class="section-sub">Chat, code, run, preview, iterate — with your provider keys and your users' quotas under your control.</p>
+        <h2>Tenancy for the build plane<span class="accent">.</span></h2>
+        <p class="section-sub">One control plane between the builder and the gateway — so building stays one web UI, and spending stays everyone's own.</p>
         <div class="grid grid-3">
-          <div class="card"><span class="icon" aria-hidden="true">💬</span><h3>Chat-to-code agent</h3><p>Describe an app in natural language and the agent writes, runs, previews, and iterates on a full-stack codebase.</p></div>
-          <div class="card"><span class="icon" aria-hidden="true">🧪</span><h3>WebContainer sandbox</h3><p><code>npm install</code>, dev servers, and terminals — Node.js runs in the tab with no cloud VM required.</p></div>
-          <div class="card"><span class="icon" aria-hidden="true">⚡</span><h3>Live preview &amp; terminal</h3><p>Iterate on a running app with an in-browser shell and instant reload as the agent edits files.</p></div>
-          <div class="card"><span class="icon" aria-hidden="true">🔐</span><h3>Keys never leave the server</h3><p>The agent talks only to your self-hosted OmniRoute gateway — upstream provider keys live in one place, never in the browser.</p></div>
-          <div class="card"><span class="icon" aria-hidden="true">🏢</span><h3>Multi-tenant control plane</h3><p>Accounts, one gateway key per user, quota and spend enforcement, an admin console, and an audit log.</p></div>
-          <div class="card"><span class="icon" aria-hidden="true">🪪</span><h3>SSO &amp; billing, optional</h3><p>Cerulean Authentik identity and Magnate subscriptions from the platform stack — wired in, off by default.</p></div>
+          <div class="card"><span class="icon" aria-hidden="true">🪪</span><h3>Identity → account</h3><p>A signed-in Authentik subject resolves to a control-plane account on first sight — no duplicate accounts, no silent rebinds.</p></div>
+          <div class="card"><span class="icon" aria-hidden="true">🔑</span><h3>One key per user</h3><p>The control plane mints, rotates and revokes each user's OmniRoute gateway key through the gateway's own dashboard API.</p></div>
+          <div class="card"><span class="icon" aria-hidden="true">🚦</span><h3>Quota at the turn</h3><p>Quota is checked before each model turn and usage is reported after it — 429 before tokens burn, spend caps on the keys as the backstop.</p></div>
+          <div class="card"><span class="icon" aria-hidden="true">🔐</span><h3>Keys never leave the server</h3><p>Builder traffic talks to your self-hosted OmniRoute gateway with the user's own key — upstream provider keys live in one place, never in the client.</p></div>
+          <div class="card"><span class="icon" aria-hidden="true">🏢</span><h3>Admin console</h3><p>Per-user limits, enable/disable, revoke/rotate, roles, an audit log, and a read-only view of the builder's build queue.</p></div>
+          <div class="card"><span class="icon" aria-hidden="true">🪶</span><h3>SSO &amp; billing, optional</h3><p>Cerulean Authentik identity and Magnate subscriptions from the platform stack — wired in, off by default.</p></div>
         </div>
       </div>
     </section>
@@ -417,27 +417,27 @@
     <!-- Stack -->
     <section id="stack">
       <div class="wrap">
-        <h2>Two MIT upstreams, one service<span class="accent">.</span></h2>
-        <p class="section-sub">Distro assembles bolt.diy and OmniRoute and operates them as one service — the agent only ever talks to the gateway.</p>
+        <h2>How it got here<span class="accent">.</span></h2>
+        <p class="section-sub">Two MIT upstreams assembled into one service — then the surfaces other platforms own were handed back, and the tenancy layer is what ships.</p>
         <div class="split">
           <div>
             <div class="grid" style="gap:14px">
-              <div class="card"><h3>bolt.diy <span style="color:var(--d-text-muted);font-weight:400">· MIT · pinned stable</span></h3><p>The in-browser IDE — chat-to-code, WebContainer sandbox, live preview, file tree, terminal. Forked and rebranded into <code>apps/web</code>.</p></div>
-              <div class="card"><h3>OmniRoute <span style="color:var(--d-text-muted);font-weight:400">· MIT</span></h3><p>The AI routing gateway: one OpenAI-compatible <code>/v1/*</code> endpoint in front of hundreds of upstream providers, with fallback and token/cost accounting.</p></div>
-              <div class="card"><h3>Control plane</h3><p>Multi-tenant layer: accounts, per-user gateway keys, quota enforcement, spend tracking, admin console, audit log.</p></div>
-              <div class="card"><h3>The seam</h3><p>bolt.diy's <code>OpenAILike</code> provider plugs straight into OmniRoute's endpoint — no custom adapter code. That seam is the whole integration.</p></div>
+              <div class="card"><h3>bolt.diy <span style="color:var(--d-text-muted);font-weight:400">· MIT · retired</span></h3><p>The in-browser IDE — chat-to-code, WebContainer sandbox, live preview, file tree, terminal. Forked and rebranded as the Distro front door until the build-plane convergence retired it; one web UI (Studio) serves the ecosystem now. License retained in-tree.</p></div>
+              <div class="card"><h3>OmniRoute <span style="color:var(--d-text-muted);font-weight:400">· MIT · consumed remotely</span></h3><p>The AI routing gateway: one OpenAI-compatible <code>/v1/*</code> endpoint in front of hundreds of upstream providers, with fallback and token/cost accounting.</p></div>
+              <div class="card"><h3>Control plane <span style="color:var(--d-text-muted);font-weight:400">· ships today</span></h3><p>Multi-tenant layer: accounts, per-user gateway keys, quota enforcement, spend tracking, admin console, audit log — consumed by the builder surface over a token-gated service API.</p></div>
+              <div class="card"><h3>The seam</h3><p>Every model call carries the user's own gateway key, and the control plane decides identity, quota and audit around it. Attributable, capped, revocable.</p></div>
             </div>
           </div>
-          <pre class="terminal"><span class="cmt"># one command: secrets + gateway + web</span>
+          <pre class="terminal"><span class="cmt"># one command: secrets + gateway discovery + control plane</span>
 $ <span class="p">./scripts/bootstrap.sh</span>
-<span class="ok">&gt;&gt; [gateway] OmniRoute online → http://127.0.0.1:20128</span>
-<span class="ok">&gt;&gt; [web]     Distro IDE online   → http://127.0.0.1:5173</span>
+<span class="ok">&gt;&gt; [gateway] OmniRoute discovered → http://10.10.2.1:20128</span>
+<span class="ok">&gt;&gt; [control] plane ready       → http://127.0.0.1:20140/admin</span>
 
-$ <span class="p">docker</span> <span class="o">compose up -d --build web &amp;&amp; make doctor</span>
-<span class="ok">all services healthy · gateway key wired</span>
+$ <span class="p">docker</span> <span class="o">compose up -d --build &amp;&amp; make doctor</span>
+<span class="ok">control plane healthy · service key wired</span>
 
-<span class="cmt"># open the app → Start building (workspace lives at /app)</span>
-<span class="cmt"># the model picker lists whatever your gateway exposes</span></pre>
+<span class="cmt"># point the builder surface (Studio) at it:</span>
+<span class="cmt">#   CONTROL_PLANE_INTERNAL_URL + CONTROL_INTERNAL_TOKEN</span></pre>
         </div>
       </div>
     </section>

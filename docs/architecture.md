@@ -1,118 +1,114 @@
 # Distro — Architecture
 
-**Distro** is a self-hosted AI app-building platform: describe an app in plain
-language and an AI agent writes, runs, previews, and iterates on a full-stack
-codebase in your browser — no local dev environment required.
+**Distro** is the ecosystem's tenancy service for AI app building: accounts,
+one OmniRoute gateway key per user, quota/usage enforcement, spend tracking,
+an admin console, and an audit log. Its builder surface — the rebranded
+bolt.diy in-browser IDE that used to live in `apps/web` — is **retired**
+(build-plane convergence §5.2): one web UI, Olympus's Studio, serves the
+ecosystem, and it consumes this control plane over its service API.
 
-It is a product assembled from two MIT-licensed upstream projects:
+## Components
 
-| Layer | Upstream | Role |
+| Layer | Upstream / code | Role |
 |---|---|---|
-| Builder / IDE / agent UI | [bolt.diy](https://github.com/stackblitz-labs/bolt.diy) (`stable`) — forked into `apps/web` | The in-browser IDE: chat-to-code, WebContainer sandbox, live preview, file tree, terminal, git/deploy. Rebranded as **Distro**. |
-| Model routing / gateway | [OmniRoute](https://github.com/diegosouzapw/OmniRoute) — consumed REMOTELY as a platform service (Innotel platform stack, Server 2; Consul service `omniroute`). A local fallback image ships behind the compose profile `local-gateway`. | One OpenAI-compatible endpoint (`/v1/*`) that routes across many upstream providers with fallback, token/cost accounting and format translation. |
+| Tenancy / control plane | `apps/control-plane` (this repo, plain Node + SQLite) | Accounts, per-user gateway keys, quotas/usage, audit log, admin console, optional Authentik OIDC, Magnate entitlements, Atlas git-export config. |
+| Builder surface | Studio (Olympus, Group 4) — not in this repo | The web UI users build in. Calls this control plane's `/api/internal/*` service routes per model turn. |
+| Model routing / gateway | [OmniRoute](https://github.com/diegosouzapw/OmniRoute) — consumed REMOTELY as a platform service (Innotel platform stack, Server 2; Consul service `omniroute`). Distro runs no gateway of its own. | One OpenAI-compatible endpoint (`/v1/*`) across many upstream providers with fallback, token/cost accounting and format translation. |
 
 ```
 ┌──────────────────────────────────────────────┐
-│                Distro (apps/web)             │
-│   rebranded bolt.diy browser IDE             │
-│   chat-to-code · WebContainer · preview      │
-└──────────────────┬───────────────────────────┘
-                   │  POST /v1/chat/completions
-                   │  (OpenAI-compatible, AI SDK)
-                   ▼
+│  Builder surface (Studio, Olympus)           │
+│  the one web UI of the ecosystem             │
+└──────────────┬───────────────┬───────────────┘
+               │               │  /v1/chat/completions
+               │               ▼  (the user's own key)
+               │   ┌──────────────────────────────┐
+               │   │       OmniRoute gateway      │
+               │   │  dashboard + API :20128      │
+               │   │  routing · fallback · usage  │
+               │   └──────────────┬───────────────┘
+               │                  ▼
+               │       upstream providers
+               │  (Anthropic, OpenAI, Gemini, …)
+               │ /api/internal/*   (service token)
+               ▼
 ┌──────────────────────────────────────────────┐
-│              OmniRoute gateway               │
-│   dashboard :20128 · API :20129 · WS :20132  │
-│   routing · fallback · token/cost tracking   │
-└──────────────────┬───────────────────────────┘
-                   ▼
-        upstream providers (Anthropic, OpenAI,
-         Gemini, DeepSeek, free tiers, …)
+│        Distro control plane  :20140          │
+│  identity · per-user keys · quota · usage    │
+│  audit · admin console · billing entitlements│
+└──────────────────────────────────────────────┘
 ```
 
-## The integration seam
+## The service API (what Studio consumes)
 
-OmniRoute speaks the OpenAI API shape, and bolt.diy ships an **OpenAILike**
-provider (`apps/web/app/lib/modules/llm/providers/openai-like.ts`) that
-accepts an arbitrary `baseURL` + key and fetches its model list from
-`GET {baseURL}/models`. That makes the whole gateway a configuration change,
-not an adapter:
+Configuration is `CONTROL_PLANE_INTERNAL_URL` + `CONTROL_INTERNAL_TOKEN`
+(both fail closed: an unset token answers `503` on these routes rather than
+leaving them open). Per model turn, the builder surface:
 
-- `OPENAI_LIKE_API_BASE_URL` → the gateway's OpenAI-compatible endpoint
-  (must include `/v1`), e.g. `http://10.10.2.1:20129/v1` for the platform
-  gateway, `http://gateway:20129/v1` with the local fallback profile, or
-  `http://127.0.0.1:20129/v1` from the host.
-- `OPENAI_LIKE_API_KEY` → an API key issued by the OmniRoute dashboard.
+1. **Identity.** `POST /api/internal/identity` — the signed-in Authentik
+   subject becomes (or provisions) a control-plane account; the response
+   carries that account's gateway key. `users.oidc_sub` is the join; a
+   conflicting email answers `409` rather than silently rebinding.
+2. **Quota.** `GET /api/internal/quota-check` decides, before dispatch,
+   whether the turn may proceed (fail-open by design; the gateway key's own
+   spend cap is the hard backstop).
+3. **Dispatch.** The model call goes to OmniRoute with the **user's own
+   gateway key** — attributable, capped, revocable per user.
+4. **Record.** `POST /api/internal/usage-report` after the turn, plus audit
+   rows (`POST /api/internal/audit`) for build/publish/export — the three
+   actions that touch a public name or a repo.
 
-Distro-specific defaults added on top of upstream bolt.diy:
-
-- `OpenAILike` is registered first in the provider registry
-  (`app/lib/modules/llm/registry.ts`), so `LLMManager.getDefaultProvider()`
-  returns it and fresh sessions default to it.
-- It starts **enabled** out of the box (`app/lib/stores/settings.ts`), unlike
-  the other URL-configurable local providers.
-- `VITE_DEFAULT_MODEL` overrides the preselected model id
-  (`app/utils/constants.ts`) so an operator can pin a model their gateway
-  always exposes.
-- `VITE_DISTRO_GATEWAY_ONLY=true` (the Distro build default) makes the
-  provider registry register **only** OpenAILike — end users can never pick a
-  direct upstream provider. Set it to `false` to re-enable bolt.diy's direct
-  providers.
-- Routes: `/` is a marketing landing page; the workspace moved to `/app`
-  (saved chats stay at `/chat/:id`).
-
-All LLM traffic flows server-side: the browser calls Distro's own routes
-(`/api/chat`, `/api/models`), which run inside the Cloudflare-pages/workerd
-runtime and talk to the gateway with the operator key. The browser never holds
-upstream provider keys.
+The admin console at `/admin` remains the operator's view: per-user limits,
+enable/disable (disable revokes the key immediately), revoke/rotate, roles,
+audit log, and the read-only build-queue view (`BUILD_QUEUE_DIR`).
 
 ## Where the code lives
 
 ```
 .
-├── apps/web/          Distro — rebranded bolt.diy fork (pnpm, Remix + Cloudflare Pages)
-├── docker-compose.yml web + control plane as one stack; local-gateway fallback profile
-├── Makefile           up/down/doctor/bootstrap/sync-upstream …
-├── scripts/           bootstrap, health checks, upstream sync, brand-asset generator
-├── docs/              this doc, multi-tenant design, ops runbook, upstream sync notes
-└── vendor/            git-ignored bolt.diy reference checkout (apps/web diff base)
+├── apps/control-plane/  the tenancy service (Distro's deliverable)
+├── licenses/            retained upstream license texts (bolt.diy)
+├── docker-compose.yml   control plane as one stack (the gateway is remote)
+├── Makefile             up/down/doctor/bootstrap/backup/typecheck …
+├── scripts/             bootstrap, health checks, NPM host provisioning, vault tooling
+└── docs/                this doc, multi-tenant design, ops runbook, upstream record
 ```
 
-## Key security decisions (v1)
+## Key security decisions
 
-- The gateway is REMOTE by default (platform OmniRoute, Server 2): Distro
-  holds only gateway-issued keys and never upstream provider keys. The LOCAL
-  fallback gateway (profile `local-gateway`) publishes its ports on
-  `GATEWAY_BIND_HOST`; its dashboard is protected by a strong admin password
-  (default `CHANGEME` is migrated only for fresh DBs — change it via
-  `docker compose --profile local-gateway exec gateway node
-  /app/bin/reset-password.mjs`) and its API by gateway keys. Tighten
-  `GATEWAY_BIND_HOST=127.0.0.1` and front the web app with a TLS reverse
-  proxy for anything beyond a trusted LAN.
-- Upstream provider API keys live **only** in the gateway (remote: its own
-  encrypted store; local: the `gateway-data` SQLite volume, env secret
-  `API_KEY_SECRET`). Distro holds gateway-issued keys only.
-- The LOCAL gateway container's memory is raised above its default pin
-  (`GATEWAY_MAX_OLD_SPACE_MB=4096`) because coding-agent traffic carries
-  large, overlapping contexts.
+- The gateway is REMOTE (platform OmniRoute, Server 2): Distro holds only
+  gateway-issued keys — one service key to mint/revoke user keys, plus one
+  per user — and never upstream provider keys. Running no gateway is also
+  what keeps 20128 off this box; that port and the dashboard behind it belong
+  to the platform host.
+- Upstream provider API keys live **only** in the gateway (its own encrypted
+  store on the platform host).
+- Secrets come from Cerulean Vault as `vault://` references, resolved by the
+  control plane at import (`apps/control-plane/src/secrets.js`) — a
+  reference that cannot resolve stops the boot instead of degrading into an
+  empty credential.
+- The service routes are token-gated and fail closed; quota checks are
+  fail-open with the gateway key's spend cap as the hard backstop.
 
-## Deliberate scope choices
+## Retired: the bolt.diy front door
 
-- `apps/web` keeps upstream code identifiers, CSS tokens (`--bolt-*`) and
-  storage keys so syncing with upstream `stable` stays mechanical. Rebranding
-  touches only user-visible copy + product identity.
-- The OmniRoute source tree is **not committed and not vendored**: the stack
-  consumes the remote platform gateway; the local fallback runs the pinned
-  published image. `docs/upstream.md` explains the trade-off.
-- The desktop (Electron) build ships from upstream config; only branding was
-  renamed. Verifying/publishing desktop artifacts is a later-phase task.
+`apps/web` — a rebranded fork of stackblitz-labs/bolt.diy (browser IDE,
+WebContainer sandbox, live preview, file tree, terminal) — was Distro's
+builder surface until the convergence. It is deleted from this repo:
 
-## Roadmap shape (from the Distro master plan)
+- **Why:** three app-builder front doors (Studio, Distro's fork, Atlas's
+  Chef fork) for one ecosystem; the convergence keeps one web UI (Studio)
+  and one engine. Distro's durable contribution was always the multi-tenant
+  layer on top of the gateway — that is what survives.
+- **What survives:** the control plane, its admin console, and its service
+  API (which Studio consumes); the WebContainer-specific affordances worth
+  keeping (a file tree, a terminal pane) are tracked as Studio work.
+- **The record:** git history of this repo, `docs/upstream.md`,
+  `THIRD_PARTY_NOTICES.md` and the retained license text in `licenses/`.
 
-1. ~~Gateway online~~ → this scaffold (boot + verify).
-1. ~~Rebrand & wire~~ → this scaffold.
-1. Product hardening → **multi-tenant** auth, per-user quotas and usage
-   visibility on top of the gateway (see `docs/multi-tenant.md`), deploy
-   targets, rate limiting.
-1. Differentiation → curated model/fallback ladder for coding, prompt tuning
-   per model family, project templates, saved workspaces, team sharing.
+## History
+
+The repo began as bolt.diy (forked, rebranded) + a bundled OmniRoute. The
+bundled gateway was removed first (convergence §4.1 — one OmniRoute serves
+the ecosystem), then the front door (§5.2). What remains is the part every
+other change kept depending on: tenancy.

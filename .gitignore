@@ -4,8 +4,8 @@
 .env.*
 !.env.example
 
-# OmniRoute source checkout is fetched on demand (scripts/sync-upstream.sh)
-# and kept out of git: we track a pinned image tag, not 294 MB of upstream.
+# Legacy reference checkouts (OmniRoute / bolt.diy) are gone from the repo;
+# any stale local vendor/ directory stays out of git.
 vendor/
 
 # dependencies & build output (apps/ carry their own more detailed ignores)

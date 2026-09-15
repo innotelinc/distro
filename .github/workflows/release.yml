@@ -2,8 +2,9 @@
 # release.yml — Distro release pipeline.
 #
 # Fires on every `v*` tag push (and on demand via workflow_dispatch):
-#   1. build-and-publish — builds the Distro images (control plane + web) and
-#      publishes them to GHCR: ghcr.io/<owner>/<repo>/<image>:<tag> (+ :latest).
+#   1. build-and-publish — builds the control-plane image and publishes it to
+#      GHCR: ghcr.io/<owner>/<repo>/control-plane:<tag> (+ :latest).
+#      (The web image was retired with the bolt.diy front door — §5.2.)
 #   2. release-artifacts — bundles the compose stack + README and attaches
 #      them to the GitHub Release for the pushed tag.
 # ═══════════════════════════════════════════════════════════════════════════
@@ -60,19 +61,11 @@ jobs:
       - name: Build control-plane image
         run: docker build -t ${{ env.IMAGE_NAMESPACE }}/control-plane:${{ steps.tag.outputs.tag }} apps/control-plane
 
-      - name: Build web image
-        run: docker build --target bolt-ai-production --build-arg VITE_DISTRO_GATEWAY_ONLY=true --build-arg VITE_DISTRO_CONTROL_PLANE=true --build-arg VITE_LOG_LEVEL=debug --build-arg BUILD_HEAP_MB=4096 -t ${{ env.IMAGE_NAMESPACE }}/web:${{ steps.tag.outputs.tag }} apps/web
-
-      - name: Tag images as latest
-        run: |
-          docker tag ${{ env.IMAGE_NAMESPACE }}/control-plane:${{ steps.tag.outputs.tag }} ${{ env.IMAGE_NAMESPACE }}/control-plane:latest
-          docker tag ${{ env.IMAGE_NAMESPACE }}/web:${{ steps.tag.outputs.tag }} ${{ env.IMAGE_NAMESPACE }}/web:latest
+      - name: Tag image as latest
+        run: docker tag ${{ env.IMAGE_NAMESPACE }}/control-plane:${{ steps.tag.outputs.tag }} ${{ env.IMAGE_NAMESPACE }}/control-plane:latest
 
       - name: Push control-plane image
         run: docker push ${{ env.IMAGE_NAMESPACE }}/control-plane:${{ steps.tag.outputs.tag }} && docker push ${{ env.IMAGE_NAMESPACE }}/control-plane:latest
-
-      - name: Push web image
-        run: docker push ${{ env.IMAGE_NAMESPACE }}/web:${{ steps.tag.outputs.tag }} && docker push ${{ env.IMAGE_NAMESPACE }}/web:latest
 
   release-artifacts:
     name: Attach release artifacts
@@ -85,7 +78,7 @@ jobs:
         run: |
           tar czf distro-stack.tar.gz \
             docker-compose.yml .env.example README.md docs apps/control-plane/bin \
-            apps/control-plane/schema.sql apps/control-plane/src apps/web/Dockerfile
+            apps/control-plane/schema.sql apps/control-plane/src apps/control-plane/package.json
           ls -lh distro-stack.tar.gz
 
       - name: Upload to the GitHub Release

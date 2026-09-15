@@ -1,15 +1,15 @@
 SHELL := /bin/bash
 
-.PHONY: help up down logs ps gateway-up web-up build bootstrap doctor \
-        discover-gateway mesh-setup sync-upstream typecheck format clean backup
+.PHONY: help up down logs ps build bootstrap doctor \
+        discover-gateway mesh-setup clean backup typecheck
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-bootstrap: ## First-run setup: .env, gateway boot, distro build
+bootstrap: ## First-run setup: .env, gateway discovery, guided next steps
 	./scripts/bootstrap.sh
 
-up: ## Build and start the full stack (gateway + web)
+up: ## Build and start the stack (control plane)
 	docker compose up -d --build
 
 down: ## Stop the stack
@@ -21,34 +21,27 @@ logs: ## Tail logs for all services
 ps: ## Service status
 	docker compose ps
 
-gateway-up: ## Start only the LOCAL fallback gateway + redis
-	docker compose --profile local-gateway up -d redis gateway
-
 discover-gateway: ## Consul-discover the remote gateway + Magnate and pin their URLs in .env
 	./scripts/discover-gateway.sh
 
-mesh-setup: ## Auto-provision the platform-stack WireGuard mesh for this server
-	./scripts/mesh-setup.sh
+mesh-setup: ## Enroll this server in the platform-stack WireGuard mesh
+	./scripts/mesh.sh join
 
-web-up: ## Rebuild and start only Distro web
-	docker compose up -d --build web
+mesh-download: ## Fetch this server's member repos into their group dirs
+	./scripts/mesh.sh download
+
+mesh-leave: ## Drain this server out of the mesh (PURGE=1 also drops its state)
+	./scripts/mesh.sh leave $(if $(PURGE),--purge,)
 
 build: ## Build images without starting
 	docker compose build
 
-doctor: ## Verify gateway (remote or local) + web health from the host
+doctor: ## Verify the remote gateway reachability from the host
 	./scripts/healthcheck-gateway.sh
-	@echo "--- web ---"
-	@curl -fsS -o /dev/null -w "GET http://127.0.0.1:5173/ -> HTTP %{http_code}\n" http://127.0.0.1:5173/ || echo "web not reachable yet"
 
-sync-upstream: ## Refresh the local bolt.diy upstream reference checkout
-	./scripts/sync-upstream.sh
-
-backup: ## Back up control-plane + gateway DBs to ./backups
+backup: ## Back up the control-plane DB to ./backups
 	./scripts/backup.sh
 
-typecheck: ## Typecheck the Distro web app (needs pnpm + installed deps)
-	cd apps/web && pnpm run typecheck
-
-format: ## Prettier over the Distro web app
-	cd apps/web && pnpm run lint:fix
+typecheck: ## Syntax-check the control-plane sources (node --check)
+	@for f in apps/control-plane/src/*.js apps/control-plane/bin/*.mjs; do node --check "$$f"; done
+	@echo "control-plane sources parse"

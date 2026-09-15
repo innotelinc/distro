@@ -21,20 +21,16 @@ docker --version && docker compose version     # Docker Engine + Compose v2
 #    → register upstream API keys (Anthropic/OpenAI/…)
 #    → Settings → API Keys → create a key
 
-# 3. put the key + gateway URL in .env, start the web app
-OPENAI_LIKE_API_KEY=<gateway-key>            # edit .env
-OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20129/v1   # the gateway's /v1
+# 3. put the service key + gateway URL in .env, start the control plane
+OPENAI_LIKE_API_KEY=<gateway-key>            # edit .env — mints/revokes per-user keys
+OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20128/v1   # the gateway's /v1
+docker compose up -d --build
 
-# model preselection + build heap (optional)
-VITE_DEFAULT_MODEL=gemini/gemini-2.5-flash   # catalog id, prefix included; empty = auto-pick
-BUILD_HEAP_MB=4096                           # V8 heap cap for building apps/web
-docker compose up -d --build web
-
-# 4. verify end-to-end
+# 4. verify
 make doctor
-# open http://127.0.0.1:5173 (landing) → Start building → /app
-# Distro is gateway-only: pick any model the gateway exposes → ask it to
-# build a tiny app
+# admin console: http://127.0.0.1:20140/admin (first signup is admin)
+# point the builder surface (Studio) at CONTROL_PLANE_INTERNAL_URL +
+# CONTROL_INTERNAL_TOKEN — see "Tenancy for the builder" below
 ```
 
 ## Pre-built images (GHCR)
@@ -44,7 +40,6 @@ Every release publishes Docker images to the GitHub Container Registry:
 | Image | GHCR path |
 |---|---|
 | Control plane | `ghcr.io/innotelinc/distro/control-plane` |
-| Web app | `ghcr.io/innotelinc/distro/web` |
 
 Tags: `:latest` (tracks `main`) and `:<semver>` (e.g. `:0.1.0`).  To use them
 instead of building locally:
@@ -64,11 +59,9 @@ gh auth token | docker login ghcr.io -u <github-username> --password-stdin
 
 ```yaml
 services:
-  web:
-    image: ghcr.io/innotelinc/distro/web:0.1.0   # or :latest
-    # drop the build: block
   control-plane:
-    image: ghcr.io/innotelinc/distro/control-plane:0.1.0
+    image: ghcr.io/innotelinc/distro/control-plane:0.1.0   # or :latest
+    # drop the build: block
 ```
 
 **3. Pull and start:**
@@ -77,58 +70,60 @@ services:
 docker compose pull && docker compose up -d
 ```
 
-Note: the web image expects `VITE_DISTRO_GATEWAY_ONLY=true` and
-`VITE_DISTRO_CONTROL_PLANE=true` at build time (baked into the default
-GHCR image), so no additional build-args are needed when pulling.
-
 ## Topology & ports
 
 | Service | Bind | Ports | Notes |
 |---|---|---|---|
-| `gateway` (OmniRoute, profile `local-gateway`) | `GATEWAY_BIND_HOST` (default 0.0.0.0) | 20128 dashboard · 20129 OpenAI-compatible API · 20132 live WS | LOCAL fallback only. The DEFAULT gateway is the shared platform OmniRoute (Server 2, Consul service `omniroute`) — pin it with `OPENAI_LIKE_API_BASE_URL`/`GATEWAY_DASHBOARD_URL` or let Consul discover it |
-| `redis` (profile `local-gateway`) | compose net | (none published) | rate-limiter backend for the LOCAL gateway fallback only |
-| `web` (Distro) | `WEB_BIND_HOST` (default 0.0.0.0) | 5173 | app at `/app`, landing at `/` — front with your TLS reverse proxy |
 | `control-plane` | `CONTROL_BIND_HOST` (default 0.0.0.0) | 20140 API · `/admin` console | accounts/quotas/keys — admin console requires an admin login |
 
-All services bind **0.0.0.0 by default** so the whole stack is reachable from
-other machines on the LAN (`http://<host-ip>:5173`, `…:20140/admin`). Set
-`WEB_BIND_HOST`/`CONTROL_BIND_HOST` (and, for the local fallback gateway,
-`GATEWAY_BIND_HOST`) to `127.0.0.1` in `.env` to pull any of them back to
-loopback-only. `LIVE_WS_ALLOWED_ORIGINS` controls which origins may open the
-(LOCAL) gateway's live workspace websocket.
+There is **no `gateway` service**: the AI plane is the shared platform OmniRoute
+(Server 2, Consul service `omniroute`), pinned with `OPENAI_LIKE_API_BASE_URL` /
+`GATEWAY_DASHBOARD_URL` or discovered via Consul. The bundled `local-gateway`
+profile (gateway + redis) was removed — one OmniRoute serves the ecosystem, so
+there is no fallback to start and no gateway port to bind here.
+
+The **builder web app is retired** (convergence §5.2): one web UI (Studio)
+serves the ecosystem, so there is no `:5173` binding — the control plane's
+`20140` is this stack's only port. It binds **0.0.0.0 by default** so the LAN
+can reach `…:20140/admin`; set `CONTROL_BIND_HOST=127.0.0.1` in `.env` to pull
+it back to loopback-only.
 
 **Remote gateway (default).** The AI plane is the platform OmniRoute on
 Server 2 of the Innotel platform stack. Distro discovers it via Consul
 (`CONTROL_CONSUL_URL`, service `omniroute`) or pins it explicitly:
 
 ```
-OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20129/v1   # web app → gateway API
+OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20128/v1   # service key → gateway API (and dashboard: same port)
 GATEWAY_DASHBOARD_URL=http://10.10.2.1:20128         # control plane → admin API (optional; Consul by default)
 ```
 
-Verify with `make doctor`. To run everything self-contained instead (offline
-box, air-gapped lab), enable the bundled fallback:
-`docker compose --profile local-gateway up -d`.
+Verify with `make doctor`. Running self-contained (an offline box or an
+air-gapped lab) means running a gateway on that box too — Distro ships no
+bundled fallback, so point `OPENAI_LIKE_API_BASE_URL` at whatever gateway is
+there.
 
 ### WireGuard mesh (platform stack)
 
 The remote gateway and Magnate live on the Innotel platform stack's WireGuard
 mesh (`10.10.0.0/16`) — servers reach each other by mesh IP (e.g. OmniRoute at
 `10.10.2.1`) over the tunnel, with Consul at `10.10.1.1:8500` as the registry.
-`scripts/mesh-setup.sh` bootstraps the mesh on **any** server based on the
-Innotel products installed under `../` (or the hostname), so the same script
-works on every box — `--server N` overrides detection.
+`scripts/mesh.sh` is the mesh control plane; it is mirrored verbatim into
+every member repo (`ips/scripts/mesh.sh` is canonical). It works on **any**
+server — it reads the server number from its own path inside a group dir
+(`<root>/N-<group>/<repo>/scripts/mesh.sh`), from the repo it lives in, or
+from the hostname, and `--server N` overrides detection.
 
 ```bash
-make mesh-setup          # or: ./scripts/mesh-setup.sh
+make mesh-setup          # or: ./scripts/mesh.sh join
+./scripts/mesh.sh status # what this host is, and whether the mesh is up
 ```
 
-What it does:
+`mesh.sh join` does:
 
 1. Detects the server number (1-5) and provisions the platform stack's `.env`
-   (`<dev-root>/innotel-platform-stack/.env`) with the mesh section: `10.10.N.1`
-   IPs, this server's WireGuard keypair, `MESH_PORT`, the Consul gossip key,
-   and the Consul role (server on Server 1, client elsewhere).
+   (`<root>/ips/.env`) with the mesh section: `10.10.N.1` IPs, this server's
+   WireGuard keypair, `MESH_PORT`, the Consul gossip key, and the Consul role
+   (server on Server 1, client elsewhere).
 2. **Server 1 (hub):** starts the existing hub-mode mesh compose; peer configs
    are generated under `mesh/wg/data/` — distribute `peerN.conf` to clients.
 3. **Servers 2-5 (clients):** writes a static client `wg0.conf` dialing the
@@ -137,57 +132,67 @@ What it does:
    compose fragment, then starts the mesh and waits for a handshake.
 4. Verifies the tunnel handshake and Consul leader (`--no-verify` to skip).
 
+The other verbs: `mesh.sh leave [--purge]` drains this host, and
+`mesh.sh download | install` fetch the member repos into their group dirs.
+
 Order matters on a fresh mesh: run it on **Server 1 first**, then on each
 client. `--dry-run` prints what would be written without starting anything.
 Once the tunnel is up, `make discover-gateway` pins the remote OmniRoute (and
-Magnate) URLs into `.env` and `docker compose up -d control-plane web` moves
+Magnate) URLs into `.env` and `docker compose up -d control-plane` moves
 the stack onto the platform services.
-
-If the gateway and the web app run on *different* hosts without Consul, don't
-use the root compose `web` service: run `apps/web` standalone (see
-`apps/web/README.md`) and set `OPENAI_LIKE_API_BASE_URL` to the gateway's
-host, e.g. `https://gateway.example.com/v1`. Keep the dashboard on a private
-network.
 
 ## Secrets
 
 | Where | What |
 |---|---|
-| `.env` `JWT_SECRET` | gateway dashboard sessions — `openssl rand -base64 48` |
-| `.env` `API_KEY_SECRET` | encrypts upstream provider keys at rest in the gateway DB |
-| `.env` `INITIAL_PASSWORD` | first dashboard login; change it in the dashboard afterwards |
-| `.env` `OPENAI_LIKE_API_KEY` | gateway-issued key the Distro agent uses |
-| gateway volume `gateway-data` | SQLite DB with encrypted provider keys + usage ledger |
+| `.env` `INITIAL_PASSWORD` | the shared gateway's dashboard login — the control plane mints keys through it |
+| `.env` `OPENAI_LIKE_API_KEY` | the service key: mints/revokes each user's gateway key (the builder surface spends the per-user keys) |
 
 Never put upstream provider keys in `.env` or anywhere in Distro — they live
-only in the gateway's DB volume. Back up `gateway-data` (and `redis-data` if
-you care about rate-limit state) with your normal volume backups.
+only in the gateway's own store on the platform host. This stack's only volume
+is `control-data` (accounts, keys, quotas, usage, audit).
 
 ## Day-2 operations
 
 ```bash
 make ps              # status
 make logs            # tail everything (add a service name to narrow)
-make doctor          # gateway + web health
-docker compose exec gateway node healthcheck.mjs   # gateway self-check
+make doctor          # remote gateway health
 ```
 
 - **Admin console** (multi-tenant): `http://<host>:20140/admin` — sign in with
   an admin account (first signup on the instance is admin; promote more via
   the console). Manage users, per-user daily limits (requests/tokens/spend),
   gateway keys, and read the audit log there.
-- **Quota enforcement**: `DISTRO_ENFORCE_QUOTA=true` (default) makes the web
-  app ask the control plane before each chat turn (429 when over a daily
-  cap) and report usage after it. Gateway-key spend caps still apply even if
-  the control plane is down.
+- **Quota enforcement**: the builder surface asks the control plane
+  (`GET /api/internal/quota-check`) before each model turn (429 when over a
+  daily cap) and reports usage after it. Gateway-key spend caps still apply
+  even if the control plane is down.
+- **Tenancy for the builder** (build-plane convergence §5.2): Olympus's Studio
+  resolves a signed-in Authentik subject to an account here
+  (`POST /api/internal/identity`) and spends that user's own gateway key, with
+  `quota-check`/`usage-report` around each turn. Those three routes are
+  authenticated the way their callers are: the quota pair by the user's gateway
+  key, identity/audit by `CONTROL_INTERNAL_TOKEN` (`x-control-internal-token`,
+  generated by `./scripts/bootstrap.sh`). **Unset turns the last two off** (503)
+  rather than open — they mint and read credentials. Every provisioned account
+  is audited (`user.provisioned` / `user.oidc-link`), and a build, publish or
+  export writes an audit row from Studio.
+- **Build queue (read-only)**: the console's *Build queue* panel renders Studio's
+  queue — jobs (merged from request + status files), the runner's heartbeat and
+  per-state counts — so the builder's work is visible where the users and quotas
+  are. Set `STUDIO_BUILD_QUEUE_DIR` to Studio's queue directory **and mount it
+  into this container**; unset means the panel says the queue is not visible
+  here. It is a reader only: it never writes, claims or cancels a job, and
+  Studio's `make build-runner-list` stays the authoritative answer.
 - **Usage is chat-report-authoritative in remote-gateway mode**: the control
-  plane syncs the gateway's own per-key ledger (`usage_history` in the gateway
-  SQLite volume, mounted read-only) into `usage_cache` every
-  `CONTROL_SYNC_INTERVAL_MS` — but that volume only exists when the gateway
-  runs LOCALLY (profile `local-gateway`). With the remote platform gateway the
-  interval defaults to 0 (off) and quota accounting uses chat-traffic usage
-  reports plus key spend caps. Local deployments can re-enable the scheduled
-  sync by setting `CONTROL_SYNC_INTERVAL_MS`. Manual run:
+  plane can sync the gateway's own per-key ledger (`usage_history` in the
+  gateway SQLite volume, mounted read-only) into `usage_cache` every
+  `CONTROL_SYNC_INTERVAL_MS` — but this stack does not mount that volume, since
+  the gateway is remote, so the interval defaults to 0 (off) and quota
+  accounting uses chat-traffic usage reports plus key spend caps. Set
+  `CONTROL_SYNC_INTERVAL_MS` only if a gateway data dir is mounted read-only at
+  `GATEWAY_DATA_DIR`. Manual run:
   `docker compose exec control-plane node bin/control.mjs usage-sync`.
 - **Audit**: signups, key rotations/revokes, quota/role/disable changes and
   deletions are recorded in `audit_log` and shown in the admin console
@@ -198,55 +203,44 @@ docker compose exec gateway node healthcheck.mjs   # gateway self-check
   (git-ignored; prune keeps 14 days). Cron example:
   `0 3 * * * cd /opt/distro && ./scripts/backup.sh >> /var/log/distro-backup.log 2>&1`
   Restore: copy a `backups/control-plane/control-*.sqlite` to the
-  `control-data` volume path (`/data/control.sqlite`) with the stack stopped;
-  the gateway copy goes to `/app/data/storage.sqlite` on `gateway-data`.
+  `control-data` volume path (`/data/control.sqlite`) with the stack stopped.
+  There is no gateway copy to restore — that store belongs to the remote
+  gateway and is backed up on the platform host.
 
-- **Upgrading the (LOCAL fallback) gateway**: bump `OMNIROUTE_IMAGE_TAG` in
-  `.env`, then `docker compose --profile local-gateway up -d gateway`. Check
-  the upstream changelog (pinned version notes in docs/upstream.md) for schema
-  migrations — the SQLite volume is upgraded in place, so back it up first.
-  The REMOTE platform gateway is upgraded by the platform operators
-  (server 2); Distro only needs the right `OPENAI_LIKE_API_BASE_URL`/key.
-- **Upgrading Distro web**: `git pull` (or apply upstream bolt.diy changes per
-  `docs/upstream.md`), then `docker compose up -d --build web`.  Alternatively,
-  pull the latest GHCR image: `docker compose pull web && docker compose up -d web`.
-  To pin a release version, set `image:` in the web service and remove `build:`.
-- **Updating the vendor snapshot** (source checkout for reference/dev):
-  `make sync-upstream`.
+- **Upgrading the gateway**: the gateway is the shared platform service, so its
+  upgrades are the platform operators' (Server 2) — there is no image tag or
+  profile to bump here. Distro only needs the right
+  `OPENAI_LIKE_API_BASE_URL`/key. See docs/upstream.md for the pinning notes.
+- **Upgrading the control plane**: `git pull`, then
+  `docker compose up -d --build control-plane`. Alternatively, pull the latest
+  GHCR image: `docker compose pull control-plane && docker compose up -d control-plane`.
+  To pin a release version, set `image:` and remove `build:`.
 
 ## Sizing
 
-- The LOCAL gateway container's Node heap is set via
-  `GATEWAY_MAX_OLD_SPACE_MB` (default **4096**; upstream's own compose pins
-  2048 and its docs warn the default container is tuned for dashboard/light
-  chat — coding-agent traffic with large overlapping contexts will OOM a
-  1 GB heap). Watch `docker stats` and `docker compose logs gateway` for
-  heap/OOM errors and raise if needed.
-- Distro web is a Cloudflare-pages/workerd runtime + static client; it is
-  light. The browser does the heavy lifting (WebContainer runs in the tab).
-- 7 GB RAM is workable for a small single-host deployment; give the box headroom
-  for the gateway at 4 GB heap plus builds (`docker compose build`).
+- The gateway runs on the platform host, so its Node heap is not sized here.
+  Worth knowing when asking for a change there: coding-agent traffic carries
+  large, overlapping contexts, and upstream's container is tuned for
+  dashboard/light chat (it pins 2048 MB, and upstream's docs warn a 1 GB heap
+  OOMs under this load).
+- The control plane is small — plain Node + a SQLite file; a few hundred MB is
+  plenty. Size the box for whatever else shares it (on the platform stack that
+  is Atlas + Oasis; the gateway lives on the platform host).
 
 ## Reverse proxy (TLS)
 
-Front `web` (:5173) only; nginx proxy manager (NPM) host entries work the
-same way. Two details verified in testing: add `proxy_buffering off;` so
-`/api/chat` streams (buffering delays first tokens), and leave websocket
-upgrade headers out unless you proxy them — the IDE/preview runs in the
-browser, so no WS is needed for the app itself. If you also give the admin
-console its own hostname, proxy `:20140` the same way and set
-`CONTROL_CORS_ORIGIN` (see below). nginx example:
+Front the control plane (`:20140`); nginx proxy manager (NPM) host entries
+work the same way. The service API is plain JSON — no websocket proxying
+needed. nginx example:
 
 ```nginx
 server {
   listen 443 ssl;
-  server_name distro.example.com;
+  server_name cp.example.com;
   # ssl_certificate …; ssl_certificate_key …;
   location / {
-    proxy_pass http://127.0.0.1:5173;
+    proxy_pass http://127.0.0.1:20140;
     proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";   # WebContainer/terminal websockets
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_read_timeout 600s;
@@ -254,8 +248,9 @@ server {
 }
 ```
 
-Do **not** expose ports 20128/20129/20132 publicly — the gateway is
-internal-only; Distro is the only surface.
+Do **not** expose port 20128 publicly — the gateway (API and dashboard) is
+internal-only. The public face of building is Studio; this stack exposes the
+tenancy API and the admin console.
 
 ### Cerulean / Authentik SSO (optional)
 
@@ -285,70 +280,24 @@ disable SSO — the button disappears from `/login`.
 SSO accounts are auto-provisioned on first sign-in (role: admin if the email is
 in `ADMIN_EMAILS` or it is the first account, otherwise `user`), get their own
 gateway key, and cannot use password login (their stored hash is an unusable
-`sso:` sentinel). The login page runs the flow in a popup and stores the session
-exactly like password login, so quotas and the admin console work unchanged. New
-SSO signups land in the audit log as `user.oidc-signup` (existing users:
+`sso:` sentinel). The admin console's sign-in runs the flow and stores the
+session exactly like password login, so quotas and the console work unchanged.
+New SSO signups land in the audit log as `user.oidc-signup` (existing users:
 `user.oidc-login`).
 
-### Why the live preview/terminal need HTTPS (or localhost)
-
-The preview and terminal run on WebContainer, which browsers only allow on
-**trustworthy origins**: plain HTTP from a LAN IP/hostname makes the browser
-ignore the app's COOP/COEP headers (`crossOriginIsolated: false`) and blocks
-service workers, so WebContainer can't boot there — chat still works, but the
-preview/terminal never connect. This is a browser security rule. Full-shell
-access therefore requires `http://localhost:5173`, `http://127.0.0.1:5173`,
-or an HTTPS reverse-proxy hostname. The shell shows an amber notice and the
-terminal pane prints the reason when it detects this condition.
+This OIDC client config is for humans signing into the console. The builder
+surface (Studio) resolves its users server-to-server instead —
+`POST /api/internal/identity` with `CONTROL_INTERNAL_TOKEN` — which needs no
+OIDC client at all.
 
 ### Multi-tenant control plane behind TLS
 
-The browser logs in against the control plane directly (option A per-user
-gateway keys), so when `web` is served over HTTPS the control-plane base URL
-must also be HTTPS or browsers block it. Two layouts:
-
-- **Same-origin `/cp` (default, no env).** On a proxied HTTPS host the app
-auto-resolves the control plane to the same origin under `/cp`; add one
-advanced nginx location `location /cp/ { proxy_pass http://<host>:20140/; … }`
-(trailing `/` strips the prefix) to the app's NPM host. No CORS involved.
-Admin console rides along at `https://<host>/cp/admin`.
-- **Separate host (optional).** `VITE_CONTROL_PLANE_URL=https://admin.example.com`
-(build-time, baked into the client bundle → `docker compose up -d --build web`)
-plus `CONTROL_CORS_ORIGIN=https://app.example.com` (runtime, strict-origin: only
-that exact origin gets the allow header; other preflights get 403).
-
-Direct-LAN/localhost use needs neither: the app derives
-`http://<app-hostname>:20140` and CORS is permissive `*`. `VITE_PUBLIC_ORIGIN`
-(same rebuild) sets the public HTTPS origin used by the header indicator's
-one-click link when you're on a plain-HTTP origin.
-
-### Authentik SSO (optional)
-
-Sign-in with Authentik instead of email/password. In Authentik: create an
-application and a provider of type **OAuth2/OIDC Provider** with scopes
-`openid email profile`, then set these in `.env` (control plane picks them up
-on recreate — no rebuild):
-
-```
-OIDC_ISSUER_URL=https://auth.example.com/application/o/distro/
-OIDC_CLIENT_ID=<from Authentik>
-OIDC_CLIENT_SECRET=<from Authentik>
-OIDC_REDIRECT_URI=https://app.example.com/cp/api/auth/oidc/callback
-```
-
-The redirect URI is the control-plane callback **as the browser sees it**
-(`/cp/...` under the same-origin proxy layout, or
-`http://<host>:20140/api/auth/oidc/callback` on direct LAN). Paste the same
-URL as the provider's redirect URI in Authentik. Leave all four empty to
-disable SSO — the button disappears from `/login`.
-
-SSO accounts are auto-provisioned on first sign-in (role: admin if the email
-is in `CONTROL_ADMIN_EMAILS` or it is the first account, otherwise `user`),
-get their own gateway key, and cannot use password login (their stored hash
-is an unusable `sso:` sentinel). The login page runs the flow in a popup and
-stores the session exactly like password login, so quotas and the admin
-console work unchanged. New SSO signups land in the audit log as
-`user.oidc-signup` (existing users: `user.oidc-login`).
+The admin console is served by the control plane itself, so fronting `:20140`
+with TLS (above) covers it. `CONTROL_CORS_ORIGIN` matters only for browser
+calls from another origin: Studio calls these routes server-side (no CORS),
+so set it to the Studio origin only if something browser-side calls the API
+cross-origin. Strict-origin: only that exact origin gets the allow header;
+other preflights get 403.
 
 ## Magnate billing integration (optional)
 
@@ -416,22 +365,21 @@ other platform host.
 
 ## Atlas integration (git export)
 
-Distro builds apps live in the browser; Atlas is the stack's **CodeOps** home
-(Gitea repos + Chef AI app builder on self-hosted Convex). When
+The builder surface builds apps (Studio, Olympus); Atlas is the stack's
+**CodeOps** home (Gitea + Convex — Chef retired as a builder). When
 `ATLAS_URL` + `ATLAS_GIT_REMOTE` are both set in Distro `.env`, the control
 plane exposes:
 
 - `GET /api/export/config` → `{ configured, url, remote }`
 - `POST /api/export/validate` → validates the remote URL (SSH or HTTPS)
 
-The web app uses these to push the current WebContainer project to an
-Atlas/Gitea remote (via ssh-agent or WebContainer's git API). Atlas itself
-consumes the same Magnate + Cerulean services Distro does, so billing and
-identity are shared across the stack.
+The builder surface (Studio) consumes these to push a project to an
+Atlas/Gitea remote. Atlas itself consumes the same Magnate + Cerulean services
+Distro does, so billing and identity are shared across the stack.
 
 ## Where multi-tenant plugs in
 
-See `docs/multi-tenant.md`. Short version: user auth + per-user gateway keys +
-quota/usage surfacing get added in Phase 2, on top of this same compose
-layout (control-plane service joins the network; the web app's single
-`OPENAI_LIKE_API_KEY` becomes per-user keys issued at login).
+See `docs/multi-tenant.md` for the design history. Current shape: the control
+plane is the tenancy service — user auth + per-user gateway keys + quota/usage
+surfacing are live, consumed through the service API (`/api/internal/*`) by
+the builder surface, and managed in the admin console.

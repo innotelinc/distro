@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# compose.vault.yml — SecretOps for a standalone Distro checkout.
+#
+# On the Cerulean platform you do NOT need this file. Vault already runs there
+# as `cerulean-vault`, so consume it instead:
+#
+#   VAULT_ADDR=http://<host>:8200
+#   VAULT_TOKEN_FILE=./data/vault/token/distro.token   # scoped, never root
+#   VAULT_PREFIX=cerulean
+#   VAULT_PATH=distro
+#
+# and let `.env` carry references — `vault://<mount>/<path>#<key>` — rather than
+# values. The control plane resolves them at import
+# (`apps/control-plane/src/secrets.js`). The same convention is what Cerulean
+# itself resolves, so the stack and the platform agree on one format.
+#
+# Point VAULT_TOKEN at a token scoped to this stack's own path under that prefix
+# (the `distro` policy — minted over there by VAULT_PRODUCT_TOKENS=distro, never
+# the platform's mount-wide `cerulean` policy and never the root token, which
+# lives in ./data/vault/init/init.json, 0600).
+#
+# This file is the fallback for a checkout with no platform Vault:
+#
+#   docker compose -f compose.vault.yml --profile vault up -d
+#   export VAULT_ADDR=http://127.0.0.1:8200
+#   export VAULT_TOKEN=<the VAULT_DEV_ROOT_TOKEN_ID below>
+#   python3 scripts/vault-migrate.py --from-env-file .env \
+#       --keys OPENAI_LIKE_API_KEY,OIDC_CLIENT_SECRET,INITIAL_PASSWORD,MAGNATE_ENTITLEMENTS_TOKEN
+#
+# ⚠ It runs Vault in **dev mode**: in-memory storage, auto-initialised and
+# auto-unsealed. Fine for local iteration, and NOT for anything whose secrets
+# must survive a restart — dev mode loses everything when the container is
+# recreated, and its root token is a fixed, well-known string. For durable
+# storage use the platform's file-backed Vault (see docs/stack.md).
+# ─────────────────────────────────────────────────────────────────────────────
+name: distro-vault
+
+services:
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: distro-vault
+    profiles: ["vault"]
+    restart: unless-stopped
+    # Vault wants to mlock memory so keys are never swapped to disk.
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:-distro-dev-root}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://127.0.0.1:8200
+    ports:
+      - "${VAULT_PORT:-8200}:8200"
+    healthcheck:
+      # `vault status` exits non-zero while sealed, so it is a real liveness
+      # signal rather than a bare port check. Unauthenticated, hence no token.
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
