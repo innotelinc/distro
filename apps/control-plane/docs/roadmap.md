@@ -3,9 +3,29 @@
 > Progress: **M0–M5 are DONE** (service + gateway client + identity +
 > per-user keys + quotas + usage sync + admin console + Magnate billing).
 > Integration option A (browser holds key) was chosen; see docs/ops.md.
+>
+> **0.2.0 (M6) is open** — hardening the surface that shipped in 0.1: the
+> auth rate limit below is the first slice, and the open questions at the
+> bottom are the working list.
 
 Milestones are ordered so each one is runnable and shippable on its own.
 Estimated sizes are relative; revisit against the pinned gateway version.
+
+## M6 — 0.2.0: hardening (in progress)
+
+- [x] **Rate limit the password endpoints.** `/api/auth/signup` and
+      `/api/auth/login` accept a password on a public route; nothing stopped
+      scripted guessing or mass signup. A fixed-window limiter (per client IP,
+      `CONTROL_AUTH_RATE_LIMIT` per `CONTROL_AUTH_RATE_WINDOW_MS`, defaults
+      10/60s) now answers `429`. Process-local by design — the distributed
+      limiter is the edge — and disabled by setting the limit to 0. Applies
+      only while the break-glass password path is enabled; the Authentik path
+      is unaffected.
+- [ ] Decide the gateway-version pin before the next milestone (see Open
+      questions) so per-key usage granularity is known in advance.
+- [ ] Per-key model-level usage once OmniRoute exposes it (extends M4).
+- [ ] Reconcile the two session models (control-plane bearer token vs Studio
+      cookie) as the tenancy layer converges — see the build-plane doc.
 
 ## M0 — Service skeleton + gateway client ✅
 
