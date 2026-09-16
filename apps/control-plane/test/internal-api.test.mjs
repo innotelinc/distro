@@ -7,7 +7,7 @@ import test, { after, before } from "node:test";
 
 import Database from "better-sqlite3";
 
-import { openDb, createUser, upsertQuota, setGatewayKey, getGatewayKey } from "../src/db.js";
+import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayKey } from "../src/db.js";
 import { handler } from "../src/http.js";
 
 /**
@@ -350,6 +350,85 @@ test("a database created before oidc_sub existed gains the column", async () => 
     assert.equal(response.status, 200);
     assert.equal(payload.user.id, "u1");
     assert.equal(payload.oidcSub, "sub-old");
+  } finally {
+    await plane.close();
+  }
+});
+
+test("a lockout from a half-provisioned account heals on the next call", async () => {
+  const plane = await startPlane();
+
+  try {
+    // How an account gets here: the gateways disable a brand-new account whose
+    // key could not be minted ("so the next attempt re-provisions instead of
+    // half-existing"). Nothing else in the flow ever cleared that flag, so one
+    // gateway outage — or a password that did not match — meant every call for
+    // the account answered "account disabled" from then on, and only a database
+    // edit could undo it.
+    const orphan = createUser({ email: "orphan@example.com", passwordHash: "sso:…", role: "user" });
+    upsertQuota(orphan.id, { plan: "free" });
+    updateUser(orphan.id, { disabled_at: new Date().toISOString() });
+    assert.equal(getGatewayKey(orphan.id), undefined, "it never got a key");
+
+    const healed = await identityRequest(plane.url, {
+      body: { sub: "sub-orphan", email: "orphan@example.com" },
+    });
+    const payload = await healed.json();
+
+    assert.equal(healed.status, 200, "a disabled account with no key is a lockout, not a decision");
+    assert.equal(payload.user.disabled_at, null, "the stale flag is cleared");
+    assert.equal(payload.gatewayKey, "sk-1", "and the account is provisioned on the spot");
+
+    const db = plane.db();
+    const recovered = db
+      .prepare("SELECT action, target_id FROM audit_log WHERE action = 'user.recovered'")
+      .get();
+    db.close();
+    assert.equal(recovered.target_id, orphan.id, "the recovery is audited, not silent");
+
+    // A disabled account that HAS a key is an operator's decision — a revoked or
+    // deliberately switched-off account — and that one still stands.
+    const revoked = createUser({ email: "revoked@example.com", passwordHash: "sso:…", role: "user" });
+    upsertQuota(revoked.id, { plan: "free" });
+    setGatewayKey(revoked.id, { gatewayKeyId: "key-revoked", gatewayKey: "sk-revoked" });
+    updateUser(revoked.id, { disabled_at: new Date().toISOString() });
+
+    const stillOff = await identityRequest(plane.url, {
+      body: { sub: "sub-revoked", email: "revoked@example.com" },
+    });
+    assert.equal(stillOff.status, 403);
+    assert.match((await stillOff.json()).error, /account disabled/);
+  } finally {
+    await plane.close();
+  }
+});
+
+test("a gateway outage no longer turns into a permanent lockout", async () => {
+  const gateway = fakeGateway();
+  const plane = await startPlane({ gateway });
+  const healthyMint = gateway.createApiKey;
+
+  try {
+    // First attempt lands while the gateway is down. The account is left
+    // disabled (unchanged behaviour) and the caller gets a 502 to retry on.
+    gateway.createApiKey = async () => {
+      throw new Error("gateway down");
+    };
+    const during = await identityRequest(plane.url, {
+      body: { sub: "sub-outage", email: "outage@example.com" },
+    });
+    assert.equal(during.status, 502);
+
+    // The gateway comes back. The retry re-provisions — it does not spend the
+    // rest of the account's life answering "account disabled".
+    gateway.createApiKey = healthyMint;
+    const after = await identityRequest(plane.url, {
+      body: { sub: "sub-outage", email: "outage@example.com" },
+    });
+    const payload = await after.json();
+    assert.equal(after.status, 200);
+    assert.equal(payload.gatewayKey, "sk-1");
+    assert.equal(payload.user.disabled_at, null);
   } finally {
     await plane.close();
   }
