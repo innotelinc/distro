@@ -488,9 +488,34 @@ export async function handler(req, res, { gateway }) {
       }
     }
 
-    if (userIsDisabled(user.id)) return send(403, { error: 'account disabled' });
-
+    // A half-provisioned account is recoverable, and has to be.
+    //
+    // The gateways above disable a brand-new account whose key could not be
+    // minted, on the stated principle that "the next attempt re-provisions
+    // instead of half-existing". Refusing it here breaks that promise: nothing
+    // else in the flow clears the flag, so one gateway outage — a password that
+    // does not match, a gateway that is not up yet — becomes a permanent
+    // lockout that only a database edit can undo. Measured: two accounts sat
+    // disabled for a day that way, and every call for them answered "account
+    // disabled" while the gateway was long since fine.
+    //
+    // The distinction that makes this safe: an account that HAS a key and is
+    // disabled is an operator's decision (revoked, or turned off deliberately)
+    // and it stands. An account with no key is not usable by anyone, so there
+    // is nothing to leave switched off.
     let key = getGatewayKey(user.id);
+    if (userIsDisabled(user.id)) {
+      if (key && key.gateway_key) return send(403, { error: 'account disabled' });
+      user = updateUser(user.id, { disabled_at: null });
+      logAudit({
+        action: 'user.recovered',
+        targetId: user.id,
+        targetEmail: user.email,
+        meta: { sub, reason: 'disabled without a gateway key' },
+      });
+      console.warn('[identity] re-enabled', user.email, '— disabled while it had no gateway key');
+    }
+
     if (!key || !key.gateway_key) {
       // An adopted account (or one whose key was revoked) needs one now: the
       // caller is a signed-in user about to spend the model pool.
