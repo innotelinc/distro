@@ -35,8 +35,13 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       before enabling model-level accounting.
 - [ ] Replace the remaining browser-held gateway-key assumptions with a scoped
       server-side session bridge while preserving per-user attribution.
-- [ ] Add acceptance coverage for an Olympus preview/build lifecycle: queued,
-      picked up, failed with an actionable reason, retried, and completed.
+- [x] Add acceptance coverage for an Olympus preview/build lifecycle: queued,
+      picked up, failed with an actionable reason, retried, and completed. The Olympus
+      runner now records queue state and delivery URLs, rejects empty-agent artifacts,
+      retries rate-limited tool calls, and keeps preview credentials scoped to delivery.
+- [ ] Add cross-repository acceptance automation so Distro can periodically verify the
+      live Olympus runner heartbeat, a queued smoke build, and the resulting preview
+      URL without exposing provider or Cerulean credentials.
 
 ## M0 — Service skeleton + gateway client ✅
 
