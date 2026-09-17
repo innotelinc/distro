@@ -41,7 +41,9 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       retries rate-limited tool calls, and keeps preview credentials scoped to delivery.
 - [ ] Add cross-repository acceptance automation so Distro can periodically verify the
       live Olympus runner heartbeat, a queued smoke build, and the resulting preview
-      URL without exposing provider or Cerulean credentials.
+      URL without exposing provider or Cerulean credentials. Current live checks confirm
+      the runner is active and queue pickup is working; the remaining acceptance blocker
+      is shared OmniRoute model capacity, not the Distro control plane.
 
 ## M0 — Service skeleton + gateway client ✅
 
