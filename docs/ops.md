@@ -167,6 +167,15 @@ make logs            # tail everything (add a service name to narrow)
 make doctor          # remote gateway health
 ```
 
+
+### Nightly disk cleanup
+
+`scripts/docker-cleanup.sh` (mirrored from ips, canonical there) runs nightly at
+04:17 via `/etc/cron.d/docker-cleanup`: build cache (2 GB kept), dangling and
+unreferenced images, containers exited for more than a day, and container logs
+over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
+`DRY_RUN=1 scripts/docker-cleanup.sh` to preview.
+
 - **Admin console** (multi-tenant): `http://<host>:20140/admin` — sign in with
   an admin account (first signup on the instance is admin; promote more via
   the console). Manage users, per-user daily limits (requests/tokens/spend),

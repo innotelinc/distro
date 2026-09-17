@@ -24,6 +24,14 @@
 > forged `Host` header cannot aim an Authorization code off the list. Covered by
 > `test/oidc-redirect.test.mjs`; verified live on all three hostnames — the flow
 > reaches Authentik's login and returns to the origin it started on.
+>
+> **Operations note — same day.** The control plane stayed up through an estate
+> capacity pass that stopped every container with nothing to do on four hosts
+> (~48 GB reclaimed; see ips `docs/service-audit.md` §5). `scripts/docker-cleanup.sh`
+> (mirrored from ips, canonical there) now runs nightly at 04:17 on every docker
+> host: build cache with a 2 GB floor, dangling/unreferenced images, containers
+> exited for more than a day, oversized logs — volumes and same-day parked
+> containers are never touched.
 
 Milestones are ordered so each one is runnable and shippable on its own.
 Estimated sizes are relative; revisit against the pinned gateway version.
