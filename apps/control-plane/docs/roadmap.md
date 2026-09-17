@@ -55,7 +55,9 @@ Estimated sizes are relative; revisit against the pinned gateway version.
 ## M7 — 0.3.0: build-plane convergence (next)
 
 - [ ] Make Distro the durable source of per-identity quotas and audit events for
-      Olympus build, preview, publish, and export actions.
+      Olympus build, preview, publish, and export actions. First slice: an
+      admin-console view of build-plane audit rows per user (the API exists;
+      `/admin` filters by auth events only).
 - [ ] Add a gateway-version compatibility check to usage sync and quota enforcement
       before enabling model-level accounting.
 - [ ] Replace the remaining browser-held gateway-key assumptions with a scoped
@@ -70,6 +72,18 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       the runner is active, queue pickup works, `resume-generator` builds successfully,
       and its preview returns HTTP 200. The remaining hardening item is sustained shared
       OmniRoute model capacity, not the Distro control plane.
+
+### Added while M7 is open (shipped 17 September 2026)
+
+- [x] **OIDC callback lists** — `OIDC_REDIRECT_URI` takes a comma-separated list;
+      the flow returns to the origin it started on (covered by
+      `test/oidc-redirect.test.mjs`). Fixed the live "invalid or expired state"
+      failures on the public admin host.
+- [x] **All three public origins provisioned through Cerulean** —
+      `admin.distro.innotel.us` joins `distro.`/`cp.distro.` with DNS managed by
+      Technitium and TLS at the NPM edge; `scripts/npm-proxy-hosts.py` now accepts
+      Cerulean's `NPM_EMAIL`/`NPM_PASSWORD` credentials and the provisioning is
+      idempotent from either stack's `.env`.
 
 ## M0 — Service skeleton + gateway client ✅
 
