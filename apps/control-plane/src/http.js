@@ -49,6 +49,7 @@ import {
   oidcAuthorizeUrl,
   oidcExchangeCode,
   oidcUserinfo,
+  callbackUrlFor,
   localLoginEnabled,
 } from './oidc.js';
 import { readFileSync } from 'node:fs';
@@ -298,9 +299,13 @@ export async function handler(req, res, { gateway }) {
   if (path === '/api/auth/oidc/start' && method === 'GET') {
     if (!oidcEnabled()) return send(404, { error: 'OIDC sign-in is not configured' });
     const state = randomBytes(16).toString('hex');
+    // The callback has to come back to the origin the console is served on: the
+    // state cookie is host-only, and a flow that returns elsewhere reaches this
+    // plane without it. See oidc.callbackUrlFor.
+    const redirectUri = callbackUrlFor(req.headers);
     let authorizeUrl;
     try {
-      authorizeUrl = await oidcAuthorizeUrl(state);
+      authorizeUrl = await oidcAuthorizeUrl(state, redirectUri);
     } catch (err) {
       console.warn('[oidc] authorize URL failed:', err?.message || err);
       return send(502, { error: `Authentik unreachable: ${err?.message || err}` });
@@ -331,7 +336,10 @@ export async function handler(req, res, { gateway }) {
 
     let profile;
     try {
-      const { accessToken } = await oidcExchangeCode(code);
+      // The token endpoint requires the same redirect_uri the authorize request
+      // used, which is the one this host was reached at — not the canonical
+      // entry, unless this is the canonical host.
+      const { accessToken } = await oidcExchangeCode(code, callbackUrlFor(req.headers));
       profile = await oidcUserinfo(accessToken);
     } catch (err) {
       console.warn('[oidc] exchange/userinfo failed:', err?.message || err);
