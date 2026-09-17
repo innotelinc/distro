@@ -284,6 +284,26 @@ The redirect URI is the control-plane callback **as the browser sees it**
 URL as the provider's redirect URI in Authentik. Leave all four empty to
 disable SSO — the button disappears from `/login`.
 
+**One origin per line — comma-separated when the console answers on more than
+one.** The flow returns the browser to the callback it started with, and the
+`distro_oidc_state` cookie is host-only, so a single fixed URL only works on the
+origin it names; a sign-in started anywhere else comes back without the cookie
+and fails with *"Sign-in failed: invalid or expired state"*. Set every origin
+the console is reachable at, canonical first — for the platform deployment:
+
+```
+OIDC_REDIRECT_URI=https://admin.distro.innotel.us/api/auth/oidc/callback,\
+                  https://cp.distro.innotel.us/api/auth/oidc/callback,\
+                  https://distro.innotel.us/api/auth/oidc/callback,\
+                  http://192.168.1.46:20140/api/auth/oidc/callback
+```
+
+Register the same list on the Authentik provider (Cerulean's
+`AUTHENTIK_DISTRO_REDIRECT_URI` takes the identical comma-separated value). A
+request that arrives on an origin **not** on the list falls back to the
+canonical entry — the list is what keeps a forged `Host` header from aiming the
+Authorization code somewhere else.
+
 SSO accounts are auto-provisioned on first sign-in (role: admin if the email is
 in `ADMIN_EMAILS` or it is the first account, otherwise `user`), get their own
 gateway key, and cannot use password login (their stored hash is an unusable

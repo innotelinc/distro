@@ -13,6 +13,17 @@
 > `admin.distro.innotel.us` over HTTPS to the control plane on port 20140;
 > the admin hostname is provisioned idempotently through NPM and its DNS A
 > record is managed by Cerulean/Technitium.
+>
+> **Authentik sign-in fixed on that deployment.** The console answers on more
+> than one origin while the provider had a single registered callback (the LAN
+> URL), so a sign-in started on a public host returned to a different origin and
+> the host-only `distro_oidc_state` cookie never came back — every attempt ended
+> with *"Sign-in failed: invalid or expired state"*. `OIDC_REDIRECT_URI` is now
+> a comma-separated list of registered callbacks and the control plane uses the
+> request's own origin when it is on that list (canonical entry otherwise), so a
+> forged `Host` header cannot aim an Authorization code off the list. Covered by
+> `test/oidc-redirect.test.mjs`; verified live on all three hostnames — the flow
+> reaches Authentik's login and returns to the origin it started on.
 
 Milestones are ordered so each one is runnable and shippable on its own.
 Estimated sizes are relative; revisit against the pinned gateway version.
