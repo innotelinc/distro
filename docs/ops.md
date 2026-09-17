@@ -23,7 +23,7 @@ docker --version && docker compose version     # Docker Engine + Compose v2
 
 # 3. put the service key + gateway URL in .env, start the control plane
 OPENAI_LIKE_API_KEY=<gateway-key>            # edit .env — mints/revokes per-user keys
-OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20128/v1   # the gateway's /v1
+OPENAI_LIKE_API_BASE_URL=http://host.docker.internal:20128/v1   # the gateway's /v1 — distro runs ON the gateway host
 docker compose up -d --build
 
 # 4. verify
@@ -93,9 +93,16 @@ Server 2 of the Innotel platform stack. Distro discovers it via Consul
 (`CONTROL_CONSUL_URL`, service `omniroute`) or pins it explicitly:
 
 ```
-OPENAI_LIKE_API_BASE_URL=http://10.10.2.1:20128/v1   # service key → gateway API (and dashboard: same port)
-GATEWAY_DASHBOARD_URL=http://10.10.2.1:20128         # control plane → admin API (optional; Consul by default)
+OPENAI_LIKE_API_BASE_URL=http://host.docker.internal:20128/v1   # service key → gateway API (and dashboard: same port)
+GATEWAY_DASHBOARD_URL=http://host.docker.internal:20128         # control plane → admin API (optional; Consul by default)
 ```
+
+The docker0 alias is the right address **because distro's control plane runs on
+the gateway's own host** and names the gateway's own port. Both forms in that
+pair are corrected by the same rule: a caller *not* on the gateway's host dials
+the SSO proxy in front of it (`http://192.168.1.46:20129/v1`, which exempts `/v1`)
+— the gateway's `:20128` answers on its host's loopback and bridge alone, so a LAN
+target there is dead.
 
 Verify with `make doctor`. Running self-contained (an offline box or an
 air-gapped lab) means running a gateway on that box too — Distro ships no
