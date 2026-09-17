@@ -17,9 +17,9 @@ DNS challenge so every subdomain gets SSL automatically. Requires NPM >= 2.11
 
 Configuration (env vars, see .env):
     NPM_API_URL           e.g. https://npm.example.com/api
-    NPM_API_IDENTITY      NPM login
-    NPM_API_SECRET        NPM password
-    DOMAIN                base domain, e.g. innotel.us
+    NPM_API_IDENTITY      NPM login (or NPM_EMAIL)
+    NPM_API_SECRET        NPM password (or NPM_PASSWORD)
+    DOMAIN                base domain, e.g. distro.innotel.us
     NPM_DNS_PROVIDER      certbot-style provider id, e.g. cloudflare
     NPM_DNS_EMAIL         account e-mail for the DNS provider
     NPM_DNS_CREDENTIALS   JSON object of provider credentials
@@ -57,9 +57,9 @@ def default_forward_host() -> str:
 
 
 NPM_API_URL = env("NPM_API_URL").rstrip("/")
-NPM_IDENTITY = env("NPM_API_IDENTITY")
-NPM_SECRET = env("NPM_API_SECRET")
-DOMAIN = env("DOMAIN")
+NPM_IDENTITY = env("NPM_API_IDENTITY", env("NPM_EMAIL"))
+NPM_SECRET = env("NPM_API_SECRET", env("NPM_PASSWORD"))
+DOMAIN = env("DOMAIN", env("NPM_BASE_DOMAIN"))
 DNS_PROVIDER = env("NPM_DNS_PROVIDER", "cloudflare")
 DNS_EMAIL = env("NPM_DNS_EMAIL")
 DNS_CREDENTIALS_RAW = env("NPM_DNS_CREDENTIALS", "{}")
@@ -136,7 +136,7 @@ def npm_post(token: str, path: str, body: dict) -> dict:
 
 def main():
     missing = []
-    for var in ["NPM_API_URL", "NPM_API_IDENTITY", "NPM_API_SECRET", "DOMAIN"]:
+    for var in ["NPM_API_URL", "NPM_IDENTITY", "NPM_SECRET", "DOMAIN"]:
         if not globals()[var]:
             missing.append(var)
     if missing:
