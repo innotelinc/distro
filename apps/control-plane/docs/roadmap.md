@@ -11,7 +11,7 @@
 Milestones are ordered so each one is runnable and shippable on its own.
 Estimated sizes are relative; revisit against the pinned gateway version.
 
-## M6 — 0.2.0: hardening (in progress)
+## M6 — 0.2.0: hardening (shipped)
 
 - [x] **Rate limit the password endpoints.** `/api/auth/signup` and
       `/api/auth/login` accept a password on a public route; nothing stopped
@@ -26,6 +26,17 @@ Estimated sizes are relative; revisit against the pinned gateway version.
 - [ ] Per-key model-level usage once OmniRoute exposes it (extends M4).
 - [ ] Reconcile the two session models (control-plane bearer token vs Studio
       cookie) as the tenancy layer converges — see the build-plane doc.
+
+## M7 — 0.3.0: build-plane convergence (next)
+
+- [ ] Make Distro the durable source of per-identity quotas and audit events for
+      Olympus build, preview, publish, and export actions.
+- [ ] Add a gateway-version compatibility check to usage sync and quota enforcement
+      before enabling model-level accounting.
+- [ ] Replace the remaining browser-held gateway-key assumptions with a scoped
+      server-side session bridge while preserving per-user attribution.
+- [ ] Add acceptance coverage for an Olympus preview/build lifecycle: queued,
+      picked up, failed with an actionable reason, retried, and completed.
 
 ## M0 — Service skeleton + gateway client ✅
 
@@ -121,7 +132,7 @@ test accounts) untouched.
       Env: `MAGNATE_URL` / `MAGNATE_ENTITLEMENTS_TOKEN` / `MAGNATE_BILLING_SLUG`;
       runbook: docs/ops.md § "Magnate billing integration".
 
-## Open questions to resolve before/at M2
+## Open questions to resolve before/at M7
 
 - Gateway version drift: re-verify the inventory endpoints against the shared
   platform gateway's version before each milestone.
