@@ -7,6 +7,12 @@
 > **0.2.0 (M6) is open** — hardening the surface that shipped in 0.1: the
 > auth rate limit below is the first slice, and the open questions at the
 > bottom are the working list.
+>
+> **Live deployment note — 17 September 2026.** The Cerulean edge now serves
+> `distro.innotel.us`, `cp.distro.innotel.us`, and
+> `admin.distro.innotel.us` over HTTPS to the control plane on port 20140;
+> the admin hostname is provisioned idempotently through NPM and its DNS A
+> record is managed by Cerulean/Technitium.
 
 Milestones are ordered so each one is runnable and shippable on its own.
 Estimated sizes are relative; revisit against the pinned gateway version.
