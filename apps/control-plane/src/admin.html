@@ -99,7 +99,9 @@
   <h2>Admin sign in</h2>
   <p>Manage accounts, quotas and gateway keys. Only instance admins can sign in.</p>
   <button id="oidcBtn" class="hidden" style="width:100%">Continue with Authentik</button>
-  <div id="localLoginBlock">
+  <!-- Hidden by default: identity is Cerulean Authentik, and the form is only
+       revealed at runtime when the control plane reports BREAKGLASS_LOGIN. -->
+  <div id="localLoginBlock" class="hidden">
     <div style="display:flex;align-items:center;gap:10px;margin:12px 0;color:var(--muted);font-size:12px">
       <span style="flex:1;height:1px;background:var(--line)"></span>or<span style="flex:1;height:1px;background:var(--line)"></span>
     </div>
@@ -659,7 +661,9 @@ async function bootLogin() {
   } else {
     sso.classList.add('hidden');
   }
-  if (!cfg.localLogin) $('#localLoginBlock').classList.add('hidden');
+  // The form ships hidden in the markup (SSO-only by default); reveal it only
+  // when the control plane itself says the break-glass path is on.
+  if (cfg.localLogin) $('#localLoginBlock').classList.remove('hidden');
   if (cfg.misconfigured) {
     $('#loginErr').textContent =
       'Authentik SSO is not configured on this control plane and password sign-in is disabled. ' +
