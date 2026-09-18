@@ -63,6 +63,27 @@
   .row-actions { display: flex; gap: 4px; }
   .badge { color: var(--muted); font-size: 11px; }
   .toast { position: fixed; bottom: 18px; right: 18px; background: var(--panel); border: 1px solid var(--green); color: var(--green); padding: 10px 14px; border-radius: 8px; display: none; }
+  /* About + pipeline */
+  .about { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; margin-bottom: 18px; }
+  @media (max-width: 900px) { .about { grid-template-columns: 1fr; } }
+  .about p { margin: 6px 0; color: var(--text); font-size: 13px; }
+  .about .muted { line-height: 1.6; }
+  .integrations { list-style: none; margin: 0; padding: 0; }
+  .integrations li { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .integrations li:last-child { border-bottom: 0; }
+  .integrations .name { font-weight: 600; min-width: 128px; }
+  .pipeline { display: flex; align-items: stretch; gap: 0; padding: 16px 14px 6px; flex-wrap: wrap; }
+  .stage { flex: 1 1 150px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; position: relative; min-width: 140px; }
+  .stage + .stage { margin-left: 26px; }
+  .stage + .stage::before { content: "\2192"; position: absolute; left: -22px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 16px; }
+  .stage .n { font-size: 22px; font-weight: 700; }
+  .stage .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .stage .sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .stage.hot { border-color: var(--indigo); box-shadow: 0 0 0 1px var(--indigo) inset; }
+  .stage.bad { border-color: rgba(248,113,113,.6); }
+  .pipeline-foot { padding: 8px 14px 12px; }
+  .latest { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
+  .latest .where { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -98,6 +119,43 @@
     <div class="card"><div class="n" id="cCost">–</div><div class="l">Est. spend today</div></div>
     <div class="card"><div class="n" id="cCost7">–</div><div class="l">Est. spend 7d</div></div>
     <div class="card"><div class="n" id="cAlert">–</div><div class="l">Alert webhook</div></div>
+  </div>
+
+  <div class="about">
+    <div class="panel" style="padding:14px 16px">
+      <div class="title" style="padding:0 0 8px">What Distro is</div>
+      <p><strong>Distro — BuilderOps</strong> is the platform's control plane for the shared AI gateway
+      (OmniRoute): it owns <em>who</em> may call the gateway, <em>how much</em> they may spend, and
+      <em>what it cost</em> — users, per-day quotas (requests / tokens / USD), gateway API keys, and a
+      usage + spend ledger.</p>
+      <p class="muted">It is the operations and billing surface of the estate: identity comes from Cerulean
+      Authentik, metering from the gateway, prices from a curated rate table, and build operations from
+      Olympus Studio — all rendered here so an operator never needs a shell.</p>
+    </div>
+    <div class="panel" style="padding:14px 16px">
+      <div class="title" style="padding:0 0 8px">Integrations</div>
+      <ul class="integrations">
+        <li><span class="name">Cerulean Authentik</span><span>SSO (OIDC + PKCE) — identity and admin groups</span></li>
+        <li><span class="name">OmniRoute</span><span>issues/revokes per-user gateway keys; enforces quotas &amp; spend caps</span></li>
+        <li><span class="name">Magnate</span><span>subscriptions &amp; plans via the entitlements API (Stripe lives in Magnate, never here)</span></li>
+        <li><span class="name">Olympus Studio</span><span>the estate's build factory — its build queue is mirrored here read-only</span></li>
+        <li><span class="name">Cerulean Vault</span><span>secrets (magnate token, gateway admin secret) as vault:// refs</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="title">Build pipeline — Olympus Studio → Distro <span id="pipeCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
+    <div class="pipeline" id="pipeline">
+      <div class="stage" id="st-queued"><div class="n">–</div><div class="l">Queued</div><div class="sub">request written by Studio</div></div>
+      <div class="stage" id="st-running"><div class="n">–</div><div class="l">Building</div><div class="sub">runner executes the DAG (plan → build → verify)</div></div>
+      <div class="stage" id="st-succeeded"><div class="n">–</div><div class="l">Verified</div><div class="sub">artifact + preview packaged</div></div>
+      <div class="stage" id="st-published"><div class="n">–</div><div class="l">Live</div><div class="sub">published URL on the edge</div></div>
+      <div class="stage" id="st-failed"><div class="n">–</div><div class="l">Failed</div><div class="sub">stopped, error recorded</div></div>
+    </div>
+    <div class="pipeline-foot">
+      <div class="latest" id="latestJob"><span class="muted">No builds yet.</span></div>
+    </div>
   </div>
 
   <div class="panel">
@@ -410,7 +468,59 @@ function renderBuildQueue(view) {
   const tb = $('#queueRows');
   tb.innerHTML = '';
 
+  // Pipeline summary — the same data the table below renders as rows, seen as
+  // the flow a build actually takes: queued → running → verified → live.
+  const pipeCfg = $('#pipeCfg');
+  const setStage = (id, n, cls, sub) => {
+    const el = $(id);
+    if (!el) return;
+    el.querySelector('.n').textContent = n;
+    el.classList.toggle(cls || '', !!cls);
+    if (sub !== undefined) el.querySelector('.sub').textContent = sub;
+  };
   if (!view || !view.configured) {
+    if (pipeCfg) pipeCfg.innerHTML = '<span class="pill off">queue not mounted</span>';
+    ['#st-queued', '#st-running', '#st-succeeded', '#st-published', '#st-failed'].forEach((id) => setStage(id, '–'));
+    const lj = $('#latestJob');
+    if (lj) lj.innerHTML = '<span class="muted">Studio\'s queue is not visible from this container (STUDIO_BUILD_QUEUE_DIR unset) — the pipeline view lights up when it is mounted.</span>';
+  } else {
+    const counts = view.counts || {};
+    const runner = view.runner || {};
+    const published = (view.jobs || []).filter((j) => j.state === 'succeeded' && (j.publishedUrl || j.previewUrl)).length;
+    const failed = counts.failed || 0;
+    if (pipeCfg) pipeCfg.innerHTML = runner.live
+      ? '<span class="pill ok">runner live</span>' + (runner.busyWith ? ' · building <code>' + esc(runner.busyWith) + '</code>' : ' · idle')
+      : '<span class="pill off">no runner</span>';
+    setStage('#st-queued', counts.queued || 0, (counts.queued || 0) > 0 ? 'hot' : '');
+    setStage('#st-running', counts.running || 0, (counts.running || 0) > 0 ? 'hot' : '', runner.busyWith ? 'building: ' + runner.busyWith : 'runner executes the DAG (plan \u2192 build \u2192 verify)');
+    setStage('#st-succeeded', counts.succeeded || 0, (counts.succeeded || 0) > 0 ? '' : '');
+    setStage('#st-published', published, published > 0 ? '' : '');
+    setStage('#st-failed', failed, failed > 0 ? 'bad' : '');
+    const jobs = view.jobs || [];
+    const latest = jobs.find((j) => j.state === 'running' || j.state === 'queued') || jobs[0];
+    const lj = $('#latestJob');
+    if (lj) {
+      if (!latest) {
+        lj.innerHTML = '<span class="muted">No builds yet — queue an app from Olympus Studio and it appears here.</span>';
+      } else {
+        const cls = latest.state === 'succeeded' ? 'ok' : latest.state === 'failed' || latest.state === 'cancelled' ? 'off' : 'admin';
+        const link = latest.publishedUrl && /^https?:\/\//i.test(latest.publishedUrl)
+          ? '<a href="' + esc(latest.publishedUrl) + '" target="_blank" rel="noopener">open \u2197</a>'
+          : '';
+        lj.innerHTML =
+          '<span class="pill ' + cls + '">' + esc(latest.state) + '</span>' +
+          '<strong>' + esc(latest.title || latest.slug || latest.job) + '</strong>' +
+          '<span class="where">by ' + esc(latest.requestedBy || 'unknown') + (latest.finishedAt ? ' · finished ' + esc(latest.finishedAt) : latest.requestedAt ? ' · requested ' + esc(latest.requestedAt) : '') + '</span>' +
+          link;
+      }
+    }
+  }
+
+  if (!view || !view.configured) {
+    cfg.innerHTML = '<span class="pill off">not mounted</span> — set STUDIO_BUILD_QUEUE_DIR to Studio\'s queue directory';
+    tb.innerHTML = '<tr><td colspan="8" class="muted">Studio\'s build queue is not visible from this container.</td></tr>';
+    return;
+  }
     cfg.innerHTML = '<span class="pill off">not mounted</span> — set STUDIO_BUILD_QUEUE_DIR to Studio\'s queue directory';
     tb.innerHTML = '<tr><td colspan="8" class="muted">Studio\'s build queue is not visible from this container.</td></tr>';
     return;
