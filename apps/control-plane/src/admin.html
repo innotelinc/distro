@@ -18,7 +18,13 @@
   header h1 { font-size: 16px; margin: 0; }
   header .spacer { flex: 1; }
   header .who { color: var(--muted); font-size: 13px; }
-  main { padding: 22px; max-width: 1180px; margin: 0 auto; }
+  main { padding: 18px 24px 32px; width: 100%; max-width: 1900px; margin: 0 auto; }
+  .table-wrap { overflow: visible; }
+  table { min-width: 0; }
+  th, td { white-space: nowrap; }
+  td.muted { white-space: normal; }
+  .row-actions { flex-wrap: wrap; }
+  @media (max-width: 1200px) { main { padding-left: 14px; padding-right: 14px; } th, td { padding: 6px 7px; } }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 18px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
   .card .n { font-size: 22px; font-weight: 700; }
@@ -49,6 +55,11 @@
   .field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
   .muted { color: var(--muted); font-size: 12px; }
   .actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .section-actions { padding: 10px 14px 0; display: flex; justify-content: flex-end; }
+  .provider-form { display: grid; grid-template-columns: 1.1fr .9fr 1.4fr 1fr .8fr 1.4fr auto; gap: 8px; padding: 12px 14px; align-items: center; }
+  .pool-form { display: grid; grid-template-columns: 1.1fr 1.2fr 1.5fr 1fr auto; gap: 8px; padding: 12px 14px; align-items: center; }
+  select { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 5px 6px; width: 100%; }
+  @media (max-width: 1050px) { .provider-form { grid-template-columns: repeat(3, 1fr); } }
   .row-actions { display: flex; gap: 4px; }
   .badge { color: var(--muted); font-size: 11px; }
   .toast { position: fixed; bottom: 18px; right: 18px; background: var(--panel); border: 1px solid var(--green); color: var(--green); padding: 10px 14px; border-radius: 8px; display: none; }
@@ -91,7 +102,7 @@
 
   <div class="panel">
     <div class="title">Users — limits are per day (empty = unlimited); spend cap is USD/day (gateway-enforced)</div>
-    <div style="overflow-x:auto">
+    <div class="table-wrap">
     <table>
       <thead><tr>
         <th>User</th><th>Role</th><th>Status</th><th>Plan</th>
@@ -104,8 +115,36 @@
   </div>
 
   <div class="panel" style="margin-top:18px">
+    <div class="title">Authentik group mapping <span id="identityCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
+    <div class="section-actions"><button class="ghost" id="syncIdentityBtn">Sync group users</button></div>
+    <div class="table-wrap"><table><thead><tr><th>Group</th><th>Members</th><th>Mapped users</th><th>Last sync</th></tr></thead><tbody id="identityRows"></tbody></table></div>
+  </div>
+
+  <div class="panel" style="margin-top:18px">
+    <div class="title">Shares — cloud storage providers <button class="ghost" id="createPoolBtn" style="float:right">＋ Create storage pool</button></div>
+    <form id="providerForm" class="provider-form">
+      <input id="providerName" placeholder="Display name" required />
+      <select id="providerType"><option value="s3">S3-compatible</option><option value="google-drive">Google Drive</option><option value="dropbox">Dropbox</option><option value="onedrive">OneDrive</option><option value="webdav">WebDAV</option></select>
+      <input id="providerEndpoint" placeholder="Endpoint (optional)" />
+      <input id="providerBucket" placeholder="Bucket / root (optional)" />
+      <input id="providerRegion" placeholder="Region (optional)" />
+      <input id="providerCredential" placeholder="Vault credential ref (optional)" />
+      <button type="submit">Add provider</button>
+    </form>
+    <div class="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Credential</th><th>Status</th><th></th></tr></thead><tbody id="providerRows"></tbody></table></div>
+    <form id="poolForm" class="pool-form hidden">
+      <input id="poolName" placeholder="Pool name" required />
+      <select id="poolProvider" required><option value="">Select provider…</option></select>
+      <input id="poolRoot" placeholder="Root path / prefix (optional)" />
+      <input id="poolCapacity" placeholder="Capacity label (optional)" />
+      <button type="submit">Create pool</button>
+    </form>
+    <div class="table-wrap"><table><thead><tr><th>Pool</th><th>Provider</th><th>Root</th><th>Capacity</th><th>Status</th><th></th></tr></thead><tbody id="poolRows"></tbody></table></div>
+  </div>
+
+  <div class="panel" style="margin-top:18px">
     <div class="title">Build queue — read-only <span id="queueCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
-    <div style="overflow-x:auto">
+    <div class="table-wrap">
     <table>
       <thead><tr><th>Requested</th><th>State</th><th>Action</th><th>App</th><th>Kind</th><th>By</th><th>Finished</th><th>Result</th></tr></thead>
       <tbody id="queueRows"></tbody>
@@ -115,7 +154,7 @@
 
   <div class="panel" style="margin-top:18px">
     <div class="title">Audit log — latest actions</div>
-    <div style="overflow-x:auto">
+    <div class="table-wrap">
     <table>
       <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr></thead>
       <tbody id="auditRows"></tbody>
@@ -125,7 +164,7 @@
 
   <div class="panel" style="margin-top:18px">
     <div class="title">Webhook alerts <span id="alertCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
-    <div style="overflow-x:auto">
+    <div class="table-wrap">
     <table>
       <thead><tr><th>When</th><th>Event</th><th>Status</th><th>Title</th><th>Details</th></tr></thead>
       <tbody id="alertRows"></tbody>
@@ -139,6 +178,7 @@
 const $ = (s) => document.querySelector(s);
 const TOKEN_KEY = 'distro_admin_token';
 const API = '';
+let identitySyncAttempted = false;
 
 function toast(msg) {
   const t = $('#toast');
@@ -217,9 +257,13 @@ async function loadAll() {
       const { entries } = await api('/api/admin/alerts?limit=50');
       renderAlerts(entries);
     } catch { /* alerts are non-critical */ }
-    try {
-      renderBuildQueue(await api('/api/admin/build-queue'));
-    } catch { /* the builder's queue is non-critical here */ }
+    try { renderBuildQueue(await api('/api/admin/build-queue')); } catch { /* queue is non-critical */ }
+    if (!identitySyncAttempted) {
+      identitySyncAttempted = true;
+      try { await api('/api/admin/identity-groups/sync', { method: 'POST' }); } catch { /* optional integration */ }
+    }
+    try { renderIdentity(await api('/api/admin/identity-groups')); } catch { /* optional */ }
+    try { renderProviders(await api('/api/admin/storage-providers')); } catch { /* optional */ }
   } catch (e) {
     toast('Load failed: ' + e.message);
     if (/unauthorized|403/i.test(e.message)) { localStorage.removeItem(TOKEN_KEY); showLogin(); }
@@ -293,6 +337,74 @@ function renderRows(users) {
 // endpoint only reads, and this renders what it returns. `configured: false`
 // means the directory is not mounted HERE — which is a normal deployment shape,
 // not a fault, so it says so instead of looking like an empty queue.
+function renderIdentity(view) {
+  const cfg = $('#identityCfg');
+  const tb = $('#identityRows');
+  cfg.innerHTML = view.config && view.config.configured
+    ? '<span class="pill ok">' + esc(view.config.groupName) + '</span>'
+    : '<span class="pill off">not configured</span> — set AUTHENTIK_API_URL, AUTHENTIK_API_TOKEN and AUTHENTIK_GROUP_NAME';
+  tb.innerHTML = '';
+  if (!view.groups || !view.groups.length) {
+    tb.innerHTML = '<tr><td colspan="4" class="muted">No local mapping yet. Sync creates the Authentik group when it is missing.</td></tr>';
+    return;
+  }
+  for (const group of view.groups) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + esc(group.name) + '</td><td>' + esc(group.member_count) + '</td><td>' + esc((group.members || []).length) + '</td><td class="badge">' + esc(group.updated_at || '') + '</td>';
+    tb.appendChild(tr);
+  }
+}
+
+async function syncIdentity() {
+  const btn = $('#syncIdentityBtn');
+  btn.disabled = true;
+  try { await api('/api/admin/identity-groups/sync', { method: 'POST' }); toast('Authentik group synced'); loadAll(); }
+  catch (e) { toast('Identity sync failed: ' + e.message); }
+  finally { btn.disabled = false; }
+}
+
+function renderProviders(view) {
+  const tb = $('#providerRows');
+  const poolSelect = $('#poolProvider');
+  poolSelect.innerHTML = '<option value="">Select provider…</option>' + (view.providers || []).map((p) => '<option value="' + esc(p.id) + '">' + esc(p.name) + ' (' + esc(p.provider_type) + ')</option>').join('');
+  renderPools(view.pools || []);
+  tb.innerHTML = '';
+  if (!view.providers || !view.providers.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="muted">No cloud storage providers configured.</td></tr>';
+    return;
+  }
+  for (const p of view.providers) {
+    const tr = document.createElement('tr');
+    const location = [p.endpoint, p.bucket, p.region].filter(Boolean).join(' · ') || 'managed connection';
+    tr.innerHTML = '<td>' + esc(p.name) + '</td><td><span class="pill admin">' + esc(p.provider_type) + '</span></td><td class="muted">' + esc(location) + '</td><td class="muted">' + esc(p.credential_ref || 'not set') + '</td><td><span class="pill ' + (p.enabled ? 'ok' : 'off') + '">' + (p.enabled ? 'enabled' : 'disabled') + '</span></td><td><button class="danger b-delete-provider">Delete</button></td>';
+    tr.querySelector('.b-delete-provider').onclick = async () => {
+      if (!confirm('Delete ' + p.name + '?')) return;
+      try { await api('/api/admin/storage-providers/' + encodeURIComponent(p.id), { method: 'DELETE' }); toast('Provider deleted'); loadAll(); }
+      catch (e) { toast('Delete failed: ' + e.message); }
+    };
+    tb.appendChild(tr);
+  }
+}
+
+function renderPools(pools) {
+  const tb = $('#poolRows');
+  tb.innerHTML = '';
+  if (!pools.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="muted">No storage pools configured. Create one above.</td></tr>';
+    return;
+  }
+  for (const pool of pools) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + esc(pool.name) + '</td><td>' + esc(pool.provider_name) + ' <span class="badge">' + esc(pool.provider_type) + '</span></td><td class="muted">' + esc(pool.root_path || '/') + '</td><td class="muted">' + esc(pool.capacity_label || '—') + '</td><td><span class="pill ' + (pool.enabled ? 'ok' : 'off') + '">' + (pool.enabled ? 'enabled' : 'disabled') + '</span></td><td><button class="danger b-delete-pool">Delete</button></td>';
+    tr.querySelector('.b-delete-pool').onclick = async () => {
+      if (!confirm('Delete storage pool ' + pool.name + '?')) return;
+      try { await api('/api/admin/storage-pools/' + encodeURIComponent(pool.id), { method: 'DELETE' }); toast('Storage pool deleted'); loadAll(); }
+      catch (e) { toast('Delete failed: ' + e.message); }
+    };
+    tb.appendChild(tr);
+  }
+}
+
 function renderBuildQueue(view) {
   const cfg = $('#queueCfg');
   const tb = $('#queueRows');
@@ -402,6 +514,29 @@ function renderAudit(entries) {
 // button and hides the password form unless the operator turned the local
 // fallback back on (BREAKGLASS_LOGIN=1 — see src/oidc.js).
 $('#loginBtn').onclick = doLogin;
+$('#syncIdentityBtn').onclick = syncIdentity;
+$('#createPoolBtn').onclick = () => $('#poolForm').classList.toggle('hidden');
+$('#poolForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/admin/storage-pools', { method: 'POST', body: JSON.stringify({
+      name: $('#poolName').value.trim(), providerId: $('#poolProvider').value,
+      rootPath: $('#poolRoot').value.trim(), capacityLabel: $('#poolCapacity').value.trim(),
+    }) });
+    e.target.reset(); e.target.classList.add('hidden'); toast('Storage pool created'); loadAll();
+  } catch (err) { toast('Create pool failed: ' + err.message); }
+});
+$('#providerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/admin/storage-providers', { method: 'POST', body: JSON.stringify({
+      name: $('#providerName').value.trim(), providerType: $('#providerType').value,
+      endpoint: $('#providerEndpoint').value.trim(), bucket: $('#providerBucket').value.trim(),
+      region: $('#providerRegion').value.trim(), credentialRef: $('#providerCredential').value.trim(),
+    }) });
+    e.target.reset(); toast('Cloud storage provider added'); loadAll();
+  } catch (err) { toast('Add provider failed: ' + err.message); }
+});
 $('#password').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
 
 async function bootLogin() {

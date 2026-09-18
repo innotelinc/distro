@@ -38,6 +38,17 @@ import {
   getWorkspaceShares,
   getUserSharedWithMe,
   removeShare,
+  listIdentityGroups,
+  listIdentityGroupMembers,
+  listCloudStorageProviders,
+  getCloudStorageProvider,
+  createCloudStorageProvider,
+  updateCloudStorageProvider,
+  deleteCloudStorageProvider,
+  listStoragePools,
+  getStoragePool,
+  createStoragePool,
+  deleteStoragePool,
 } from './db.js';
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
 import { alert, alertsConfig } from './alerts.js';
@@ -59,6 +70,7 @@ import { magnateConfigured, checkEntitlement, listPlans, gatedQuota } from './bi
 import { magnateUrlSync } from './discovery.js';
 import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
 import { readBuildQueue } from './buildQueue.js';
+import { authentikGroupConfig, syncAuthentikGroup } from './authentik.js';
 
 /* ---- auth rate limiting ------------------------------------------------- */
 //
@@ -770,7 +782,17 @@ export async function handler(req, res, { gateway }) {
     const mine = listWorkspaces(me.id);
     const shared = getUserSharedWithMe(me.id);
     const publicWorkspaces = listPublicWorkspaces();
-    return send(200, { workspaces: mine, shared, publicWorkspaces });
+    const storageProviders = listCloudStorageProviders({ includeDisabled: false });
+    const storagePools = listStoragePools({ includeDisabled: false });
+    return send(200, { workspaces: mine, shared, publicWorkspaces, storageProviders, storagePools });
+  }
+
+  if (path === '/api/shares/storage-providers' && method === 'GET') {
+    return send(200, { providers: listCloudStorageProviders({ includeDisabled: false }) });
+  }
+
+  if (path === '/api/shares/storage-pools' && method === 'GET') {
+    return send(200, { pools: listStoragePools({ includeDisabled: false }) });
   }
 
   if (path === '/api/workspaces' && method === 'POST') {
@@ -909,6 +931,109 @@ export async function handler(req, res, { gateway }) {
       alerting: alertsConfig(),
       billing: { magnate_configured: magnateConfigured() },
     });
+  }
+
+  if (path === '/api/admin/identity-groups' && method === 'GET') {
+    const groups = listIdentityGroups().map((group) => ({
+      ...group,
+      members: listIdentityGroupMembers(group.id),
+    }));
+    return send(200, { config: authentikGroupConfig(), groups });
+  }
+
+  if (path === '/api/admin/identity-groups/sync' && method === 'POST') {
+    try {
+      return send(200, { sync: await syncAuthentikGroup({ gateway }) });
+    } catch (err) {
+      return send(502, { error: err?.message || 'Authentik group sync failed' });
+    }
+  }
+
+  if (path === '/api/admin/storage-providers' && method === 'GET') {
+    return send(200, { providers: listCloudStorageProviders(), pools: listStoragePools() });
+  }
+
+  if (path === '/api/admin/storage-pools' && method === 'GET') {
+    return send(200, { pools: listStoragePools() });
+  }
+
+  if (path === '/api/admin/storage-pools' && method === 'POST') {
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const name = String(body.name || '').trim();
+    const providerId = String(body.providerId || '').trim();
+    if (!name || !providerId) return send(400, { error: 'name and providerId are required' });
+    if (!getCloudStorageProvider(providerId)) return send(404, { error: 'storage provider not found' });
+    const pool = createStoragePool({
+      name,
+      providerId,
+      rootPath: body.rootPath,
+      capacityLabel: body.capacityLabel,
+      enabled: body.enabled !== false,
+    });
+    logAudit({ action: 'storage-pool.create', actorId: admin.id, actorEmail: admin.email, targetId: pool.id, meta: { name, providerId } });
+    return send(201, { pool });
+  }
+
+  const storagePoolMatch = path.match(/^\/api\/admin\/storage-pools\/([^/]+)$/);
+  if (storagePoolMatch) {
+    const poolId = decodeURIComponent(storagePoolMatch[1]);
+    if (!getStoragePool(poolId)) return send(404, { error: 'storage pool not found' });
+    if (method === 'DELETE') {
+      deleteStoragePool(poolId);
+      logAudit({ action: 'storage-pool.delete', actorId: admin.id, actorEmail: admin.email, targetId: poolId });
+      return send(200, { deleted: true });
+    }
+  }
+
+  if (path === '/api/admin/storage-providers' && method === 'POST') {
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const name = String(body.name || '').trim();
+    const providerType = String(body.providerType || '').trim();
+    const allowedTypes = ['s3', 'google-drive', 'dropbox', 'onedrive', 'webdav'];
+    if (!name || !allowedTypes.includes(providerType)) return send(400, { error: 'name and a supported providerType are required' });
+    const provider = createCloudStorageProvider({
+      name,
+      providerType,
+      endpoint: body.endpoint,
+      bucket: body.bucket,
+      region: body.region,
+      credentialRef: body.credentialRef,
+      enabled: body.enabled !== false,
+    });
+    logAudit({ action: 'storage-provider.create', actorId: admin.id, actorEmail: admin.email, targetId: provider.id, meta: { name, providerType } });
+    return send(201, { provider });
+  }
+
+  const storageProviderMatch = path.match(/^\/api\/admin\/storage-providers\/([^/]+)$/);
+  if (storageProviderMatch) {
+    const providerId = decodeURIComponent(storageProviderMatch[1]);
+    const existing = getCloudStorageProvider(providerId);
+    if (!existing) return send(404, { error: 'storage provider not found' });
+    if (method === 'PATCH') {
+      const body = await readBody(req);
+      if (body.__invalid) return send(400, { error: 'invalid JSON' });
+      const allowedTypes = ['s3', 'google-drive', 'dropbox', 'onedrive', 'webdav'];
+      if (body.providerType !== undefined && !allowedTypes.includes(String(body.providerType))) {
+        return send(400, { error: 'unsupported providerType' });
+      }
+      const provider = updateCloudStorageProvider(providerId, {
+        name: body.name,
+        provider_type: body.providerType,
+        endpoint: body.endpoint,
+        bucket: body.bucket,
+        region: body.region,
+        credential_ref: body.credentialRef,
+        enabled: body.enabled,
+      });
+      return send(200, { provider });
+    }
+    if (method === 'DELETE') {
+      deleteCloudStorageProvider(providerId);
+      logAudit({ action: 'storage-provider.delete', actorId: admin.id, actorEmail: admin.email, targetId: providerId });
+      return send(200, { deleted: true });
+    }
   }
 
   if (path === '/api/admin/audit' && method === 'GET') {

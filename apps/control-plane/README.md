@@ -41,6 +41,8 @@ free — no gateway forking required.
 | Admin API (M5) | users list/stats, PATCH (disable, quota, role), revoke/rotate key, DELETE user, audit list | disabling/deleting revokes the gateway key; last-admin guard |
 | Admin console (M5) | `GET /admin` → `src/admin.html` | no build step, no CDNs; login as an admin |
 | Build-queue view (§5.2) | `src/buildQueue.js` + `GET /api/admin/build-queue` | read-only render of Studio's queue (`STUDIO_BUILD_QUEUE_DIR`): jobs merged from request+status files, the runner's heartbeat, per-state counts. Never writes, claims or cancels — the runner stays the only writer |
+| Authentik group mapping | `src/authentik.js` + `/api/admin/identity-groups/*` | mirrors the configured Authentik group, creates it when missing, provisions missing local users and replaces the local membership cache |
+| Cloud storage providers and pools | `cloud_storage_providers`, `storage_pools` + `/api/admin/storage-{providers,pools}` | Shares GUI can register providers and create logical pools rooted at a provider path; stores metadata and Vault references only, never raw provider credentials |
 | Audit log (M5) | `audit_log` table + `GET /api/admin/audit` | signups, key lifecycle, quota/role/disable changes, deletes |
 | Alert history | `alert_log` table + `GET /api/admin/alerts` | every webhook attempt (sent/failed) recorded; cooldown-suppressed repeats are not |
 | Spend rollups | `usage7d` on users, `week` on stats, admin console columns/cards | rolling 7-day totals from the gateway-ledger usage cache |
@@ -90,6 +92,17 @@ POST   /api/internal/audit         { action, sub?, actorEmail?, targetId?, targe
 # builder's work is visible where the users and quotas already are. It never
 # writes, claims or cancels a job — the runner stays the only writer.
 GET    /api/admin/stats                                           → aggregate today totals
+GET    /api/admin/identity-groups                                 → local Authentik group mappings
+POST   /api/admin/identity-groups/sync                            → create/find configured group and sync members
+GET    /api/admin/storage-providers                              → provider metadata for Shares
+POST   /api/admin/storage-providers                              → add provider metadata
+PATCH  /api/admin/storage-providers/:id                          → edit provider metadata
+DELETE /api/admin/storage-providers/:id                          → remove provider metadata
+GET    /api/admin/storage-pools                                  → list storage pools
+POST   /api/admin/storage-pools                                  → create a pool for a provider
+DELETE /api/admin/storage-pools/:id                              → remove a pool
+GET    /api/shares/storage-providers                             → enabled providers for signed-in Shares views
+GET    /api/shares/storage-pools                                 → enabled pools for signed-in Shares views
 GET    /api/admin/build-queue                                     → read-only view of the builder's queue:
                                                                     { configured, dir, readable, runner, counts, jobs }
                                                                     (configured=false when STUDIO_BUILD_QUEUE_DIR is unset)
@@ -120,7 +133,11 @@ Configuration (from env): `PORT`/`HOST` (default `20140`/`0.0.0.0`),
 `GATEWAY_ADMIN_PASSWORD`, `ADMIN_EMAILS`, `CONTROL_INTERNAL_TOKEN` (the
 service-to-service token Studio presents; unset disables those endpoints),
 `CONTROL_SYNC_INTERVAL_MS` (M4 sync
-period; 0 disables), `GATEWAY_DATA_DIR` (unset by default — see below). The
+period; 0 disables), `GATEWAY_DATA_DIR` (unset by default — see below),
+`AUTHENTIK_API_URL`, `AUTHENTIK_API_TOKEN`, and `AUTHENTIK_GROUP_NAME` for
+automatic group membership mapping. Cloud provider credentials are represented
+by `credential_ref` values pointing into the deployment's secret store.
+The
 compose service wires these from the root `.env`
 (`GATEWAY_ADMIN_PASSWORD=${INITIAL_PASSWORD}`) and mounts a `control-data`
 volume. It mounts **no** gateway volume: the gateway is the shared remote
@@ -146,9 +163,9 @@ key is a call to another service.
 ## Still to do
 
 - Billing hooks / paid tiers, if ever in scope.
-- A read-only build-queue view in the admin console, so Studio's queue is visible
-  where users and quotas already are (needs the queue directory readable from
-  this container — a mount, not code).
+- Actual provider-specific sync/mount workers: this milestone registers safe
+  provider metadata and secret references; ONYX or a dedicated worker should
+  perform file operations using those references.
 
 Full breakdown + open questions: [docs/roadmap.md](docs/roadmap.md).
 Design rationale: [docs/multi-tenant.md](../../docs/multi-tenant.md).

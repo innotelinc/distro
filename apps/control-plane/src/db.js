@@ -509,3 +509,120 @@ export function removeShare(workspaceId, sharedWithUserId) {
     .prepare('DELETE FROM project_shares WHERE workspace_id = ? AND shared_with = ?')
     .run(workspaceId, sharedWithUserId);
 }
+
+// ── Authentik group mappings ─────────────────────────────────────────────
+export function getIdentityGroup(provider, name) {
+  return getDb().prepare('SELECT * FROM identity_groups WHERE provider = ? AND name = ?').get(provider, name);
+}
+
+export function upsertIdentityGroup({ id = randomUUID(), provider = 'authentik', externalId = null, name }) {
+  getDb().prepare(`
+    INSERT INTO identity_groups (id, provider, external_id, name, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT (provider, name) DO UPDATE SET
+      external_id = COALESCE(excluded.external_id, identity_groups.external_id),
+      updated_at = datetime('now')
+  `).run(id, provider, externalId, name);
+  return getIdentityGroup(provider, name);
+}
+
+export function replaceIdentityGroupMembers(groupId, members) {
+  const database = getDb();
+  const replace = database.transaction((rows) => {
+    database.prepare('DELETE FROM identity_group_members WHERE group_id = ?').run(groupId);
+    const insert = database.prepare(`
+      INSERT OR IGNORE INTO identity_group_members (group_id, user_id, external_id)
+      VALUES (?, ?, ?)
+    `);
+    for (const row of rows) insert.run(groupId, row.userId, row.externalId || null);
+  });
+  replace(members);
+}
+
+export function listIdentityGroups() {
+  return getDb().prepare(`
+    SELECT g.*, COUNT(m.user_id) AS member_count
+    FROM identity_groups g LEFT JOIN identity_group_members m ON m.group_id = g.id
+    GROUP BY g.id ORDER BY g.name
+  `).all();
+}
+
+export function listIdentityGroupMembers(groupId) {
+  return getDb().prepare(`
+    SELECT u.id, u.email, u.oidc_sub, m.external_id
+    FROM identity_group_members m JOIN users u ON u.id = m.user_id
+    WHERE m.group_id = ? ORDER BY u.email
+  `).all(groupId);
+}
+
+// ── cloud storage providers ──────────────────────────────────────────────
+export function listCloudStorageProviders({ includeDisabled = true } = {}) {
+  const sql = includeDisabled
+    ? 'SELECT * FROM cloud_storage_providers ORDER BY name'
+    : 'SELECT * FROM cloud_storage_providers WHERE enabled = 1 ORDER BY name';
+  return getDb().prepare(sql).all();
+}
+
+export function getCloudStorageProvider(id) {
+  return getDb().prepare('SELECT * FROM cloud_storage_providers WHERE id = ?').get(id);
+}
+
+export function createCloudStorageProvider({ name, providerType, endpoint, bucket, region, credentialRef, enabled = true }) {
+  const id = randomUUID();
+  getDb().prepare(`
+    INSERT INTO cloud_storage_providers
+      (id, name, provider_type, endpoint, bucket, region, credential_ref, enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name, providerType, endpoint || null, bucket || null, region || null, credentialRef || null, enabled ? 1 : 0);
+  return getCloudStorageProvider(id);
+}
+
+export function updateCloudStorageProvider(id, fields) {
+  const allowed = ['name', 'provider_type', 'endpoint', 'bucket', 'region', 'credential_ref', 'enabled'];
+  const set = [];
+  const params = [];
+  for (const key of allowed) {
+    if (fields[key] === undefined) continue;
+    set.push(`${key} = ?`);
+    params.push(key === 'enabled' ? (fields[key] ? 1 : 0) : fields[key] || null);
+  }
+  if (set.length) {
+    set.push("updated_at = datetime('now')");
+    getDb().prepare(`UPDATE cloud_storage_providers SET ${set.join(', ')} WHERE id = ?`).run(...params, id);
+  }
+  return getCloudStorageProvider(id);
+}
+
+export function deleteCloudStorageProvider(id) {
+  getDb().prepare('DELETE FROM cloud_storage_providers WHERE id = ?').run(id);
+}
+
+export function listStoragePools({ includeDisabled = true } = {}) {
+  const where = includeDisabled ? '' : 'WHERE sp.enabled = 1 AND p.enabled = 1';
+  return getDb().prepare(`
+    SELECT sp.*, p.name AS provider_name, p.provider_type
+    FROM storage_pools sp JOIN cloud_storage_providers p ON p.id = sp.provider_id
+    ${where} ORDER BY sp.name
+  `).all();
+}
+
+export function getStoragePool(id) {
+  return getDb().prepare(`
+    SELECT sp.*, p.name AS provider_name, p.provider_type
+    FROM storage_pools sp JOIN cloud_storage_providers p ON p.id = sp.provider_id
+    WHERE sp.id = ?
+  `).get(id);
+}
+
+export function createStoragePool({ name, providerId, rootPath, capacityLabel, enabled = true }) {
+  const id = randomUUID();
+  getDb().prepare(`
+    INSERT INTO storage_pools (id, name, provider_id, root_path, capacity_label, enabled)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, name, providerId, rootPath || null, capacityLabel || null, enabled ? 1 : 0);
+  return getStoragePool(id);
+}
+
+export function deleteStoragePool(id) {
+  getDb().prepare('DELETE FROM storage_pools WHERE id = ?').run(id);
+}
