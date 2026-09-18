@@ -485,6 +485,11 @@ function renderBuildQueue(view) {
     ['#st-queued', '#st-running', '#st-succeeded', '#st-published', '#st-failed'].forEach((id) => setStage(id, '–'));
     const lj = $('#latestJob');
     if (lj) lj.innerHTML = '<span class="muted">Studio\'s queue is not visible from this container (STUDIO_BUILD_QUEUE_DIR unset) — the pipeline view lights up when it is mounted.</span>';
+    // The table has nothing to show either, and the renderer below reads
+    // `view.runner` — stop here instead of falling through to it with no view.
+    cfg.innerHTML = '<span class="pill off">not mounted</span> — set STUDIO_BUILD_QUEUE_DIR to Studio\'s queue directory';
+    tb.innerHTML = '<tr><td colspan="8" class="muted">Studio\'s build queue is not visible from this container.</td></tr>';
+    return;
   } else {
     const counts = view.counts || {};
     const runner = view.runner || {};
@@ -516,16 +521,6 @@ function renderBuildQueue(view) {
           link;
       }
     }
-  }
-
-  if (!view || !view.configured) {
-    cfg.innerHTML = '<span class="pill off">not mounted</span> — set STUDIO_BUILD_QUEUE_DIR to Studio\'s queue directory';
-    tb.innerHTML = '<tr><td colspan="8" class="muted">Studio\'s build queue is not visible from this container.</td></tr>';
-    return;
-  }
-    cfg.innerHTML = '<span class="pill off">not mounted</span> — set STUDIO_BUILD_QUEUE_DIR to Studio\'s queue directory';
-    tb.innerHTML = '<tr><td colspan="8" class="muted">Studio\'s build queue is not visible from this container.</td></tr>';
-    return;
   }
 
   const runner = view.runner || {};
@@ -673,7 +668,13 @@ async function bootLogin() {
 
 let oidcPopup = null;
 function openOidc() {
+  $('#loginErr').textContent = '';
   oidcPopup = window.open('/api/auth/oidc/start', 'distro-oidc', 'width=520,height=680,menubar=no,toolbar=no');
+  // A blocked pop-up leaves the sign-in with nowhere to run; say so rather than
+  // letting the click look like it did nothing.
+  if (!oidcPopup) {
+    $('#loginErr').textContent = 'the sign-in window was blocked — allow pop-ups for this site and try again';
+  }
 }
 
 window.addEventListener('message', (e) => {
