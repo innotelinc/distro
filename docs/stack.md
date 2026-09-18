@@ -44,12 +44,17 @@ platform owns, consumes, provides, and explicitly does not own.
   locally (Magnate is discovered via Consul like the gateway). Magnate itself
   is Cerulean/Authentik-first (subscriber accounts + passwords live in
   Cerulean's Authentik).
-- Cerulean — TrustOps: Authentik SSO (optional OIDC sign-in for the control
-  plane), DNS automation (RFC 2136 BIND zone updates) and TLS certificate
-  lifecycle (wildcard Let's Encrypt via DNS-01 challenge). The
-  `scripts/npm-proxy-hosts.py` script provisions NPM proxy hosts and wildcard
-  certs for `*.innotel.us`. Cerulean also hosts the shared Authentik instance
-  the whole stack signs in through.
+- Cerulean — TrustOps: Authentik SSO (OIDC sign-in for the control plane),
+  DNS automation (RFC 2136 BIND zone updates) and TLS certificate lifecycle
+  (wildcard Let's Encrypt via DNS-01 challenge). The `scripts/npm-proxy-hosts.py`
+  script provisions NPM proxy hosts and wildcard certs for `*.innotel.us`.
+  Cerulean hosts the shared Authentik instance the whole stack signs in through,
+  and Distro is a **pattern A** consumer of it under the platform standard
+  ([`ips/docs/sign-in-posture.md`](../../../ips/docs/sign-in-posture.md)):
+  OIDC-native, no login of its own, provider carrying the standard
+  `openid`/`profile`/`email`/`groups` mappings and `issuer_mode: per_provider`.
+  `scripts/verify-sso.py` proves it, and `ips/scripts/check-sign-in-posture.sh`
+  runs it with every other zone's.
 
 ## Explicitly does NOT own
 

@@ -92,6 +92,8 @@
   <h1>Distro Admin</h1>
   <div class="spacer"></div>
   <div class="who" id="who"></div>
+  <span class="who" id="lastUpdated"></span>
+  <button class="ghost hidden" id="refreshBtn">Refresh</button>
   <button class="ghost hidden" id="logoutBtn">Sign out</button>
 </header>
 
@@ -133,6 +135,10 @@
       <p class="muted">It is the operations and billing surface of the estate: identity comes from Cerulean
       Authentik, metering from the gateway, prices from a curated rate table, and build operations from
       Olympus Studio — all rendered here so an operator never needs a shell.</p>
+      <p class="muted">The relationship with <strong>Olympus Studio</strong> is one loop: Studio is where an app is built,
+      and every model call that build makes is spent on a Distro-issued per-user gateway key — so quota is gated
+      <em>before</em> each turn and usage recorded after it. Studio's build queue is mirrored here read-only, which is
+      the pipeline below; the same flow is drawn on Studio's own <code>/admin</code> panel, one click away.</p>
     </div>
     <div class="panel" style="padding:14px 16px">
       <div class="title" style="padding:0 0 8px">Integrations</div>
@@ -147,9 +153,14 @@
   </div>
 
   <div class="panel">
-    <div class="title">Build pipeline — Olympus Studio → Distro <span id="pipeCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
+    <div class="title">Build pipeline — Olympus Studio → Distro
+      <span style="float:right;text-transform:none;letter-spacing:0">
+        <a id="olympusLink" href="https://studio.olympus.innotel.us/admin" target="_blank" rel="noopener" style="color:var(--cyan)">Olympus panel ↗</a>
+        <span id="pipeCfg"></span>
+      </span>
+    </div>
     <div class="pipeline" id="pipeline">
-      <div class="stage" id="st-queued"><div class="n">–</div><div class="l">Queued</div><div class="sub">request written by Studio</div></div>
+      <div class="stage" id="st-queued"><div class="n">–</div><div class="l">Queued</div><div class="sub">request written by Olympus Studio</div></div>
       <div class="stage" id="st-running"><div class="n">–</div><div class="l">Building</div><div class="sub">runner executes the DAG (plan → build → verify)</div></div>
       <div class="stage" id="st-succeeded"><div class="n">–</div><div class="l">Verified</div><div class="sub">artifact + preview packaged</div></div>
       <div class="stage" id="st-published"><div class="n">–</div><div class="l">Live</div><div class="sub">published URL on the edge</div></div>
@@ -157,11 +168,14 @@
     </div>
     <div class="pipeline-foot">
       <div class="latest" id="latestJob"><span class="muted">No builds yet.</span></div>
+      <div class="muted" style="margin-top:6px">Olympus Studio builds; Distro meters the model calls behind every turn. The queue is
+      Studio's, mirrored here read-only, and the same stages are drawn on Studio's own deployment panel.</div>
     </div>
   </div>
 
   <div class="panel">
-    <div class="title">Users — limits are per day (empty = unlimited); spend cap is USD/day (gateway-enforced)</div>
+    <div class="title">Users — limits are per day (empty = unlimited); spend cap is USD/day (gateway-enforced)
+      <input id="userFilter" placeholder="Filter by email, id, role or plan…" style="float:right;width:260px;text-transform:none;letter-spacing:0;font-weight:400" /></div>
     <div class="table-wrap">
     <table>
       <thead><tr>
@@ -239,6 +253,8 @@ const $ = (s) => document.querySelector(s);
 const TOKEN_KEY = 'distro_admin_token';
 const API = '';
 let identitySyncAttempted = false;
+let allUsers = [];
+let autoRefreshTimer = null;
 
 function toast(msg) {
   const t = $('#toast');
@@ -279,13 +295,19 @@ function showApp(user) {
   $('#loginWrap').classList.add('hidden');
   $('#app').classList.remove('hidden');
   $('#logoutBtn').classList.remove('hidden');
+  $('#refreshBtn').classList.remove('hidden');
   $('#who').textContent = (user && user.email) || '';
   loadAll();
+  // Spend and quota burn move on their own; a console left open should not go
+  // stale silently. One minute keeps the numbers honest without hammering the
+  // API or re-rendering under an operator mid-edit (a save re-renders anyway).
+  if (!autoRefreshTimer) autoRefreshTimer = setInterval(() => loadAll(), 60000);
 }
 
 function showLogin() {
   $('#app').classList.add('hidden');
   $('#logoutBtn').classList.add('hidden');
+  $('#refreshBtn').classList.add('hidden');
   $('#loginWrap').classList.remove('hidden');
   $('#who').textContent = '';
 }
@@ -308,7 +330,9 @@ async function loadAll() {
       ? '<span class="pill ok">' + esc(alerting.webhookHost || 'configured') + '</span> cooldown ' + Math.round((alerting.cooldownMs || 600000) / 60000) + ' min'
       : '<span class="pill off">not configured</span> — set CONTROL_ALERT_WEBHOOK_URL';
     const { users } = await api('/api/admin/users');
-    renderRows(users);
+    allUsers = users;
+    renderRows(filterUsers(users));
+    stampUpdated();
     try {
       const { entries } = await api('/api/admin/audit?limit=100');
       renderAudit(entries);
@@ -330,6 +354,31 @@ async function loadAll() {
   }
 }
 
+function stampUpdated() {
+  const el = $('#lastUpdated');
+  if (el) el.textContent = 'updated ' + new Date().toLocaleTimeString();
+}
+
+// Client-side filtering over the row set already loaded: an operator looking
+// for one account should not have to eyeball every row, and the list is small
+// enough that re-rendering it per keystroke costs nothing.
+function filterUsers(users) {
+  const el = $('#userFilter');
+  const q = el ? el.value.trim().toLowerCase() : '';
+  if (!q) return users;
+  return users.filter((u) =>
+    [u.email, u.id, u.role, (u.quota || {}).plan].filter(Boolean).join(' ').toLowerCase().includes(q));
+}
+
+function copyText(text, label) {
+  if (!text) { toast('Nothing to copy'); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => toast('Copied ' + label), () => toast('Copy failed — select it manually'));
+  } else {
+    toast('Copy failed — select it manually');
+  }
+}
+
 function renderRows(users) {
   const tb = $('#rows');
   tb.innerHTML = '';
@@ -340,7 +389,7 @@ function renderRows(users) {
     const tr = document.createElement('tr');
     const disabled = !!u.disabled_at;
     tr.innerHTML =
-      '<td><div>' + esc(u.email) + '</div><div class="badge">' + esc(u.id) + '</div></td>' +
+      '<td><div>' + esc(u.email) + '</div><div class="badge">' + esc(u.id) + ' <button class="ghost b-copy-id" title="Copy user id">copy</button></div></td>' +
       '<td><span class="pill ' + (u.role === 'admin' ? 'admin' : 'user') + '">' + esc(u.role) + '</span></td>' +
       '<td><span class="pill ' + (disabled ? 'off' : 'ok') + '">' + (disabled ? 'disabled' : 'active') + '</span></td>' +
       '<td><input class="f-plan" value="' + esc(q.plan || 'free') + '" style="width:70px" /></td>' +
@@ -350,8 +399,9 @@ function renderRows(users) {
       '<td class="muted">' + t.requests + ' / ' + (Number(t.tokens_in) + Number(t.tokens_out)).toLocaleString() + ' / ' + money(t.cost_usd) + '</td>' +
       '<td class="muted">' + (Number(w.tokens_in) + Number(w.tokens_out)).toLocaleString() + ' / ' + money(w.cost_usd) + '</td>' +
       '<td>' + (u.hasGatewayKey ? '<span class="pill ok">active</span>' : '<span class="pill off">none</span>') +
-      '<div class="badge">' + esc(u.gatewayKeyId || '') + '</div></td>' +
+      '<div class="badge">' + esc(u.gatewayKeyId || '') + (u.hasGatewayKey ? ' <button class="ghost b-copy-key" title="Copy gateway key id">copy</button>' : '') + '</div></td>' +
       '<td><div class="row-actions">' +
+        '<select class="f-preset" title="Quota presets"><option value="">Preset…</option><option value="free">Free</option><option value="pro">Pro</option><option value="unlimited">Unlimited</option></select>' +
         '<button class="ghost b-save">Save</button>' +
         '<button class="ghost b-rotate" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Rotate key</button>' +
         '<button class="ghost b-revoke" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Revoke key</button>' +
@@ -388,6 +438,22 @@ function renderRows(users) {
       if (!confirm('Revoke the gateway key for ' + u.email + '?')) return;
       try { await api('/api/admin/users/' + encodeURIComponent(u.id) + '/revoke-key', { method: 'POST' }); toast('Key revoked for ' + u.email); loadAll(); }
       catch (e) { toast('Failed: ' + e.message); }
+    };
+    tr.querySelector('.b-copy-id').onclick = () => copyText(u.id, 'user id');
+    const copyKeyBtn = tr.querySelector('.b-copy-key');
+    if (copyKeyBtn) copyKeyBtn.onclick = () => copyText(u.gatewayKeyId, 'gateway key id');
+    // Presets fill the three limit inputs so a common shape does not have to be
+    // retyped per account; they deliberately do not save — the operator still
+    // sees the values and presses Save, so a preset can never be a blind write.
+    tr.querySelector('.f-preset').onchange = (ev) => {
+      const preset = ev.target.value;
+      if (!preset) return;
+      const put = (sel, val) => { const el = tr.querySelector(sel); if (el) el.value = val; };
+      if (preset === 'free') { put('.f-plan', 'free'); put('.f-rpd', '100'); put('.f-tpd', '100000'); put('.f-cap', '2'); }
+      else if (preset === 'pro') { put('.f-plan', 'pro'); put('.f-rpd', '1000'); put('.f-tpd', '2000000'); put('.f-cap', '25'); }
+      else if (preset === 'unlimited') { put('.f-plan', 'unlimited'); put('.f-rpd', ''); put('.f-tpd', ''); put('.f-cap', ''); }
+      ev.target.value = '';
+      toast('Preset applied — press Save to store it');
     };
     tb.appendChild(tr);
   }
@@ -621,6 +687,8 @@ function renderAudit(entries) {
 // button and hides the password form unless the operator turned the local
 // fallback back on (BREAKGLASS_LOGIN=1 — see src/oidc.js).
 $('#loginBtn').onclick = doLogin;
+$('#refreshBtn').onclick = () => loadAll();
+$('#userFilter').addEventListener('input', () => renderRows(filterUsers(allUsers)));
 $('#syncIdentityBtn').onclick = syncIdentity;
 $('#createPoolBtn').onclick = () => $('#poolForm').classList.toggle('hidden');
 $('#poolForm').addEventListener('submit', async (e) => {
