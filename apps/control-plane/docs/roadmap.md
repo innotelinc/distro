@@ -4,6 +4,9 @@
 > per-user keys + quotas + usage sync + admin console + Magnate billing).
 > Integration option A (browser holds key) was chosen; see docs/ops.md.
 >
+> **0.3.0 (M7) is IN PROGRESS** — the Shares identity/storage slice is
+> shipped below; build-plane convergence remains open.
+>
 > **0.2.0 (M6) is open** — hardening the surface that shipped in 0.1: the
 > auth rate limit below is the first slice, and the open questions at the
 > bottom are the working list.
@@ -52,7 +55,22 @@ Estimated sizes are relative; revisit against the pinned gateway version.
 - [ ] Reconcile the two session models (control-plane bearer token vs Studio
       cookie) as the tenancy layer converges — see the build-plane doc.
 
-## M7 — 0.3.0: build-plane convergence (next)
+## M7 — 0.3.0: build-plane convergence and Shares UX
+
+- [x] Widen the admin console to use the available desktop viewport and keep
+      the users, queue, audit, alerts, identity, and Shares sections visible in
+      one operator surface.
+- [x] Mirror the configured Authentik group into local membership tables;
+      create the group through Authentik's API when it is missing, provision
+      missing local accounts, and reconcile membership on the first admin-panel
+      load or with **Sync group users**.
+- [x] Add admin-managed cloud storage providers and provider-linked storage
+      pools for S3-compatible, Google Drive, Dropbox, OneDrive, and WebDAV
+      connections. Only secret references are stored; raw credentials never
+      enter the UI or API response.
+- [x] Include enabled storage providers and pools in authenticated Shares/
+      workspace responses for the builder surface.
+
 
 - [ ] Make Distro the durable source of per-identity quotas and audit events for
       Olympus build, preview, publish, and export actions. First slice: an

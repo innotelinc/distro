@@ -152,3 +152,56 @@ CREATE TABLE IF NOT EXISTS project_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_shares_workspace ON project_shares(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_shares_user ON project_shares(shared_with);
+
+-- Authentik group membership mirrored locally for share/access lookups. The
+-- Authentik group remains authoritative; this cache lets the control plane
+-- resolve users without calling Authentik on every request.
+CREATE TABLE IF NOT EXISTS identity_groups (
+  id            TEXT PRIMARY KEY,
+  provider      TEXT NOT NULL DEFAULT 'authentik',
+  external_id   TEXT,
+  name          TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (provider, name),
+  UNIQUE (provider, external_id)
+);
+CREATE TABLE IF NOT EXISTS identity_group_members (
+  group_id      TEXT NOT NULL REFERENCES identity_groups(id) ON DELETE CASCADE,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  external_id   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (group_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_identity_members_user ON identity_group_members(user_id);
+
+-- Admin-managed cloud storage connection metadata. Credentials are references
+-- into the deployment secret store, never plaintext browser/API values.
+CREATE TABLE IF NOT EXISTS cloud_storage_providers (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  provider_type   TEXT NOT NULL,
+  endpoint        TEXT,
+  bucket          TEXT,
+  region          TEXT,
+  credential_ref  TEXT,
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_storage_enabled ON cloud_storage_providers(enabled);
+
+-- Logical storage pools shown in Shares. A pool selects a provider connection
+-- and a root/prefix; credentials remain owned by the provider/secret store.
+CREATE TABLE IF NOT EXISTS storage_pools (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  provider_id     TEXT NOT NULL REFERENCES cloud_storage_providers(id) ON DELETE CASCADE,
+  root_path       TEXT,
+  capacity_label  TEXT,
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_storage_pools_provider ON storage_pools(provider_id);
+CREATE INDEX IF NOT EXISTS idx_storage_pools_enabled ON storage_pools(enabled);
