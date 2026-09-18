@@ -205,3 +205,17 @@ test accounts) untouched.
 - Option A vs B above (user-agent key handling / proxy) — affects M2–M4.
 - Where the quota check lives if option A is chosen (web app middleware needs
   to call the control plane on every `/api/chat`).
+
+## M7 progress notes (2026-09-18)
+
+- [x] **Console story + pipeline view**: the admin console now opens with
+      "What Distro is" (gateway control plane: who may call, how much they
+      may spend, what it cost) plus the integration map (Authentik SSO,
+      OmniRoute keys/quotas, Magnate entitlements, Olympus Studio build ops,
+      Cerulean Vault secrets), and a build-pipeline view (queued → building
+      → verified → live, runner status, latest-build banner with deep link)
+      driven by the read-only queue API. Deployed and verified on .46.
+- [x] **Estate surface**: `req.magnate.innotel.us` (Jellyseerr door on .56)
+      provisioned through Cerulean — DNS A record + NPM proxy host with the
+      magnate wildcard cert (id 45) — closing the last 404 in the media
+      group's public surface.
