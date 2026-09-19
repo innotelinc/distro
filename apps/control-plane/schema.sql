@@ -60,6 +60,22 @@ CREATE TABLE IF NOT EXISTS usage_cache (
   PRIMARY KEY (user_id, date)
 );
 
+-- Per-model breakdown of usage_cache (M6). Same day-scoped accounting, one
+-- row per (user, day, model): chat usage reports add to it, the gateway-ledger
+-- sync replaces the day's rows. usage_cache stays the authority for quotas;
+-- this is the "what did they spend it on" view.
+CREATE TABLE IF NOT EXISTS usage_models (
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date        TEXT NOT NULL,                      -- YYYY-MM-DD
+  model       TEXT NOT NULL,                      -- as the gateway names it ('' when unknown)
+  tokens_in   INTEGER NOT NULL DEFAULT 0,
+  tokens_out  INTEGER NOT NULL DEFAULT 0,
+  requests    INTEGER NOT NULL DEFAULT 0,
+  cost_usd    REAL NOT NULL DEFAULT 0,
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, date, model)
+);
+
 -- Sessions (opaque tokens; JWT optional per M1 decision).
 CREATE TABLE IF NOT EXISTS sessions (
   id         TEXT PRIMARY KEY,
@@ -104,6 +120,8 @@ CREATE INDEX IF NOT EXISTS idx_gateway_keys_user ON gateway_keys(user_id);
 -- fail the boot on exactly the deployments that need the migration. The same
 -- applies to any future column, index or constraint over a new column.
 CREATE INDEX IF NOT EXISTS idx_usage_cache_user_date ON usage_cache(user_id, date);
+-- usage_models is a whole new table (never an ALTER), so its index is safe here.
+CREATE INDEX IF NOT EXISTS idx_usage_models_date ON usage_models(date, model);
 
 -- Project templates (starter apps users can clone)
 CREATE TABLE IF NOT EXISTS templates (

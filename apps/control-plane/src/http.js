@@ -14,6 +14,8 @@ import {
   getUsageToday,
   usageFor,
   usageAll,
+  getModelUsageToday,
+  modelUsageAll,
   userIsDisabled,
   getUserByGatewayKey,
   getUserByOidcSub,
@@ -71,6 +73,7 @@ import { magnateUrlSync } from './discovery.js';
 import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
 import { readBuildQueue } from './buildQueue.js';
 import { authentikGroupConfig, syncAuthentikGroup } from './authentik.js';
+import { lastGatewayVersionCheck } from './gatewayVersion.js';
 
 /* ---- auth rate limiting ------------------------------------------------- */
 //
@@ -626,11 +629,13 @@ export async function handler(req, res, { gateway }) {
     if (body.__invalid) return send(400, { error: 'invalid JSON' });
     const tokensIn = Number(body.tokensIn) || 0;
     const tokensOut = Number(body.tokensOut) || 0;
+    const model = body.model ? String(body.model).trim().slice(0, 200) : null;
     const usage = recordUsage(user.id, {
       tokensIn,
       tokensOut,
       requests: Math.max(1, Number(body.requests) || 1),
-      costUsd: body.model ? estimateCostUsd(String(body.model), tokensIn, tokensOut) : Number(body.costUsd) || 0,
+      costUsd: model ? estimateCostUsd(model, tokensIn, tokensOut) : Number(body.costUsd) || 0,
+      model, // per-model breakdown (M6); the totals above stay the quota authority
     });
     return send(200, { ok: true, usageToday: usage });
   }
@@ -675,9 +680,13 @@ export async function handler(req, res, { gateway }) {
   }
 
   if (path === '/api/me/usage' && method === 'GET') {
-    // M4 stub: today's snapshot from usage_cache. Gateway usage sync lands in
-    // the M4 milestone (see apps/control-plane/docs/roadmap.md).
-    return send(200, { date: new Date().toISOString().slice(0, 10), ...getUsageToday(me.id) });
+    // Today's snapshot from usage_cache (gateway-authoritative after each sync,
+    // chat reports in between) plus the per-model breakdown (M6).
+    return send(200, {
+      date: new Date().toISOString().slice(0, 10),
+      ...getUsageToday(me.id),
+      models: getModelUsageToday(me.id),
+    });
   }
 
   if (path === '/api/me/quota-status' && method === 'GET') {
@@ -902,6 +911,7 @@ export async function handler(req, res, { gateway }) {
         ...publicUser(u),
         quota: getQuota(u.id),
         usageToday: getUsageToday(u.id),
+        usageModelsToday: getModelUsageToday(u.id),
         usage7d: usageFor(u.id, 7),
         hasGatewayKey: !!key,
         gatewayKeyId: key?.gateway_key_id || null,
@@ -928,6 +938,10 @@ export async function handler(req, res, { gateway }) {
       date: new Date().toISOString().slice(0, 10),
       ...totals,
       week: { requests: week.requests, tokensIn: week.tokens_in, tokensOut: week.tokens_out, costUsd: week.cost_usd },
+      models: modelUsageAll(1).map((m) => ({
+        model: m.model, requests: m.requests, tokensIn: m.tokens_in, tokensOut: m.tokens_out, costUsd: m.cost_usd, users: m.users,
+      })),
+      gateway: lastGatewayVersionCheck(),
       alerting: alertsConfig(),
       billing: { magnate_configured: magnateConfigured() },
     });
@@ -1036,9 +1050,19 @@ export async function handler(req, res, { gateway }) {
     }
   }
 
+  // `?action=build.` narrows to a namespace (prefix match), `?user=<id>` to
+  // rows an account performed or was the target of. Both optional; the console's
+  // build-plane panel combines them for the per-user view.
   if (path === '/api/admin/audit' && method === 'GET') {
     const limit = Number(url.searchParams.get('limit')) || 200;
-    return send(200, { entries: listAudit(limit) });
+    const actionPrefix = String(url.searchParams.get('action') || '').trim();
+    if (actionPrefix && !/^[a-z][a-z0-9._-]{0,79}$/.test(actionPrefix)) {
+      return send(400, { error: 'action must be a lowercase dotted prefix (e.g. build.)' });
+    }
+    const userId = String(url.searchParams.get('user') || '').trim().slice(0, 200);
+    return send(200, {
+      entries: listAudit(limit, { actionPrefix: actionPrefix || null, userId: userId || null }),
+    });
   }
 
   if (path === '/api/admin/alerts' && method === 'GET') {

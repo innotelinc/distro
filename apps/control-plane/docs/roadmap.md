@@ -7,9 +7,10 @@
 > **0.3.0 (M7) is IN PROGRESS** — the Shares identity/storage slice is
 > shipped below; build-plane convergence remains open.
 >
-> **0.2.0 (M6) is open** — hardening the surface that shipped in 0.1: the
-> auth rate limit below is the first slice, and the open questions at the
-> bottom are the working list.
+> **0.2.0 (M6) is DONE (19 September 2026)** — hardening the surface that
+> shipped in 0.1: auth rate limit, the gateway-version pin, and per-model
+> usage. The session-model reconciliation moved to M7, where it is the same
+> work as the server-side session bridge.
 >
 > **Live deployment note — 17 September 2026.** The Cerulean edge now serves
 > `distro.innotel.us`, `cp.distro.innotel.us`, and
@@ -39,7 +40,7 @@
 Milestones are ordered so each one is runnable and shippable on its own.
 Estimated sizes are relative; revisit against the pinned gateway version.
 
-## M6 — 0.2.0: hardening (shipped)
+## M6 — 0.2.0: hardening ✅
 
 - [x] **Rate limit the password endpoints.** `/api/auth/signup` and
       `/api/auth/login` accept a password on a public route; nothing stopped
@@ -49,11 +50,33 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       limiter is the edge — and disabled by setting the limit to 0. Applies
       only while the break-glass password path is enabled; the Authentik path
       is unaffected.
-- [ ] Decide the gateway-version pin before the next milestone (see Open
-      questions) so per-key usage granularity is known in advance.
-- [ ] Per-key model-level usage once OmniRoute exposes it (extends M4).
-- [ ] Reconcile the two session models (control-plane bearer token vs Studio
-      cookie) as the tenancy layer converges — see the build-plane doc.
+- [x] **Gateway-version pin: OmniRoute 3.8.51** — the release the inventory
+      (`docs/gateway-api-inventory.md`) and the `usage_history` ledger read were
+      verified against. `GATEWAY_EXPECTED_VERSION` (default `3.8.51`, empty =
+      check off) is compared with what the gateway reports
+      (`GatewayClient.version()`: `/api/monitoring/health`, then `/api/health`;
+      defensive extraction, since neither payload is a contract this plane
+      owns). Probed at boot and before every usage sync (`src/gatewayVersion.js`).
+      **Warn-only by decision:** a mismatch logs, fires one
+      `gateway.version-mismatch` webhook alert per cooldown, and shows red in
+      the console's *Gateway version* card — the sync still runs, because the
+      schema-drift guard already turns a real incompatibility into a warning
+      and chat usage reports + key spend caps carry accounting. "Could not
+      tell" is reported as *unchecked*, never as a verdict. Also printed by
+      `control.mjs gateway-check`. Covered by `test/gateway-version.test.mjs`.
+- [x] **Per-key model-level usage** — this was never blocked on OmniRoute: the
+      ledger read already grouped by `(api_key_id, model)` and chat usage
+      reports already carried `model`; `sync.js` was discarding the dimension.
+      New `usage_models` table (one row per user/day/model, replaced by the
+      ledger sync, added to by usage reports); `usage_cache` stays the quota
+      authority. Surfaced as `models` on `GET /api/me/usage`, `usageModelsToday`
+      on the admin users list, `models` on `/api/admin/stats`, plus a *Model
+      usage — today* panel (share-of-spend bars) and top-models under each
+      user's Today cell in `/admin`.
+- [x] Reconcile the two session models (control-plane bearer token vs Studio
+      cookie) — **moved to M7**, not done here: Studio's cookie lives in Olympus, so this is
+      cross-repository and is the same work as the server-side session bridge
+      there.
 
 ## M7 — 0.3.0: build-plane convergence and Shares UX
 
@@ -73,13 +96,26 @@ Estimated sizes are relative; revisit against the pinned gateway version.
 
 
 - [ ] Make Distro the durable source of per-identity quotas and audit events for
-      Olympus build, preview, publish, and export actions. First slice: an
-      admin-console view of build-plane audit rows per user (the API exists;
-      `/admin` filters by auth events only).
-- [ ] Add a gateway-version compatibility check to usage sync and quota enforcement
-      before enabling model-level accounting.
+      Olympus build, preview, publish, and export actions.
+  - [x] **First slice (19 September 2026): build-plane audit per user in the
+        console.** `GET /api/admin/audit` takes `?action=<prefix>` (namespace,
+        e.g. `build.`; escaped LIKE so `_`/`%` cannot widen it) and `?user=<id>`
+        (rows the account performed *or* was the target of). `/admin` gains a
+        "Build plane — audit by user" panel with user and action filters, a
+        per-row **Build audit** shortcut in the users table, and http(s)-only
+        linkification of `previewUrl`/`publishedUrl` metadata. Covered in
+        `test/internal-api.test.mjs`.
+  - [ ] Next: quota decisions for build/preview/publish (today only chat turns
+        consult `/api/internal/quota-check`).
+- [x] Add a gateway-version compatibility check to usage sync (shipped with the
+      M6 pin: `checkGatewayVersion` runs before every `syncUsageFromGateway`).
+      Quota enforcement does not consult it by design — the decision is served
+      from `usage_cache`, which stays correct whichever accounting path fills it.
 - [ ] Replace the remaining browser-held gateway-key assumptions with a scoped
-      server-side session bridge while preserving per-user attribution.
+      server-side session bridge while preserving per-user attribution. This
+      absorbs the former M6 item: reconciling the control-plane bearer token
+      with Studio's cookie is the same bridge, seen from the other side
+      (cross-repo with Olympus).
 - [x] Add acceptance coverage for an Olympus preview/build lifecycle: queued,
       picked up, failed with an actionable reason, retried, and completed. The Olympus
       runner now records queue state and delivery URLs, rejects empty-agent artifacts,
@@ -197,14 +233,16 @@ test accounts) untouched.
       Env: `MAGNATE_URL` / `MAGNATE_ENTITLEMENTS_TOKEN` / `MAGNATE_BILLING_SLUG`;
       runbook: docs/ops.md § "Magnate billing integration".
 
-## Open questions to resolve before/at M7
+## Open questions — resolved
 
-- Gateway version drift: re-verify the inventory endpoints against the shared
-  platform gateway's version before each milestone.
-- Whether OmniRoute exposes per-key **model-level** usage (M4 granularity).
-- Option A vs B above (user-agent key handling / proxy) — affects M2–M4.
-- Where the quota check lives if option A is chosen (web app middleware needs
-  to call the control plane on every `/api/chat`).
+- ~~Gateway version drift~~ → pinned at 3.8.51 and checked at runtime (M6).
+  Re-verifying the inventory before moving the pin is now the documented step.
+- ~~Whether OmniRoute exposes per-key model-level usage~~ → it does, in the
+  `usage_history` ledger; stored in `usage_models` (M6).
+- ~~Option A vs B~~ → A (browser holds key), chosen at M2; the M7 session
+  bridge is the path away from it.
+- ~~Where the quota check lives~~ → web-app middleware calling
+  `/api/internal/quota-check` (M3).
 
 ## M7 progress notes (2026-09-18)
 

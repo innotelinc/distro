@@ -8,6 +8,7 @@ import { openDb } from './db.js';
 import { GatewayClient } from './gateway.js';
 import { handler } from './http.js';
 import { syncUsageFromGateway } from './sync.js';
+import { checkGatewayVersion } from './gatewayVersion.js';
 import { alert } from './alerts.js';
 import { seedDistroPlan } from './billing.js';
 import { resolveGatewayUrls, resolveMagnateUrl } from './discovery.js';
@@ -30,6 +31,10 @@ const SYNC_INTERVAL_MS = Number(process.env.CONTROL_SYNC_INTERVAL_MS ?? 0);
 
 async function runUsageSync() {
   try {
+    // M6 pin: the ledger read below assumes the verified release's schema. A
+    // mismatch is warned and alerted (inside the check) and the sync still
+    // runs — the schema-drift guard turns a real incompatibility into a warning.
+    await checkGatewayVersion(gateway);
     const result = await syncUsageFromGateway();
     if (!result.ok) {
       console.warn(`[control-plane] usage sync skipped: ${result.reason}`);
@@ -85,6 +90,13 @@ server.listen(PORT, HOST, async () => {
   // this reports whether the store is reachable and its credential usable.
   console.log(`[control-plane] secret store: Cerulean Vault ${await vaultStatus()}`);
   console.log(`[control-plane] gateway dashboard: ${urls.dashboardUrl} (via ${urls.source})`);
+  const version = await checkGatewayVersion(gateway);
+  console.log(
+    `[control-plane] gateway version: ${version.running || 'unknown'}` +
+      (version.buildSha ? ` (${version.buildSha.slice(0, 7)})` : '') +
+      ` — pin ${version.expected || 'none'} → ` +
+      (version.compatible === true ? 'compatible' : version.compatible === false ? 'MISMATCH' : 'unchecked'),
+  );
 
   // Magnate billing: resolve via env override or Consul, then seed the distro
   // plan. When neither resolves, billing stays disabled (free/self-hosted mode).

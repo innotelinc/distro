@@ -8,6 +8,7 @@ import test, { after, before } from "node:test";
 import Database from "better-sqlite3";
 
 import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayKey } from "../src/db.js";
+import { openSession } from "../src/auth.js";
 import { handler } from "../src/http.js";
 
 /**
@@ -300,6 +301,115 @@ test("records an audit row for build, publish and export", async () => {
     assert.equal(rows[0].actor_email, "a@example.com");
     assert.equal(rows[0].target_id, "app-1");
     assert.equal(JSON.parse(rows[0].meta).slug, "my-app");
+  } finally {
+    await plane.close();
+  }
+});
+
+test("usage reports that name a model build a per-model breakdown beside the totals", async () => {
+  const plane = await startPlane();
+
+  try {
+    const provisioned = await (
+      await identityRequest(plane.url, { body: { sub: "sub-m", email: "m@example.com" } })
+    ).json();
+    const report = (body) =>
+      fetch(`${plane.url}/api/internal/usage-report`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${provisioned.gatewayKey}` },
+        body: JSON.stringify(body),
+      });
+
+    await report({ tokensIn: 100, tokensOut: 50, model: "gpt-4o-mini" });
+    await report({ tokensIn: 200, tokensOut: 100, model: "gpt-4o-mini" });
+    await report({ tokensIn: 10, tokensOut: 5, model: "claude-3.5-sonnet" });
+    await report({ tokensIn: 1, tokensOut: 1 }); // no model: counts in the total only
+
+    const headers = { authorization: `Bearer ${openSession(provisioned.user.id)}` };
+    const mine = await (await fetch(`${plane.url}/api/me/usage`, { headers })).json();
+    assert.equal(mine.requests, 4, "the total is unchanged by the breakdown");
+    assert.equal(mine.tokens_in, 311);
+    assert.deepEqual(
+      mine.models.map((m) => [m.model, m.requests, m.tokens_in, m.tokens_out]),
+      [["gpt-4o-mini", 2, 300, 150], ["claude-3.5-sonnet", 1, 10, 5]],
+    );
+    assert.ok(mine.models.every((m) => m.cost_usd > 0), "each model row carries its estimated spend");
+
+    const admin = createUser({ email: "root2@example.com", passwordHash: "sso:", role: "admin" });
+    const adminHeaders = { authorization: `Bearer ${openSession(admin.id)}` };
+
+    const { users } = await (await fetch(`${plane.url}/api/admin/users`, { headers: adminHeaders })).json();
+    const me = users.find((u) => u.id === provisioned.user.id);
+    assert.equal(me.usageModelsToday.length, 2);
+
+    const stats = await (await fetch(`${plane.url}/api/admin/stats`, { headers: adminHeaders })).json();
+    const mini = stats.models.find((m) => m.model === "gpt-4o-mini");
+    assert.deepEqual([mini.requests, mini.tokensIn, mini.users], [2, 300, 1]);
+    assert.equal(stats.gateway.expected, "3.8.51", "the pin is reported even before a probe ran");
+    assert.equal(stats.gateway.compatible, null);
+  } finally {
+    await plane.close();
+  }
+});
+
+test("the admin audit list narrows to one user's build-plane rows", async () => {
+  const plane = await startPlane();
+
+  try {
+    const a = await (await identityRequest(plane.url, { body: { sub: "sub-a", email: "a@example.com" } })).json();
+    const b = await (await identityRequest(plane.url, { body: { sub: "sub-b", email: "b@example.com" } })).json();
+
+    const write = (sub, action, targetId) =>
+      fetch(`${plane.url}/api/internal/audit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-control-internal-token": INTERNAL_TOKEN },
+        body: JSON.stringify({ action, sub, targetId }),
+      });
+    await write("sub-a", "build.start", "app-a");
+    await write("sub-a", "build.publish", "app-a");
+    await write("sub-b", "build.start", "app-b");
+    await write("sub-b", "build_export", "app-b"); // an underscore must not match the `build.` prefix
+
+    const admin = createUser({ email: "root@example.com", passwordHash: "sso:", role: "admin" });
+    const headers = { authorization: `Bearer ${openSession(admin.id)}` };
+    const list = async (qs) => {
+      const response = await fetch(`${plane.url}/api/admin/audit?${qs}`, { headers });
+      assert.equal(response.status, 200);
+      return (await response.json()).entries;
+    };
+
+    // Unfiltered: the general log, including provisioning rows, newest first.
+    const all = await list("limit=100");
+    assert.ok(all.some((row) => row.action === "user.provisioned"));
+
+    const build = await list("action=build.");
+    assert.deepEqual(
+      build.map((row) => [row.action, row.actor_email]).sort(),
+      [["build.publish", "a@example.com"], ["build.start", "a@example.com"], ["build.start", "b@example.com"]],
+    );
+
+    const onlyA = await list(`action=build.&user=${encodeURIComponent(a.user.id)}`);
+    assert.deepEqual(onlyA.map((row) => row.action), ["build.publish", "build.start"]);
+    assert.ok(onlyA.every((row) => row.actor_id === a.user.id));
+
+    // `user=` alone also catches rows where the account is the target (admin actions on it).
+    const aboutB = await list(`user=${encodeURIComponent(b.user.id)}`);
+    assert.ok(aboutB.some((row) => row.action === "user.provisioned" && row.target_id === b.user.id));
+    assert.ok(aboutB.every((row) => row.actor_id === b.user.id || row.target_id === b.user.id));
+
+    const bad = await fetch(`${plane.url}/api/admin/audit?action=Build%20Publish!`, { headers });
+    assert.equal(bad.status, 400);
+
+    // No session at all is refused before the admin check runs.
+    const anonymous = await fetch(`${plane.url}/api/admin/audit?action=build.`);
+    assert.equal(anonymous.status, 401);
+
+    // A signed-in non-admin is refused by the admin gate.
+    const member = createUser({ email: "member@example.com", passwordHash: "sso:", role: "user" });
+    const asMember = await fetch(`${plane.url}/api/admin/audit?action=build.`, {
+      headers: { authorization: `Bearer ${openSession(member.id)}` },
+    });
+    assert.equal(asMember.status, 403);
   } finally {
     await plane.close();
   }

@@ -137,10 +137,34 @@ export function logAudit({ actorId = null, actorEmail = null, action, targetId =
     .run(actorId, actorEmail, action, targetId, targetEmail, meta ? JSON.stringify(meta) : null);
 }
 
-export function listAudit(limit = 200) {
+/**
+ * Latest audit rows, newest first.
+ *
+ * `actionPrefix` narrows to one namespace (`build.` is the build plane: rows
+ * Studio writes through `/api/internal/audit`). `userId` narrows to rows the
+ * account either performed or was the target of — build rows carry the
+ * account as the actor (resolved from the Authentik `sub`), admin actions
+ * carry it as the target, and a per-user view wants both.
+ */
+export function listAudit(limit = 200, { actionPrefix = null, userId = null } = {}) {
+  const where = [];
+  const params = [];
+  if (actionPrefix) {
+    // LIKE with an escape so a `_`/`%` in the prefix cannot widen the match.
+    where.push("action LIKE ? ESCAPE '\\'");
+    params.push(`${String(actionPrefix).replace(/[\\%_]/g, '\\$&')}%`);
+  }
+  if (userId) {
+    where.push('(actor_id = ? OR target_id = ?)');
+    params.push(userId, userId);
+  }
+  const sql =
+    'SELECT * FROM audit_log' +
+    (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
+    ' ORDER BY id DESC LIMIT ?';
   return getDb()
-    .prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?')
-    .all(Math.max(1, Math.min(1000, limit)))
+    .prepare(sql)
+    .all(...params, Math.max(1, Math.min(1000, limit)))
     .map((row) => ({
       ...row,
       meta: row.meta ? safeJsonParse(row.meta) : null,
@@ -249,21 +273,103 @@ export function touchGatewayKey(userId, label = 'default') {
     .run(userId, label);
 }
 
-export function recordUsage(userId, { date, tokensIn = 0, tokensOut = 0, requests = 0, costUsd = 0 }) {
+export function recordUsage(userId, { date, tokensIn = 0, tokensOut = 0, requests = 0, costUsd = 0, model = null }) {
   const day = date || new Date().toISOString().slice(0, 10);
-  getDb()
+  const values = [Math.max(0, tokensIn), Math.max(0, tokensOut), Math.max(0, requests), Math.max(0, costUsd)];
+  const database = getDb();
+  database.transaction(() => {
+    database
+      .prepare(
+        `INSERT INTO usage_cache (user_id, date, tokens_in, tokens_out, requests, cost_usd, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT (user_id, date) DO UPDATE SET
+           tokens_in = tokens_in + excluded.tokens_in,
+           tokens_out = tokens_out + excluded.tokens_out,
+           requests = requests + excluded.requests,
+           cost_usd = cost_usd + excluded.cost_usd,
+           updated_at = datetime('now')`,
+      )
+      .run(userId, day, ...values);
+    // The per-model breakdown only when the caller named a model: a row under
+    // '' would just be the total again.
+    if (model) {
+      database
+        .prepare(
+          `INSERT INTO usage_models (user_id, date, model, tokens_in, tokens_out, requests, cost_usd, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT (user_id, date, model) DO UPDATE SET
+             tokens_in = tokens_in + excluded.tokens_in,
+             tokens_out = tokens_out + excluded.tokens_out,
+             requests = requests + excluded.requests,
+             cost_usd = cost_usd + excluded.cost_usd,
+             updated_at = datetime('now')`,
+        )
+        .run(userId, day, String(model).slice(0, 200), ...values);
+    }
+  })();
+  return getUsageToday(userId);
+}
+
+// ── per-model usage (M6) ───────────────────────────────────────────────────
+/** Today's rows for one user, biggest spender first. */
+export function getModelUsageToday(userId) {
+  return getDb()
     .prepare(
-      `INSERT INTO usage_cache (user_id, date, tokens_in, tokens_out, requests, cost_usd, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT (user_id, date) DO UPDATE SET
+      `SELECT model, tokens_in, tokens_out, requests, cost_usd
+       FROM usage_models WHERE user_id = ? AND date = date('now')
+       ORDER BY cost_usd DESC, requests DESC, model`,
+    )
+    .all(userId);
+}
+
+/** Per-model totals across all users over the last `days` days (inclusive of today). */
+export function modelUsageAll(days = 1) {
+  return getDb()
+    .prepare(
+      `SELECT model,
+              COALESCE(SUM(tokens_in), 0)  AS tokens_in,
+              COALESCE(SUM(tokens_out), 0) AS tokens_out,
+              COALESCE(SUM(requests), 0)   AS requests,
+              COALESCE(SUM(cost_usd), 0)   AS cost_usd,
+              COUNT(DISTINCT user_id)      AS users
+       FROM usage_models
+       WHERE date >= date('now', ?)
+       GROUP BY model
+       ORDER BY cost_usd DESC, requests DESC, model`,
+    )
+    .all(`-${Math.max(1, days) - 1} days`);
+}
+
+/** M6 sync: the gateway's per-(key, model) rows become today's breakdown for
+ *  this user — replaced wholesale, like usage_cache, because the ledger saw
+ *  every call under the key. Rows without a model are folded under ''. */
+export function replaceModelUsageFromGateway(userId, rows) {
+  const day = new Date().toISOString().slice(0, 10);
+  const database = getDb();
+  database.transaction(() => {
+    database.prepare('DELETE FROM usage_models WHERE user_id = ? AND date = ?').run(userId, day);
+    const insert = database.prepare(
+      `INSERT INTO usage_models (user_id, date, model, tokens_in, tokens_out, requests, cost_usd, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT (user_id, date, model) DO UPDATE SET
          tokens_in = tokens_in + excluded.tokens_in,
          tokens_out = tokens_out + excluded.tokens_out,
          requests = requests + excluded.requests,
          cost_usd = cost_usd + excluded.cost_usd,
          updated_at = datetime('now')`,
-    )
-    .run(userId, day, Math.max(0, tokensIn), Math.max(0, tokensOut), Math.max(0, requests), Math.max(0, costUsd));
-  return getUsageToday(userId);
+    );
+    for (const row of rows) {
+      insert.run(
+        userId,
+        day,
+        String(row.model || '').slice(0, 200),
+        Math.max(0, Number(row.tokensIn) || 0),
+        Math.max(0, Number(row.tokensOut) || 0),
+        Math.max(0, Number(row.requests) || 0),
+        Math.max(0, Number(row.costUsd) || 0),
+      );
+    }
+  })();
 }
 
 // ── quotas + usage cache ────────────────────────────────────────────────
