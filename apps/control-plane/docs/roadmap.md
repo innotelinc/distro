@@ -105,8 +105,23 @@ Estimated sizes are relative; revisit against the pinned gateway version.
         per-row **Build audit** shortcut in the users table, and http(s)-only
         linkification of `previewUrl`/`publishedUrl` metadata. Covered in
         `test/internal-api.test.mjs`.
-  - [ ] Next: quota decisions for build/preview/publish (today only chat turns
-        consult `/api/internal/quota-check`).
+  - [x] **Second slice (19 September 2026): the build plane asks before it
+        builds.** `POST /api/internal/build-check` (service token; body
+        `{ sub, action, consume?, targetId?, slug? }`) resolves the Authentik
+        subject the way `/identity` does (unknown = 404, never a provisioning),
+        applies the entitlement-gated quota and answers the same
+        `{ allowed, reasons, quota, usageToday }` shape as the chat check.
+        Decisions: every `build.*` action shares the chat caps (same gateway
+        key underneath); only `build.start` is judged against the new
+        **`builds_per_day`** quota and, with `consume: true`, counted in
+        `usage_cache.builds`. A refusal writes a `build.denied` audit row (it
+        lands in the console's build-plane panel) and raises the existing
+        quota alert. Console: *Builds/day* column, builds-today badge, presets
+        (free 5 / pro 50). Both columns arrive on legacy databases through
+        `migrate()`; covered in `test/internal-api.test.mjs`.
+  - [ ] Next: Studio calls `build-check` before enqueueing and reports the
+        build's model spend under the user's key (cross-repo; the Distro side
+        is in place).
 - [x] Add a gateway-version compatibility check to usage sync (shipped with the
       M6 pin: `checkGatewayVersion` runs before every `syncUsageFromGateway`).
       Quota enforcement does not consult it by design — the decision is served

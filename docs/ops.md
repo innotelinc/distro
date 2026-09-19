@@ -219,6 +219,13 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   `docker compose exec control-plane node bin/control.mjs gateway-check`.
   To move the pin, re-verify `apps/control-plane/docs/gateway-api-inventory.md`
   first.
+- **Build-plane quota**: Studio asks `POST /api/internal/build-check`
+  (`x-control-internal-token`, body `{ sub, action, consume }`) before a
+  build. All `build.*` actions share the chat caps; `build.start` is also
+  judged against the user's *Builds/day* (`quotas.builds_per_day`, empty =
+  unlimited) and counted when `consume: true`. Refusals appear in the `/admin`
+  build-plane panel as `build.denied` (filter `action=build.denied`) and fire
+  the quota webhook alert. Both columns are added to existing databases on boot.
 - **Per-model usage**: `usage_models` holds one row per user/day/model, filled
   by chat usage reports that name a `model` and replaced by the gateway-ledger
   sync. `/admin` shows *Model usage — today* (share-of-spend) and the top

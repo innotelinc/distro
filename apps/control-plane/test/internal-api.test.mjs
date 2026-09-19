@@ -7,7 +7,7 @@ import test, { after, before } from "node:test";
 
 import Database from "better-sqlite3";
 
-import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayKey } from "../src/db.js";
+import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayKey, recordBuild, getUsageToday } from "../src/db.js";
 import { openSession } from "../src/auth.js";
 import { handler } from "../src/http.js";
 
@@ -347,6 +347,133 @@ test("usage reports that name a model build a per-model breakdown beside the tot
     assert.deepEqual([mini.requests, mini.tokensIn, mini.users], [2, 300, 1]);
     assert.equal(stats.gateway.expected, "3.8.51", "the pin is reported even before a probe ran");
     assert.equal(stats.gateway.compatible, null);
+  } finally {
+    await plane.close();
+  }
+});
+
+test("the build plane asks before it builds: caps shared with chat, builds/day for build.start", async () => {
+  const plane = await startPlane();
+
+  try {
+    const provisioned = await (
+      await identityRequest(plane.url, { body: { sub: "sub-b1", email: "builder@example.com" } })
+    ).json();
+    const check = (body, token = INTERNAL_TOKEN) =>
+      fetch(`${plane.url}/api/internal/build-check`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token === null ? {} : { "x-control-internal-token": token }) },
+        body: JSON.stringify(body),
+      });
+
+    // The same credential rules as the other internal routes.
+    assert.equal((await check({ sub: "sub-b1" }, "wrong")).status, 401);
+    assert.equal((await check({ sub: "nobody" })).status, 404, "identity first, then build");
+    assert.equal((await check({ sub: "sub-b1", action: "chat.turn" })).status, 400, "only build.* actions");
+
+    // Two builds a day; the first two are allowed and counted, the third refused.
+    upsertQuota(provisioned.user.id, { builds_per_day: 2 });
+    const first = await (await check({ sub: "sub-b1", action: "build.start", consume: true, targetId: "app-1" })).json();
+    assert.equal(first.allowed, true);
+    assert.equal(first.consumed, true);
+    assert.equal(first.usageToday.builds, 1);
+
+    const peek = await (await check({ sub: "sub-b1", action: "build.start" })).json();
+    assert.equal(peek.allowed, true);
+    assert.equal(peek.consumed, false, "without consume it only asks");
+    assert.equal(peek.usageToday.builds, 1);
+
+    const second = await (await check({ sub: "sub-b1", action: "build.start", consume: true })).json();
+    assert.equal(second.usageToday.builds, 2);
+
+    const third = await (await check({ sub: "sub-b1", action: "build.start", consume: true, targetId: "app-1", slug: "my-app" })).json();
+    assert.equal(third.allowed, false);
+    assert.deepEqual(third.reasons, ["daily build limit reached"]);
+    assert.equal(third.usageToday.builds, 2, "a refusal is not counted");
+
+    // Publishing is not a build: builds/day does not apply to it...
+    const publish = await (await check({ sub: "sub-b1", action: "build.publish" })).json();
+    assert.equal(publish.allowed, true);
+
+    // ...but the chat caps do, because it spends the same key.
+    upsertQuota(provisioned.user.id, { spend_cap_usd: 0 });
+    const capped = await (await check({ sub: "sub-b1", action: "build.publish" })).json();
+    assert.equal(capped.allowed, false);
+    assert.deepEqual(capped.reasons, ["spend cap reached"]);
+
+    // A disabled account is refused before any quota is consulted.
+    updateUser(provisioned.user.id, { disabled_at: new Date().toISOString() });
+    const disabled = await (await check({ sub: "sub-b1", action: "build.start", consume: true })).json();
+    assert.deepEqual(disabled.reasons, ["account disabled"]);
+    assert.equal(disabled.consumed, false);
+    assert.equal(disabled.usageToday.builds, 2, "same response shape as a quota refusal");
+
+    // The chat pre-check is unaffected by the build cap (it mirrors quota-check).
+    updateUser(provisioned.user.id, { disabled_at: null });
+    upsertQuota(provisioned.user.id, { spend_cap_usd: null });
+    const status = await (
+      await fetch(`${plane.url}/api/me/quota-status`, { headers: { authorization: `Bearer ${openSession(provisioned.user.id)}` } })
+    ).json();
+    assert.equal(status.allowed, true, "at the build cap, chat is still allowed");
+    updateUser(provisioned.user.id, { disabled_at: new Date().toISOString() });
+
+    // Every refusal is a build-plane audit row, visible through the same filter the console uses.
+    const admin = createUser({ email: "root3@example.com", passwordHash: "sso:", role: "admin" });
+    const denied = await (
+      await fetch(`${plane.url}/api/admin/audit?action=build.denied&user=${encodeURIComponent(provisioned.user.id)}`, {
+        headers: { authorization: `Bearer ${openSession(admin.id)}` },
+      })
+    ).json();
+    assert.deepEqual(
+      denied.entries.map((row) => row.meta.reasons[0]),
+      ["account disabled", "spend cap reached", "daily build limit reached"],
+    );
+    assert.equal(denied.entries[2].meta.slug, "my-app");
+    assert.equal(denied.entries[2].target_id, "app-1");
+  } finally {
+    await plane.close();
+  }
+});
+
+test("a database from before the build plane gains builds_per_day and builds", async () => {
+  const path = join(workdir, "legacy-builds.sqlite");
+  const legacy = new Database(path);
+  legacy.exec(`
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user', created_at TEXT NOT NULL DEFAULT (datetime('now')), disabled_at TEXT
+    );
+    CREATE TABLE quotas (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      plan TEXT NOT NULL DEFAULT 'free', requests_per_day INTEGER, tokens_per_day INTEGER, spend_cap_usd REAL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE usage_cache (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, date TEXT NOT NULL,
+      tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (user_id, date)
+    );
+    INSERT INTO users (id, email, password_hash) VALUES ('u1', 'old@example.com', 'scrypt$…');
+    INSERT INTO quotas (id, user_id, requests_per_day) VALUES ('q1', 'u1', 10);
+    INSERT INTO usage_cache (user_id, date, requests) VALUES ('u1', date('now'), 3);
+  `);
+  legacy.close();
+
+  const plane = await startPlane({ dbPath: path });
+  try {
+    const db = plane.db();
+    const quotaCols = db.prepare("PRAGMA table_info(quotas)").all().map((c) => c.name);
+    const usageCols = db.prepare("PRAGMA table_info(usage_cache)").all().map((c) => c.name);
+    db.close();
+    assert.ok(quotaCols.includes("builds_per_day"));
+    assert.ok(usageCols.includes("builds"));
+
+    // Old rows read as unlimited builds / none used, and the counter works on them.
+    assert.equal(upsertQuota("u1", {}).builds_per_day, null);
+    assert.equal(upsertQuota("u1", {}).requests_per_day, 10, "the existing limit survived");
+    assert.equal(getUsageToday("u1").builds, 0);
+    assert.equal(recordBuild("u1").builds, 1);
+    assert.equal(getUsageToday("u1").requests, 3, "the existing usage survived");
   } finally {
     await plane.close();
   }
