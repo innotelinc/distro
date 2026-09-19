@@ -9,6 +9,8 @@ Legend: ✅ verified in this scaffold · 🔎 verify at build time
 
 | Method & path | Purpose | Status |
 |---|---|---|
+| `GET /api/monitoring/health` | health + build metadata (version / `buildSha`); the version-pin probe reads this first | 🔎 payload shape — `extractVersion()` is defensive |
+| `GET /api/health`, `GET /api/health/ping` | lightweight liveness; fallback for the version probe | 🔎 |
 | `POST /api/auth/login` | `{password}` → `{success:true}` + session cookie | ✅ |
 | `POST /api/keys` | create gateway key `{name, modelAccessMode?, allowedModels?, scopes?}` → `201 {key,id,machineId,…}` | ✅ |
 | `GET /api/keys` | list keys (needed: user→key reconciliation) | ✅ file exists — confirm payload |
@@ -54,6 +56,17 @@ Security note: this gives the control plane read access to the gateway DB
 volume (provider keys stay encrypted with the gateway's `API_KEY_SECRET`);
 it already holds the dashboard admin password, so the trust boundary is
 unchanged in practice.
+
+## The pin (M6)
+
+`GATEWAY_EXPECTED_VERSION=3.8.51` is the release every ✅ above and the
+`usage_history` column list were verified against. `src/gatewayVersion.js`
+compares it with what the gateway reports at boot and before each usage sync;
+a mismatch is a warning + alert, not a stop. OmniRoute publishes versioned
+image tags (`3.8.50`, `3.8.51`, `…-web`) beside `:latest`, so the platform
+gateway can be pinned on its side too. **To move the pin:** re-run the 🔎
+rows above against the new release, re-check the `usage_history` columns in
+`src/gatewayUsage.js`, then update the env var and this document.
 
 ## Confirmed against the pinned image (v3.8.51 / Sep 2026)
 

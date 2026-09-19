@@ -62,6 +62,16 @@
   @media (max-width: 1050px) { .provider-form { grid-template-columns: repeat(3, 1fr); } }
   .row-actions { display: flex; gap: 4px; }
   .badge { color: var(--muted); font-size: 11px; }
+  .filter-bar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .filter-bar select { width: auto; min-width: 180px; }
+  .filter-bar .count { margin-left: auto; }
+  .pill.build { background: rgba(6,182,212,.15); color: var(--cyan); }
+  .pill.publish { background: rgba(52,211,153,.15); color: var(--green); }
+  .pill.export { background: rgba(251,191,36,.15); color: var(--amber); }
+  .bar { position: relative; height: 6px; background: var(--panel2); border-radius: 3px; min-width: 120px; overflow: hidden; }
+  .bar > span { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, var(--cyan), var(--indigo)); border-radius: 3px; transition: width .4s ease; }
+  .models-mini { color: var(--muted); font-size: 11px; white-space: normal; max-width: 220px; }
+  .models-mini code { color: var(--text); }
   .toast { position: fixed; bottom: 18px; right: 18px; background: var(--panel); border: 1px solid var(--green); color: var(--green); padding: 10px 14px; border-radius: 8px; display: none; }
   /* About + pipeline */
   .about { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; margin-bottom: 18px; }
@@ -123,6 +133,7 @@
     <div class="card"><div class="n" id="cCost">–</div><div class="l">Est. spend today</div></div>
     <div class="card"><div class="n" id="cCost7">–</div><div class="l">Est. spend 7d</div></div>
     <div class="card"><div class="n" id="cAlert">–</div><div class="l">Alert webhook</div></div>
+    <div class="card" id="cGatewayCard" title=""><div class="n" id="cGateway">–</div><div class="l">Gateway version <span id="cGatewayPin" class="badge"></span></div></div>
   </div>
 
   <div class="about">
@@ -189,6 +200,16 @@
   </div>
 
   <div class="panel" style="margin-top:18px">
+    <div class="title">Model usage — today, all users <span id="modelsCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Model</th><th>Requests</th><th>Tokens (in / out)</th><th>Est. spend</th><th>Users</th><th>Share of spend</th></tr></thead>
+      <tbody id="modelRows"></tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:18px">
     <div class="title">Authentik group mapping <span id="identityCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
     <div class="section-actions"><button class="ghost" id="syncIdentityBtn">Sync group users</button></div>
     <div class="table-wrap"><table><thead><tr><th>Group</th><th>Members</th><th>Mapped users</th><th>Last sync</th></tr></thead><tbody id="identityRows"></tbody></table></div>
@@ -222,6 +243,28 @@
     <table>
       <thead><tr><th>Requested</th><th>State</th><th>Action</th><th>App</th><th>Kind</th><th>By</th><th>Finished</th><th>Result</th></tr></thead>
       <tbody id="queueRows"></tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:18px" id="buildAuditPanel">
+    <div class="title">Build plane — audit by user <span id="buildAuditCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
+    <div class="filter-bar">
+      <select id="buildAuditUser"><option value="">All users</option></select>
+      <select id="buildAuditAction">
+        <option value="build.">build.* (all build-plane rows)</option>
+        <option value="build.start">build.start</option>
+        <option value="build.preview">build.preview</option>
+        <option value="build.publish">build.publish</option>
+        <option value="build.export">build.export</option>
+      </select>
+      <button class="ghost" id="buildAuditClear">Clear</button>
+      <span class="muted count" id="buildAuditCount"></span>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>When</th><th>User</th><th>Action</th><th>App / target</th><th>Details</th></tr></thead>
+      <tbody id="buildAuditRows"></tbody>
     </table>
     </div>
   </div>
@@ -329,6 +372,8 @@ async function loadAll() {
     cfgEl.innerHTML = alerting.enabled
       ? '<span class="pill ok">' + esc(alerting.webhookHost || 'configured') + '</span> cooldown ' + Math.round((alerting.cooldownMs || 600000) / 60000) + ' min'
       : '<span class="pill off">not configured</span> — set CONTROL_ALERT_WEBHOOK_URL';
+    renderGatewayVersion(stats.gateway || {});
+    renderModels(stats.models || [], stats.costUsd);
     const { users } = await api('/api/admin/users');
     allUsers = users;
     renderRows(filterUsers(users));
@@ -337,6 +382,8 @@ async function loadAll() {
       const { entries } = await api('/api/admin/audit?limit=100');
       renderAudit(entries);
     } catch { /* audit is non-critical */ }
+    populateBuildAuditUsers(users);
+    try { await loadBuildAudit(); } catch { /* build-plane audit is non-critical */ }
     try {
       const { entries } = await api('/api/admin/alerts?limit=50');
       renderAlerts(entries);
@@ -396,13 +443,14 @@ function renderRows(users) {
       '<td><input class="num f-rpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.requests_per_day) + '" /></td>' +
       '<td><input class="num f-tpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.tokens_per_day) + '" /></td>' +
       '<td><input class="num f-cap" type="number" min="0" step="0.01" placeholder="∞" value="' + numOrEmpty(q.spend_cap_usd) + '" /></td>' +
-      '<td class="muted">' + t.requests + ' / ' + (Number(t.tokens_in) + Number(t.tokens_out)).toLocaleString() + ' / ' + money(t.cost_usd) + '</td>' +
+      '<td class="muted">' + t.requests + ' / ' + (Number(t.tokens_in) + Number(t.tokens_out)).toLocaleString() + ' / ' + money(t.cost_usd) + modelsMini(u.usageModelsToday) + '</td>' +
       '<td class="muted">' + (Number(w.tokens_in) + Number(w.tokens_out)).toLocaleString() + ' / ' + money(w.cost_usd) + '</td>' +
       '<td>' + (u.hasGatewayKey ? '<span class="pill ok">active</span>' : '<span class="pill off">none</span>') +
       '<div class="badge">' + esc(u.gatewayKeyId || '') + (u.hasGatewayKey ? ' <button class="ghost b-copy-key" title="Copy gateway key id">copy</button>' : '') + '</div></td>' +
       '<td><div class="row-actions">' +
         '<select class="f-preset" title="Quota presets"><option value="">Preset…</option><option value="free">Free</option><option value="pro">Pro</option><option value="unlimited">Unlimited</option></select>' +
         '<button class="ghost b-save">Save</button>' +
+        '<button class="ghost b-build-audit" title="Show this user\'s build-plane audit rows">Build audit</button>' +
         '<button class="ghost b-rotate" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Rotate key</button>' +
         '<button class="ghost b-revoke" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Revoke key</button>' +
         '<button class="danger b-toggle">' + (disabled ? 'Enable' : 'Disable') + '</button>' +
@@ -418,6 +466,11 @@ function renderRows(users) {
       };
       try { await api('/api/admin/users/' + encodeURIComponent(u.id), { method: 'PATCH', body: JSON.stringify(body) }); toast('Saved ' + u.email); loadAll(); }
       catch (e) { toast('Save failed: ' + e.message); }
+    };
+    tr.querySelector('.b-build-audit').onclick = () => {
+      $('#buildAuditUser').value = u.id;
+      loadBuildAudit().catch((e) => toast('Build audit failed: ' + e.message));
+      $('#buildAuditPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
     tr.querySelector('.b-toggle').onclick = async () => {
       try {
@@ -634,6 +687,126 @@ function renderBuildQueue(view) {
   }
 }
 
+// M6 — the gateway-version pin, as the last check saw it. `compatible` is
+// true/false/null: null means the gateway could not be asked or did not say,
+// which is "unchecked", not a fault.
+function renderGatewayVersion(g) {
+  const el = $('#cGateway');
+  const pin = $('#cGatewayPin');
+  const card = $('#cGatewayCard');
+  pin.textContent = g.expected ? 'pin ' + g.expected : 'no pin';
+  if (!g.expected) {
+    el.textContent = 'unpinned';
+    el.style.color = 'var(--muted)';
+    card.title = 'GATEWAY_EXPECTED_VERSION is empty — version check disabled';
+    return;
+  }
+  el.textContent = g.running || (g.error ? 'unreachable' : 'unknown');
+  el.style.color = g.compatible === true ? 'var(--green)' : g.compatible === false ? 'var(--red)' : 'var(--amber)';
+  card.title =
+    (g.compatible === true ? 'Matches the verified release.' : g.compatible === false ? 'MISMATCH — re-verify docs/gateway-api-inventory.md and move the pin.' : 'Unchecked: ' + (g.error || 'the health route answered without a version.')) +
+    (g.buildSha ? '\nbuild ' + g.buildSha : '') +
+    (g.checkedAt ? '\nchecked ' + g.checkedAt : '\nnot checked yet (probed at boot and before each usage sync)');
+}
+
+// Per-model spend today across all users (usage_models), with share-of-spend bars.
+function renderModels(models, totalCost) {
+  const tb = $('#modelRows');
+  const cfg = $('#modelsCfg');
+  tb.innerHTML = '';
+  const spend = models.reduce((s, m) => s + (Number(m.costUsd) || 0), 0);
+  cfg.innerHTML = models.length
+    ? '<span class="pill ok">' + models.length + ' model' + (models.length === 1 ? '' : 's') + '</span> ' + esc(money(spend)) + ' attributed' +
+      (Number(totalCost) > spend + 1e-9 ? ' · <span class="badge">' + esc(money(Number(totalCost) - spend)) + ' unattributed (reports without a model)</span>' : '')
+    : '<span class="pill user">no rows yet</span>';
+  if (!models.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="muted">No per-model rows today. Chat usage reports that name a <code>model</code> and the gateway-ledger sync both fill this.</td></tr>';
+    return;
+  }
+  for (const m of models) {
+    const share = spend > 0 ? (Number(m.costUsd) || 0) / spend : 0;
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><code>' + esc(m.model || '(unknown)') + '</code></td>' +
+      '<td>' + esc(Number(m.requests).toLocaleString()) + '</td>' +
+      '<td class="muted">' + esc(Number(m.tokensIn).toLocaleString()) + ' / ' + esc(Number(m.tokensOut).toLocaleString()) + '</td>' +
+      '<td>' + esc(money(m.costUsd)) + '</td>' +
+      '<td class="muted">' + esc(m.users) + '</td>' +
+      '<td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><span style="width:' + Math.round(share * 100) + '%"></span></div><span class="badge">' + Math.round(share * 100) + '%</span></div></td>';
+    tb.appendChild(tr);
+  }
+}
+
+// Top two models under a user's "Today" cell; the rest is a count.
+function modelsMini(models) {
+  if (!models || !models.length) return '';
+  const top = models.slice(0, 2).map((m) => '<code>' + esc(m.model || '?') + '</code> ' + esc(m.requests)).join(' · ');
+  const more = models.length > 2 ? ' · +' + (models.length - 2) : '';
+  const title = models.map((m) => (m.model || '(unknown)') + ': ' + m.requests + ' req, ' + money(m.cost_usd)).join('\n');
+  return '<div class="models-mini" title="' + esc(title) + '">' + top + more + '</div>';
+}
+
+// Build-plane audit: the `build.*` rows Studio writes through
+// /api/internal/audit (start, preview, publish, export), narrowed to one
+// account. The server does the filtering (?action= prefix, ?user= id) so the
+// view stays honest when the general log is dominated by sign-ins.
+function populateBuildAuditUsers(users) {
+  const sel = $('#buildAuditUser');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All users</option>' +
+    (users || []).map((u) => '<option value="' + esc(u.id) + '">' + esc(u.email) + '</option>').join('');
+  if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+}
+
+async function loadBuildAudit() {
+  const userId = $('#buildAuditUser').value;
+  const action = $('#buildAuditAction').value || 'build.';
+  const qs = new URLSearchParams({ limit: '200', action });
+  if (userId) qs.set('user', userId);
+  const { entries } = await api('/api/admin/audit?' + qs.toString());
+  renderBuildAudit(entries, { userId });
+}
+
+function buildPill(action) {
+  const leaf = String(action || '').split('.').pop();
+  const cls = leaf === 'publish' ? 'publish' : leaf === 'export' ? 'export' : 'build';
+  return '<span class="pill ' + cls + '"><code>' + esc(action) + '</code></span>';
+}
+
+function renderBuildAudit(entries, { userId } = {}) {
+  const tb = $('#buildAuditRows');
+  const cfg = $('#buildAuditCfg');
+  const count = $('#buildAuditCount');
+  tb.innerHTML = '';
+  const who = userId ? ($('#buildAuditUser').selectedOptions[0] || {}).textContent : '';
+  cfg.innerHTML = who ? '<span class="pill admin">' + esc(who) + '</span>' : '<span class="pill user">all users</span>';
+  count.textContent = entries && entries.length ? entries.length + ' row' + (entries.length === 1 ? '' : 's') : '';
+  if (!entries || !entries.length) {
+    tb.innerHTML = '<tr><td colspan="5" class="muted">' +
+      (who ? 'No build-plane rows for ' + esc(who) + ' yet.' : 'No build-plane rows yet — Studio writes them via <code>POST /api/internal/audit</code> on build, preview, publish and export.') +
+      '</td></tr>';
+    return;
+  }
+  for (const e of entries) {
+    const tr = document.createElement('tr');
+    const m = e.meta && typeof e.meta === 'object' ? e.meta : {};
+    const url = m.publishedUrl || m.previewUrl || m.url;
+    const target = m.slug || m.title || e.target_id || '';
+    const rest = Object.fromEntries(Object.entries(m).filter(([k]) => !['slug', 'title', 'publishedUrl', 'previewUrl', 'url'].includes(k)));
+    // Only http(s) becomes a link: the URL is caller-supplied metadata.
+    const link = url && /^https?:\/\//i.test(String(url))
+      ? ' <a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a>'
+      : url ? ' ' + esc(url) : '';
+    tr.innerHTML =
+      '<td class="badge">' + esc(e.created_at) + '</td>' +
+      '<td>' + esc(e.actor_email || e.target_email || e.actor_id || 'unresolved') + (e.actor_id ? '<div class="badge">' + esc(e.actor_id) + '</div>' : '') + '</td>' +
+      '<td>' + buildPill(e.action) + '</td>' +
+      '<td>' + esc(target) + (e.target_id && target !== e.target_id ? '<div class="badge">' + esc(e.target_id) + '</div>' : '') + '</td>' +
+      '<td class="muted">' + esc(Object.keys(rest).length ? JSON.stringify(rest) : '') + link + '</td>';
+    tb.appendChild(tr);
+  }
+}
+
 function renderAlerts(entries) {
   const tb = $('#alertRows');
   tb.innerHTML = '';
@@ -690,6 +863,13 @@ $('#loginBtn').onclick = doLogin;
 $('#refreshBtn').onclick = () => loadAll();
 $('#userFilter').addEventListener('input', () => renderRows(filterUsers(allUsers)));
 $('#syncIdentityBtn').onclick = syncIdentity;
+$('#buildAuditUser').onchange = () => loadBuildAudit().catch((e) => toast('Build audit failed: ' + e.message));
+$('#buildAuditAction').onchange = () => loadBuildAudit().catch((e) => toast('Build audit failed: ' + e.message));
+$('#buildAuditClear').onclick = () => {
+  $('#buildAuditUser').value = '';
+  $('#buildAuditAction').value = 'build.';
+  loadBuildAudit().catch((e) => toast('Build audit failed: ' + e.message));
+};
 $('#createPoolBtn').onclick = () => $('#poolForm').classList.toggle('hidden');
 $('#poolForm').addEventListener('submit', async (e) => {
   e.preventDefault();

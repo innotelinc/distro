@@ -1,7 +1,7 @@
 // M4 sync routine: pull today's per-key usage from the gateway SQLite store
 // and make it authoritative in usage_cache for each mapped user.
 
-import { getUserByGatewayKeyId, replaceUsageFromGateway } from './db.js';
+import { getUserByGatewayKeyId, replaceUsageFromGateway, replaceModelUsageFromGateway } from './db.js';
 import { readGatewayUsageToday, gatewayDbAvailable } from './gatewayUsage.js';
 
 export async function syncUsageFromGateway() {
@@ -9,15 +9,17 @@ export async function syncUsageFromGateway() {
     return { ok: false, reason: 'gateway data volume not mounted' };
   }
 
-  // Rows arrive per (key, model); merge to per-key totals with summed cost.
+  // Rows arrive per (key, model); merge to per-key totals with summed cost and
+  // keep the per-model rows for the breakdown (M6).
   const rows = await readGatewayUsageToday();
   const byKey = new Map();
   for (const row of rows) {
-    const cur = byKey.get(row.apiKeyId) || { apiKeyId: row.apiKeyId, tokensIn: 0, tokensOut: 0, requests: 0, costUsd: 0 };
+    const cur = byKey.get(row.apiKeyId) || { apiKeyId: row.apiKeyId, tokensIn: 0, tokensOut: 0, requests: 0, costUsd: 0, models: [] };
     cur.tokensIn += row.tokensIn;
     cur.tokensOut += row.tokensOut;
     cur.requests += row.requests;
     cur.costUsd += row.costUsd;
+    cur.models.push(row);
     byKey.set(row.apiKeyId, cur);
   }
 
@@ -34,6 +36,7 @@ export async function syncUsageFromGateway() {
       continue;
     }
     replaceUsageFromGateway(user.id, agg);
+    replaceModelUsageFromGateway(user.id, agg.models);
     matched += 1;
     total.tokensIn += agg.tokensIn;
     total.tokensOut += agg.tokensOut;

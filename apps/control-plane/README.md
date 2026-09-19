@@ -31,7 +31,9 @@ free — no gateway forking required.
 | Service skeleton | `src/server.js`, `src/http.js`, `Dockerfile` | plain Node HTTP, no framework; zero public ports in compose |
 | SQLite store | `src/db.js` + `schema.sql` | users, sessions, gateway_keys, quotas, usage_cache |
 | Passwords | `src/passwords.js` | scrypt (node:crypto), no deps |
-| Gateway client | `src/gateway.js` | management login, create/list/revoke keys against the dashboard API (verified v3.8.51) |
+| Gateway client | `src/gateway.js` | management login, create/list/revoke keys against the dashboard API (verified v3.8.51); `version()` probes `/api/monitoring/health` → `/api/health` |
+| Gateway-version pin (M6) | `src/gatewayVersion.js` + `GATEWAY_EXPECTED_VERSION` (default `3.8.51`) | checked at boot and before every usage sync; mismatch = warn + `gateway.version-mismatch` alert + red card in `/admin`, never a stop. `control.mjs gateway-check` prints it |
+| Per-model usage (M6) | `usage_models` table; `models` on `GET /api/me/usage` and `/api/admin/stats`, `usageModelsToday` on admin users | filled by chat usage reports that name a `model` and replaced by the gateway-ledger sync; `usage_cache` stays the quota authority. *Model usage — today* panel in `/admin` |
 | Identity (M1) | `POST /api/auth/signup`, `/api/auth/login`, `/api/auth/logout`, `GET /api/me` | first account = admin; otherwise role from `ADMIN_EMAILS` |
 | Authentik SSO | `src/oidc.js` + `/api/auth/oidc/{config,start,callback}` | OIDC authorization-code login via Authentik (popup posts the session back to the app); SSO accounts get an unusable `sso:` password hash, auto-provisioned with their own gateway key. Verified against a local OIDC mock |
 | Per-user keys (M2) | signup mints a key; `GET /api/me/gateway-key`; `POST /api/me/gateway-key/rotate` | key lifecycle driven through the gateway dashboard API |
@@ -43,7 +45,8 @@ free — no gateway forking required.
 | Build-queue view (§5.2) | `src/buildQueue.js` + `GET /api/admin/build-queue` | read-only render of Studio's queue (`STUDIO_BUILD_QUEUE_DIR`): jobs merged from request+status files, the runner's heartbeat, per-state counts. Never writes, claims or cancels — the runner stays the only writer |
 | Authentik group mapping | `src/authentik.js` + `/api/admin/identity-groups/*` | mirrors the configured Authentik group, creates it when missing, provisions missing local users and replaces the local membership cache |
 | Cloud storage providers and pools | `cloud_storage_providers`, `storage_pools` + `/api/admin/storage-{providers,pools}` | Shares GUI can register providers and create logical pools rooted at a provider path; stores metadata and Vault references only, never raw provider credentials |
-| Audit log (M5) | `audit_log` table + `GET /api/admin/audit` | signups, key lifecycle, quota/role/disable changes, deletes |
+| Audit log (M5) | `audit_log` table + `GET /api/admin/audit` | signups, key lifecycle, quota/role/disable changes, deletes. `?action=<prefix>` narrows to a namespace (`build.` = rows Studio writes), `?user=<id>` to rows an account performed or was the target of |
+| Build-plane audit by user (M7) | "Build plane — audit by user" panel in `/admin` | per-user view of `build.*` rows (start/preview/publish/export) with user + action filters and a **Build audit** shortcut per user row; http(s) preview/publish URLs are linkified |
 | Alert history | `alert_log` table + `GET /api/admin/alerts` | every webhook attempt (sent/failed) recorded; cooldown-suppressed repeats are not |
 | Spend rollups | `usage7d` on users, `week` on stats, admin console columns/cards | rolling 7-day totals from the gateway-ledger usage cache |
 | Backups (M5) | `make backup` → `scripts/backup.sh` | online `.backup()` of control + gateway DBs into `./backups/` |

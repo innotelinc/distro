@@ -11,6 +11,7 @@ import { openDb, createUser, userCount, listUsers, getQuota, getGatewayKey, getD
 import { hashPassword } from '../src/passwords.js';
 import { GatewayClient } from '../src/gateway.js';
 import { syncUsageFromGateway } from '../src/sync.js';
+import { checkGatewayVersion } from '../src/gatewayVersion.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 openDb(process.env.CONTROL_DB_PATH || join(here, '..', 'data', 'control.sqlite'));
@@ -53,6 +54,12 @@ async function main() {
         await gateway.login();
         const keys = await gateway.listApiKeys();
         console.log(`gateway reachable; ${keys.length} gateway API key(s)`);
+        const version = await checkGatewayVersion(gateway, { log: { warn: () => {} } });
+        console.log(
+          `gateway version: ${version.running || 'unknown'} — pin ${version.expected || 'none'} → ` +
+            (version.compatible === true ? 'compatible' : version.compatible === false ? 'MISMATCH' : 'unchecked') +
+            (version.error ? ` (${version.error})` : ''),
+        );
       } catch (err) {
         console.error('gateway check failed:', err.message);
         process.exit(1);

@@ -210,9 +210,26 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   `CONTROL_SYNC_INTERVAL_MS` only if a gateway data dir is mounted read-only at
   `GATEWAY_DATA_DIR`. Manual run:
   `docker compose exec control-plane node bin/control.mjs usage-sync`.
+- **Gateway version pin**: `GATEWAY_EXPECTED_VERSION` (default `3.8.51`) is
+  the OmniRoute release the control plane was verified against. It is probed
+  at boot and before every usage sync; the `/admin` *Gateway version* card is
+  green (match), red (mismatch — also a `gateway.version-mismatch` webhook
+  alert) or amber (unchecked: unreachable, or the health route did not say).
+  A mismatch never stops anything. Check by hand:
+  `docker compose exec control-plane node bin/control.mjs gateway-check`.
+  To move the pin, re-verify `apps/control-plane/docs/gateway-api-inventory.md`
+  first.
+- **Per-model usage**: `usage_models` holds one row per user/day/model, filled
+  by chat usage reports that name a `model` and replaced by the gateway-ledger
+  sync. `/admin` shows *Model usage — today* (share-of-spend) and the top
+  models under each user's Today cell; `GET /api/me/usage` returns `models`.
+  Quotas are still decided from `usage_cache` totals.
 - **Audit**: signups, key rotations/revokes, quota/role/disable changes and
   deletions are recorded in `audit_log` and shown in the admin console
-  (`GET /api/admin/audit`).
+  (`GET /api/admin/audit`). Build-plane rows Studio writes (`build.start`,
+  `build.preview`, `build.publish`, `build.export`) have their own per-user
+  panel in `/admin`; the API filters are `?action=build.` (namespace prefix)
+  and `?user=<account id>`.
 - **Backups**: `make backup` (or `./scripts/backup.sh`) snapshots both the
   control-plane and gateway SQLite stores — each via the app's own online
   `better-sqlite3 .backup()`, so no downtime — into `./backups/`

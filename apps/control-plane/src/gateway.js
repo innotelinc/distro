@@ -93,4 +93,81 @@ export class GatewayClient {
       await this.#json('POST', `/api/v1/registered-keys/${encodeURIComponent(id)}/revoke`);
     }
   }
+
+  /**
+   * The running gateway's version, as it reports it.
+   *
+   * OmniRoute has no dedicated version route; `/api/monitoring/health` carries
+   * build metadata and `/api/health` is the lightweight probe. Neither payload
+   * shape is part of a contract this plane controls, so the read is defensive:
+   * try both routes, without a session first (health is public) and with one
+   * on a 401/403, and look for the version under the names it has appeared
+   * under. `version: null` means the gateway answered but did not say.
+   *
+   * @returns {Promise<{ version: string|null, buildSha: string|null, endpoint: string|null }>}
+   */
+  async version() {
+    await this.#ensureDashboardUrl();
+    let lastError = null;
+    let answeredWithoutVersion = null;
+    for (const path of ['/api/monitoring/health', '/api/health']) {
+      try {
+        let res = await fetch(`${this.dashboardUrl}${path}`, { headers: this.cookie ? { Cookie: this.cookie } : {} });
+        if ((res.status === 401 || res.status === 403) && this.adminPassword) {
+          await this.login();
+          res = await fetch(`${this.dashboardUrl}${path}`, { headers: { Cookie: this.cookie } });
+        }
+        if (!res.ok) {
+          lastError = new Error(`gateway GET ${path} -> ${res.status}`);
+          continue;
+        }
+        let data = null;
+        try {
+          data = JSON.parse(await res.text());
+        } catch {
+          data = null;
+        }
+        const found = extractVersion(data);
+        if (found.version) return { ...found, endpoint: path };
+        // Answered, but did not say: remember it and let the next route try.
+        answeredWithoutVersion = answeredWithoutVersion || { ...found, endpoint: path };
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (answeredWithoutVersion) return answeredWithoutVersion;
+    throw new Error(`gateway version probe failed: ${lastError?.message || 'no health route answered'}`);
+  }
+}
+
+/** Pull `{ version, buildSha }` out of whatever a health payload looks like. */
+export function extractVersion(data) {
+  const out = { version: null, buildSha: null };
+  if (!data || typeof data !== 'object') return out;
+  const candidates = [
+    data.version,
+    data.appVersion,
+    data.app_version,
+    data.build?.version,
+    data.app?.version,
+    data.system?.version,
+    data.info?.version,
+  ];
+  for (const c of candidates) {
+    const v = normalizeVersion(c);
+    if (v) {
+      out.version = v;
+      break;
+    }
+  }
+  const sha = data.buildSha ?? data.build_sha ?? data.build?.sha ?? data.build?.commit ?? data.commit ?? null;
+  if (typeof sha === 'string' && /^[0-9a-f]{7,40}$/i.test(sha.trim())) out.buildSha = sha.trim();
+  return out;
+}
+
+/** `v3.8.51`, `3.8.51-web`, ` 3.8.51 ` → `3.8.51`; anything else → null. */
+export function normalizeVersion(value) {
+  if (value == null) return null;
+  const match = String(value).trim().match(/^v?(\d+(?:\.\d+){1,3})/i);
+  return match ? match[1] : null;
 }
