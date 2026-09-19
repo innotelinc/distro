@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS quotas (
   requests_per_day INTEGER,                       -- NULL = unlimited
   tokens_per_day   INTEGER,
   spend_cap_usd    REAL,                          -- soft cap; gateway enforces hard cap
+  builds_per_day   INTEGER,                       -- NULL = unlimited (build plane, M7)
   updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS usage_cache (
   tokens_out  INTEGER NOT NULL DEFAULT 0,
   requests    INTEGER NOT NULL DEFAULT 0,
   cost_usd    REAL NOT NULL DEFAULT 0,
+  builds      INTEGER NOT NULL DEFAULT 0,          -- build.start consumed via /api/internal/build-check
   updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, date)
 );

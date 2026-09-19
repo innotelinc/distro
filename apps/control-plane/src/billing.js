@@ -175,10 +175,11 @@ export function gatedQuota(entitlement, baseQuota) {
   if (!entitlement || entitlement.entitled !== true) {
     return {
       ...baseQuota,
-      // Free tier: 10 requests/day, 50k tokens/day, $0.50 spend cap
+      // Free tier: 10 requests/day, 50k tokens/day, $0.50 spend cap, 5 builds/day
       requests_per_day: Math.min(baseQuota.requests_per_day ?? 1000, 10),
       tokens_per_day: Math.min(baseQuota.tokens_per_day ?? 1000000, 50000),
       spend_cap_usd: Math.min(baseQuota.spend_cap_usd ?? 100, 0.5),
+      builds_per_day: Math.min(baseQuota.builds_per_day ?? 100, 5),
     };
   }
 

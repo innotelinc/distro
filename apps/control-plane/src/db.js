@@ -41,6 +41,16 @@ function migrate(database) {
   database.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub) WHERE oidc_sub IS NOT NULL',
   );
+
+  // Build plane (M7): a builds/day quota and the counter it is judged against.
+  const quotaColumns = new Set(database.prepare('PRAGMA table_info(quotas)').all().map((c) => c.name));
+  if (!quotaColumns.has('builds_per_day')) {
+    database.exec('ALTER TABLE quotas ADD COLUMN builds_per_day INTEGER');
+  }
+  const usageColumns = new Set(database.prepare('PRAGMA table_info(usage_cache)').all().map((c) => c.name));
+  if (!usageColumns.has('builds')) {
+    database.exec('ALTER TABLE usage_cache ADD COLUMN builds INTEGER NOT NULL DEFAULT 0');
+  }
 }
 
 export function getDb() {
@@ -381,6 +391,7 @@ export function getQuota(userId) {
       requests_per_day: null,
       tokens_per_day: null,
       spend_cap_usd: null,
+      builds_per_day: null,
     }
   );
 }
@@ -392,19 +403,38 @@ export function upsertQuota(userId, fields) {
   const rpd = fields.requests_per_day === undefined ? quota.requests_per_day : fields.requests_per_day;
   const tpd = fields.tokens_per_day === undefined ? quota.tokens_per_day : fields.tokens_per_day;
   const cap = fields.spend_cap_usd === undefined ? quota.spend_cap_usd : fields.spend_cap_usd;
+  const bpd = fields.builds_per_day === undefined ? quota.builds_per_day : fields.builds_per_day;
   getDb()
     .prepare(
-      `INSERT INTO quotas (id, user_id, plan, requests_per_day, tokens_per_day, spend_cap_usd)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO quotas (id, user_id, plan, requests_per_day, tokens_per_day, spend_cap_usd, builds_per_day)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id) DO UPDATE SET
          plan = excluded.plan,
          requests_per_day = excluded.requests_per_day,
          tokens_per_day = excluded.tokens_per_day,
          spend_cap_usd = excluded.spend_cap_usd,
+         builds_per_day = excluded.builds_per_day,
          updated_at = datetime('now')`,
     )
-    .run(quota.id || randomUUID(), userId, plan, rpd, tpd, cap);
+    .run(quota.id || randomUUID(), userId, plan, rpd, tpd, cap, bpd);
   return getQuota(userId);
+}
+
+/** Build plane (M7): one consumed build.start against today. Only this counter
+ *  moves — the model calls the build then makes arrive as usage reports / the
+ *  ledger sync like any other traffic under the user's key. */
+export function recordBuild(userId) {
+  const day = new Date().toISOString().slice(0, 10);
+  getDb()
+    .prepare(
+      `INSERT INTO usage_cache (user_id, date, builds, updated_at)
+       VALUES (?, ?, 1, datetime('now'))
+       ON CONFLICT (user_id, date) DO UPDATE SET
+         builds = builds + 1,
+         updated_at = datetime('now')`,
+    )
+    .run(userId, day);
+  return getUsageToday(userId);
 }
 
 export function getUsageToday(userId) {
@@ -414,7 +444,7 @@ export function getUsageToday(userId) {
         `SELECT * FROM usage_cache
          WHERE user_id = ? AND date = date('now')`,
       )
-      .get(userId) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
+      .get(userId) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0, builds: 0 }
   );
 }
 

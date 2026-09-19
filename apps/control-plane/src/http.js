@@ -22,6 +22,7 @@ import {
   setUserOidcSub,
   touchGatewayKey,
   recordUsage,
+  recordBuild,
   setUserRole,
   deleteUser,
   logAudit,
@@ -164,9 +165,14 @@ export async function handler(req, res, { gateway }) {
   const method = req.method;
   const send = (status, body) => json(res, status, body);
 
-  function quotaDecision(userId) {
-    const quota = getQuota(userId);
-    const today = getUsageToday(userId);
+  /**
+   * The one quota verdict, for any caller. `quota` is already entitlement-
+   * gated when the caller did that (the internal routes); `builds` adds the
+   * build-plane dimension — only build.start is judged against builds/day,
+   * while every build action shares the chat caps because it spends the same
+   * gateway key (M7 decision).
+   */
+  function decideQuota(quota, today, { builds = false } = {}) {
     const reasons = [];
     if (quota.requests_per_day != null && today.requests >= quota.requests_per_day) {
       reasons.push('daily request limit reached');
@@ -177,7 +183,16 @@ export async function handler(req, res, { gateway }) {
     if (quota.spend_cap_usd != null && today.cost_usd >= quota.spend_cap_usd) {
       reasons.push('spend cap reached');
     }
+    if (builds && quota.builds_per_day != null && (today.builds || 0) >= quota.builds_per_day) {
+      reasons.push('daily build limit reached');
+    }
     return { allowed: reasons.length === 0, reasons, quota, usageToday: today };
+  }
+
+  // The chat pre-check (/api/me/quota-status): same verdict as
+  // /api/internal/quota-check, so builds/day deliberately does not enter it.
+  function quotaDecision(userId) {
+    return decideQuota(getQuota(userId), getUsageToday(userId));
   }
 
   async function userFromGatewayKey(req) {
@@ -593,24 +608,10 @@ export async function handler(req, res, { gateway }) {
     const user = await userFromGatewayKey(req);
     if (!user) return send(401, { error: 'unknown or revoked gateway key' });
 
-    // Check entitlement and apply feature gating
+    // Check entitlement and apply feature gating, then the shared verdict.
     const entitlement = await checkEntitlement(user.email);
-    const baseQuota = getQuota(user.id);
-    const quota = gatedQuota(entitlement, baseQuota);
-
-    // Use gated quota for decision
-    const today = getUsageToday(user.id);
-    const reasons = [];
-    if (quota.requests_per_day != null && today.requests >= quota.requests_per_day) {
-      reasons.push('daily request limit reached');
-    }
-    if (quota.tokens_per_day != null && today.tokens_in + today.tokens_out >= quota.tokens_per_day) {
-      reasons.push('daily token limit reached');
-    }
-    if (quota.spend_cap_usd != null && today.cost_usd >= quota.spend_cap_usd) {
-      reasons.push('spend cap reached');
-    }
-    const decision = { allowed: reasons.length === 0, reasons, quota, usageToday: today, entitlement };
+    const quota = gatedQuota(entitlement, getQuota(user.id));
+    const decision = { ...decideQuota(quota, getUsageToday(user.id)), entitlement };
 
     if (!decision.allowed) {
       void alert(`quota.denied:${user.id.slice(0, 8)}`, {
@@ -620,6 +621,67 @@ export async function handler(req, res, { gateway }) {
       });
     }
     return send(200, { user: publicUser(user), ...decision });
+  }
+
+  // Build plane (M7): may this identity build/preview/publish/export right now?
+  //
+  // Keyed by the Authentik `sub` under the service token — the same handshake
+  // as /api/internal/identity, which Studio must have completed first (an
+  // unknown subject is a 404, not a provisioning). Every action shares the chat
+  // caps (same gateway key underneath); only build.start is judged against
+  // builds/day and, with `consume: true`, counted. A refusal is an audit row
+  // (`build.denied`, so it shows in the console's build-plane panel) and the
+  // same quota alert chat denials raise.
+  if (path === '/api/internal/build-check' && method === 'POST') {
+    if (!internalTokenOk()) return internalDenied(send);
+
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+
+    const sub = String(body.sub || '').trim();
+    if (!sub) return send(400, { error: 'sub required' });
+    const action = String(body.action || 'build.start').trim();
+    if (!/^build\.[a-z][a-z0-9_-]{0,39}$/.test(action)) {
+      return send(400, { error: 'action must be a build.* name (e.g. build.start, build.publish)' });
+    }
+
+    const user = getUserByOidcSub(sub);
+    if (!user) return send(404, { error: 'unknown identity — call /api/internal/identity first' });
+
+    const isStart = action === 'build.start';
+    const entitlement = await checkEntitlement(user.email);
+    const quota = gatedQuota(entitlement, getQuota(user.id));
+    // A disabled account is refused before any cap is consulted; it is a
+    // status, not a quota, so it does not raise the quota alert below.
+    const disabled = !!user.disabled_at;
+    const decision = disabled
+      ? { allowed: false, reasons: ['account disabled'], quota, usageToday: getUsageToday(user.id) }
+      : decideQuota(quota, getUsageToday(user.id), { builds: isStart });
+
+    if (!decision.allowed) {
+      logAudit({
+        action: 'build.denied',
+        actorId: user.id,
+        actorEmail: user.email,
+        targetId: body.targetId ? String(body.targetId).slice(0, 200) : null,
+        meta: { requested: action, reasons: decision.reasons, slug: body.slug ? String(body.slug).slice(0, 200) : undefined },
+      });
+      if (!disabled) {
+        void alert(`quota.denied:${user.id.slice(0, 8)}`, {
+          title: 'User hit a daily quota limit',
+          message: `${user.email} was refused ${action} (${decision.reasons.join(', ')}).`,
+          meta: { userId: user.id, action, reasons: decision.reasons, quota: decision.quota, usageToday: decision.usageToday, entitlement },
+        });
+      }
+      return send(200, { user: publicUser(user), action, ...decision, consumed: false, entitlement });
+    }
+
+    // Check-then-record without a transaction: two simultaneous starts can
+    // overshoot builds/day by one. Accepted — one process, one SQLite file, and
+    // the cap is a budget, not a security boundary.
+    const consumed = isStart && body.consume === true;
+    const usageToday = consumed ? recordBuild(user.id) : decision.usageToday;
+    return send(200, { user: publicUser(user), action, ...decision, usageToday, consumed, entitlement });
   }
 
   if (path === '/api/internal/usage-report' && method === 'POST') {
@@ -1105,6 +1167,7 @@ export async function handler(req, res, { gateway }) {
         requests_per_day: body.quota?.requests_per_day,
         tokens_per_day: body.quota?.tokens_per_day,
         spend_cap_usd: body.quota?.spend_cap_usd,
+        builds_per_day: body.quota?.builds_per_day,
       });
     }
     updateUser(target.id, fields);
