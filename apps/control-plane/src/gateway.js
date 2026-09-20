@@ -71,8 +71,58 @@ export class GatewayClient {
     return this.cookie;
   }
 
-  async createApiKey(name, { modelAccessMode = 'all', dailyUsageLimitUsd, weeklyUsageLimitUsd } = {}) {
+  /**
+   * The connection ids this gateway has switched on, or `null` if it would not say.
+   *
+   * `GET /api/providers` is the gateway's own answer to "which providers do I have",
+   * and `allowedConnections` on a key is how that answer gets enforced. Measured
+   * against v3.8.51: with it set, a router skips every provider outside the set —
+   * `auto/best-free` went from `400 Felo thread creation failed` to
+   * `503 all targets were skipped by pre-dispatch filters` — while an explicit model
+   * from a connected provider still answers `200`. So a key minted here can only
+   * ever spend on a provider this deployment connected, which is the rule the
+   * account was granted under.
+   *
+   * A connection is switched on when the gateway says so, and a connection in
+   * backoff, sitting out a rate limit, or switched off is not offered. `null` is
+   * "could not tell" and every caller must read it as *do not scope*: minting must
+   * not fail because a read-only route hiccuped, and an unscoped key is exactly the
+   * behaviour that predates this.
+   */
+  async enabledConnectionIds() {
+    try {
+      const { data } = await this.#json('GET', '/api/providers');
+      const rows = Array.isArray(data) ? data : data?.connections;
+      if (!Array.isArray(rows)) return null;
+      return rows
+        .filter(
+          (row) =>
+            row &&
+            row.isActive !== false &&
+            !(typeof row.backoffLevel === 'number' && row.backoffLevel > 0) &&
+            row.rateLimitProtection !== true,
+        )
+        .map((row) => row.id)
+        .filter((id) => typeof id === 'string' && id.length > 0);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Mint a key. Scoped to the connected providers unless the caller says otherwise.
+   *
+   * The scope is applied by default rather than by each caller because every key
+   * this plane mints is spending somebody's provider credentials, and a caller that
+   * forgets is a caller whose requests route to providers nobody connected. An empty
+   * scope is *not* sent: on this gateway `allowedConnections: []` is how an unscoped
+   * key is written, so sending it when no connections are readable would look like
+   * an explicit nothing rather than the fail-open it is meant to be.
+   */
+  async createApiKey(name, { modelAccessMode = 'all', allowedConnections, dailyUsageLimitUsd, weeklyUsageLimitUsd } = {}) {
     const body = { name, modelAccessMode };
+    const scope = allowedConnections === undefined ? await this.enabledConnectionIds() : allowedConnections;
+    if (Array.isArray(scope) && scope.length > 0) body.allowedConnections = scope;
     if (dailyUsageLimitUsd !== undefined) body.dailyUsageLimitUsd = dailyUsageLimitUsd;
     if (weeklyUsageLimitUsd !== undefined) body.weeklyUsageLimitUsd = weeklyUsageLimitUsd;
     const { data } = await this.#json('POST', '/api/keys', body);
