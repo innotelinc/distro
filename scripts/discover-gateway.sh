@@ -48,7 +48,7 @@ if [[ -z "$host" ]]; then
 fi
 
 dashboard="http://${host}:20128"
-api="http://${host}:20129/v1"
+api="http://${host}:20128/v1"
 
 set_pin() {
   local key="$1" val="$2"

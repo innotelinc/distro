@@ -1,7 +1,7 @@
 # OmniRoute endpoint inventory (for the control plane)
 
 All dashboard routes live on the gateway's dashboard port (`:20128`), the
-OpenAI-compatible API on `:20129`. Auth = session cookie obtained from
+OpenAI-compatible API on `:20128`. Auth = session cookie obtained from
 `POST /api/auth/login`. Verified against OmniRoute v3.8.51 (image
 `diegosouzapw/omniroute:latest` as of Sep 2026).
 
