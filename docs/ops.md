@@ -100,7 +100,7 @@ GATEWAY_DASHBOARD_URL=http://host.docker.internal:20128         # control plane 
 The docker0 alias is the right address **because distro's control plane runs on
 the gateway's own host** and names the gateway's own port. Both forms in that
 pair are corrected by the same rule: a caller *not* on the gateway's host dials
-the SSO proxy in front of it (`http://192.168.1.46:20128/v1`, which exempts `/v1`)
+the SSO proxy in front of it (`http://192.168.1.71:20128/v1`, which exempts `/v1`)
 — the gateway's `:20128` answers on its host's loopback and bridge alone, so a LAN
 target there is dead.
 
