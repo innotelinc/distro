@@ -43,7 +43,7 @@ backup: ## Back up the control-plane DB to ./backups
 	./scripts/backup.sh
 
 typecheck: ## Syntax-check the control-plane sources (node --check)
-	@for f in apps/control-plane/src/*.js apps/control-plane/bin/*.mjs; do node --check "$$f"; done
+	@for f in apps/control-plane/src/*.js apps/control-plane/bin/*.mjs; do node --check "$$f" || exit 1; done
 	@echo "control-plane sources parse"
 
 keys-check: ## Verify the accounts' gateway keys are still accepted (FIX=1 rotates the refused ones)
