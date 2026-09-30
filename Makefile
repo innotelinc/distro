@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 .PHONY: help up down logs ps build bootstrap doctor \
-        discover-gateway mesh-setup clean backup typecheck
+        discover-gateway mesh-setup clean backup typecheck keys-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -45,3 +45,6 @@ backup: ## Back up the control-plane DB to ./backups
 typecheck: ## Syntax-check the control-plane sources (node --check)
 	@for f in apps/control-plane/src/*.js apps/control-plane/bin/*.mjs; do node --check "$$f"; done
 	@echo "control-plane sources parse"
+
+keys-check: ## Verify the accounts' gateway keys are still accepted (FIX=1 rotates the refused ones)
+	./scripts/check-account-keys.sh $(if $(FIX),--fix,) $(if $(ALERT),--alert,)

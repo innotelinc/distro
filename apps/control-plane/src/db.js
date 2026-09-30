@@ -236,6 +236,28 @@ export function getGatewayKey(userId, label = 'default') {
     .get(userId, label);
 }
 
+/**
+ * Every live account key, with the account it belongs to.
+ *
+ * Disabled accounts are left out on purpose: their key cannot be spent, so a
+ * refused one is not something anybody has to go and fix. Used by `keys-check`
+ * (src/accountKeys.js) to answer "is this credential still one the gateway
+ * accepts?" — the question nothing else asks, because a key is minted once and
+ * never re-verified.
+ */
+export function listGatewayKeys() {
+  return getDb()
+    .prepare(
+      `SELECT k.user_id, k.gateway_key_id, k.gateway_key, k.label, k.created_at,
+              k.last_used_at, u.email, u.role
+         FROM gateway_keys k
+         JOIN users u ON u.id = k.user_id
+        WHERE k.revoked_at IS NULL AND u.disabled_at IS NULL
+        ORDER BY u.email`,
+    )
+    .all();
+}
+
 export function revokeGatewayKey(userId, label = 'default') {
   getDb()
     .prepare(

@@ -165,6 +165,7 @@ is `control-data` (accounts, keys, quotas, usage, audit).
 make ps              # status
 make logs            # tail everything (add a service name to narrow)
 make doctor          # remote gateway health
+make keys-check      # are the accounts' gateway keys still accepted?
 ```
 
 
@@ -237,6 +238,16 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   `build.preview`, `build.publish`, `build.export`) have their own per-user
   panel in `/admin`; the API filters are `?action=build.` (namespace prefix)
   and `?user=<account id>`.
+- **Account keys are verified, not assumed**: `make keys-check`
+  (`./scripts/check-account-keys.sh`) asks the gateway's OpenAI-compatible
+  surface to accept each account's stored key, and exits non-zero when one is
+  refused. An account whose key the gateway refuses cannot spend anything, and
+  the builder surface reports that as "every model in the chain failed" — the
+  same words a quota problem produces, which is why nothing else catches it.
+  `--fix` rotates the refused keys through the gateway (audited as
+  `key.rotate`, with the superseded key prefix in the row) and `--alert`
+  fires `gateway.account-keys` at `CONTROL_ALERT_WEBHOOK_URL`. On a timer:
+  `23 6 * * * cd /opt/distro && ./scripts/check-account-keys.sh --alert >> /var/log/distro-keys-check.log 2>&1`
 - **Backups**: `make backup` (or `./scripts/backup.sh`) snapshots both the
   control-plane and gateway SQLite stores — each via the app's own online
   `better-sqlite3 .backup()`, so no downtime — into `./backups/`

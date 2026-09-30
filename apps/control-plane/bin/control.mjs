@@ -4,6 +4,7 @@
 //   node bin/control.mjs create-admin <email> <password>
 //   node bin/control.mjs users
 //   node bin/control.mjs gateway-check
+//   node bin/control.mjs keys-check [--fix] [--alert]
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
@@ -12,6 +13,7 @@ import { hashPassword } from '../src/passwords.js';
 import { GatewayClient } from '../src/gateway.js';
 import { syncUsageFromGateway } from '../src/sync.js';
 import { checkGatewayVersion } from '../src/gatewayVersion.js';
+import { checkAccountKeys, remintAccountKey } from '../src/accountKeys.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 openDb(process.env.CONTROL_DB_PATH || join(here, '..', 'data', 'control.sqlite'));
@@ -66,6 +68,54 @@ async function main() {
       }
       break;
     }
+    case 'keys-check': {
+      // Does every account's key still open the gateway? A key the gateway
+      // refuses stops every turn for that account before a model is chosen, and
+      // the builder surface reports that as "every model failed to answer" —
+      // a credential problem wearing a model problem's coat.
+      const fix = args.includes('--fix');
+      const gateway = new GatewayClient({ adminPassword: process.env.GATEWAY_ADMIN_PASSWORD });
+      const result = await checkAccountKeys();
+      console.log(`gateway ${result.base} — ${result.checked} live account key(s)`);
+      for (const entry of result.rejected) {
+        console.log(`  REFUSED   ${entry.email} ${entry.keyPrefix}… HTTP ${entry.status}`);
+      }
+      for (const entry of result.unchecked) {
+        console.log(`  unchecked ${entry.email} ${entry.keyPrefix}… ${entry.error || 'HTTP ' + entry.status}`);
+      }
+      if (result.rejected.length === 0) {
+        console.log(`  ok        every key accepted (${result.ok.length}/${result.checked})`);
+      } else if (fix) {
+        for (const entry of result.rejected) {
+          const minted = await remintAccountKey(entry, { gateway });
+          console.log(`  re-minted ${entry.email} → gateway key ${minted.gatewayKeyId}`);
+        }
+      }
+      if (result.rejected.length > 0 && args.includes('--alert')) {
+        // The same shape as the other operational alerts, so one receiver can
+        // classify them: see CONTROL_ALERT_WEBHOOK_URL in docs/ops.md.
+        const { alert } = await import('../src/alerts.js');
+        await alert('gateway.account-keys', {
+          title: 'The gateway refused an account key',
+          message:
+            `${result.rejected.length} account key(s) refused: ` +
+            result.rejected.map((entry) => `${entry.email} (HTTP ${entry.status})`).join(', '),
+          meta: {
+            base: result.base,
+            unchecked: result.unchecked.length,
+            rejected: result.rejected.map((entry) => ({
+              email: entry.email,
+              status: entry.status,
+              keyPrefix: entry.keyPrefix,
+            })),
+          },
+        });
+      }
+      // Non-zero so a timer or a CI step notices. --fix is the human saying
+      // "rotate it", and exits 0 because the finding is then resolved.
+      if (result.rejected.length > 0 && !fix) process.exit(1);
+      break;
+    }
     case 'usage-sync': {
       const result = await syncUsageFromGateway();
       console.log(JSON.stringify(result, null, 2));
@@ -96,7 +146,9 @@ async function main() {
       break;
     }
     default:
-      console.error('usage: control.mjs <health|create-admin|users|gateway-check|usage-sync|test-alert|backup>');
+      console.error(
+      'usage: control.mjs <health|create-admin|users|gateway-check|keys-check|usage-sync|test-alert|backup>',
+    );
       process.exit(1);
   }
 }
