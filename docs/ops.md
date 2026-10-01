@@ -70,6 +70,65 @@ services:
 docker compose pull && docker compose up -d
 ```
 
+## Upgrading the control plane, and the gateway pin
+
+The single place for the two halves of "what is this verified against, and how do
+I move it": the **gateway pin** and the **image roll-forward/roll-back**. See also
+[apps/control-plane/docs/threat-model.md](../apps/control-plane/docs/threat-model.md)
+for what the plane holds, and § *Secrets* above for what it must never hold.
+
+### The gateway pin
+
+`GATEWAY_EXPECTED_VERSION` (default `3.8.51`) is the OmniRoute release the plane is
+verified against. It is checked at boot and **before every usage sync**, and a
+mismatch is a *loud warning, never a stop*: it raises a `gateway.version-mismatch`
+alert through the usual webhook path and turns the admin console's gateway card
+red. `bin/control.mjs gateway-check` prints the same verdict on demand, and
+`make keys-check` asks a second question — are the accounts' keys still accepted.
+
+**What breaks when the gateway moves.** The pin exists because the plane drives the
+gateway's *dashboard* API (`src/gateway.js`, inventory in
+[apps/control-plane/docs/gateway-api-inventory.md](../apps/control-plane/docs/gateway-api-inventory.md))
+and reads its per-key usage ledger. A release that renames a management route or
+changes the ledger's columns is what the pin is for. The symptoms, in order of how
+often they bite:
+
+| Symptom | Likely cause | First check |
+| --- | --- | --- |
+| Red gateway card, `gateway.version-mismatch` in `alert_log` | the gateway was upgraded past the pin | `control.mjs gateway-check` |
+| New signups have no key / rotation fails | a changed key-mint route | `control.mjs keys-check --alert` |
+| Usage stops moving but the gateway is busy | a changed ledger shape, or the data dir is not mounted | `control.mjs usage-sync`, then `GET /api/admin/stats` |
+| Keys minted but rejected by the gateway | the dashboard login rotated (`INITIAL_PASSWORD`) | re-register the key or fix the dashboard password |
+
+Turning it forward is deliberate: verify the new release against the inventory,
+then set `GATEWAY_EXPECTED_VERSION` to it. The default is not moved for you.
+
+### Rolling the image forward and back
+
+The image is pinned by tag (`:<semver>` beside `:latest`); a deploy is a tag change
+plus `docker compose up -d`. Roll **back** the same way — re-pin the previous tag
+and `up -d` — and the schema tolerates it: `src/db.js`'s migrations are **additive
+and idempotent** (`CREATE TABLE IF NOT EXISTS`, guarded `ALTER TABLE … ADD COLUMN`),
+applied at boot rather than tracked in a version table, so an older image on a
+newer file simply ignores the columns it does not know. There is no down
+migration to run and none to write.
+
+```bash
+# take the record first — the schema is additive, the *data* is still yours to lose
+make backup
+
+# forward
+docker compose pull && docker compose up -d --build control-plane
+bin/control.mjs health                      # or: docker compose exec control-plane node bin/control.mjs health
+
+# back: re-pin the previous tag in compose, then
+docker compose up -d control-plane
+```
+
+Two things a rollback does **not** undo: rows a newer version wrote (they stay, and
+the older code may ignore or reject them — take the backup), and the gateway's own
+state, which is the platform's to restore, not this stack's.
+
 ## Topology & ports
 
 | Service | Bind | Ports | Notes |

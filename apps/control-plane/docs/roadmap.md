@@ -4,8 +4,10 @@
 > per-user keys + quotas + usage sync + admin console + Magnate billing +
 > hardening). **0.3.0 (M7) is IN PROGRESS, and M8 (1.0) is underway** — the
 > Shares identity/storage slice is shipped and the build plane has been retired;
-> what remains in M7 is the server-side session bridge. In M8 the restore drill
-> and the account-facing usage view have shipped.
+> what remains in M7 is the server-side session bridge. **M8 is complete**: the
+> restore drill, the account-facing usage view, the failure alerts, the threat
+> model for the plane, and the version/upgrade posture have all shipped — which is
+> the 1.0 claim, *an operator can run this for other people*, met.
 >
 > **Target: 1.0** — the tenancy layer under the ecosystem's one builder
 > surface, Genie: every model call attributable, capped and revocable per
@@ -146,7 +148,7 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       Cerulean's `NPM_EMAIL`/`NPM_PASSWORD` credentials and the provisioning is
       idempotent from either stack's `.env`.
 
-## M8 — 1.0: the tenancy layer, finished
+## M8 — 1.0: the tenancy layer, finished ✅
 
 The 1.0 claim is narrow and testable: **an operator can run this for other
 people.** Everything below is in service of that, and nothing below is a new
@@ -193,15 +195,30 @@ feature for its own sake.
       `test/me-usage.test.mjs` (today vs window, a day outside the window, the
       reached cap reading as reached, an empty account, and one account not
       reading another's).
-- [ ] **A documented threat model for the plane.** It mints gateway keys and
-      reads a SQLite file the gateway also reads. What that means for the
-      service token, the console's session, the Vault references, and the
-      backup directory belongs in one page, written before somebody has to
-      reason about it during an incident.
-- [ ] **Version and upgrade posture.** A single place that says which OmniRoute
-      release the plane is verified against (the pin does), what breaks if the
-      gateway moves, and how to roll the image forward and back. The pin is
-      mechanism; this is the runbook around it.
+- [x] **A documented threat model for the plane.**
+      [docs/threat-model.md](threat-model.md) is the page, written before somebody
+      has to reason about it during an incident. It states what the plane holds and
+      what it **must never** hold (upstream provider keys, raw storage credentials,
+      a clear password or session token, the Vault token), draws the five trust
+      boundaries (the browser and its CORS origin, the service token, the gateway,
+      the shared SQLite file, Vault), and — the part that matters — pairs each
+      control with its **residual**: a bearer session is a bearer session, the
+      console still binds `0.0.0.0` by default, a backup *is* the whole plane
+      including the hashed keys and the audit log, and tenant isolation is
+      application-enforced over one file. It also says the two easy untruths out
+      loud: there is no row-level security, and `audit_log` is **not** hash-chained
+      the way Sentinel's evidence log is, so the word "audit" here is not
+      tamper-evidence.
+- [x] **Version and upgrade posture.** A single place, `docs/ops.md` § *Upgrading
+      the control plane, and the gateway pin*: which OmniRoute release the plane is
+      verified against (`GATEWAY_EXPECTED_VERSION`, default `3.8.51`, checked at
+      boot and before every sync — a loud warning, never a stop), a symptom→cause
+      table for what breaks when the gateway moves, and the roll-forward/roll-back
+      procedure. The pin is mechanism; this is the runbook around it. It records
+      the schema's real property rather than a hoped-for one: migrations are
+      **additive and idempotent** and applied at boot (no version table, no down
+      migration), so an older image on a newer file tolerates it — and a backup is
+      still the first step, because the schema is additive and the *data* is not.
 
 ## M0 — Service skeleton + gateway client ✅
 
