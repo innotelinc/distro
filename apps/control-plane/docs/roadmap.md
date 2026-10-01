@@ -2,9 +2,10 @@
 
 > Progress: **M0–M6 are DONE** (service + gateway client + identity +
 > per-user keys + quotas + usage sync + admin console + Magnate billing +
-> hardening). **0.3.0 (M7) is IN PROGRESS** — the Shares identity/storage
-> slice is shipped and the build plane has been retired; what remains is the
-> server-side session bridge.
+> hardening). **0.3.0 (M7) is IN PROGRESS, and M8 (1.0) is underway** — the
+> Shares identity/storage slice is shipped and the build plane has been retired;
+> what remains in M7 is the server-side session bridge. In M8 the restore drill
+> and the account-facing usage view have shipped.
 >
 > **Target: 1.0** — the tenancy layer under the ecosystem's one builder
 > surface, Genie: every model call attributable, capped and revocable per
@@ -145,21 +146,37 @@ The 1.0 claim is narrow and testable: **an operator can run this for other
 people.** Everything below is in service of that, and nothing below is a new
 feature for its own sake.
 
-- [ ] **A restore that has been rehearsed.** `make backup` writes verified
-      SQLite snapshots; nothing proves they come *back*. A documented restore
-      drill against a scratch container, with the schema/row counts checked, so
-      "we have backups" is a measured statement rather than an assumption.
+- [x] **A restore that has been rehearsed.** `make backup` writes verified
+      SQLite snapshots; nothing proved they came *back*. `make restore-rehearsal`
+      (`scripts/restore-rehearsal.sh`) takes a fresh backup, then boots the
+      **newest and the oldest** snapshot in a scratch container on its own port —
+      the newest is what a real restore would use, the oldest is the one most
+      likely to be a surprise — and asks each the questions that matter: does it
+      answer `/health`, does it know the accounts, does it carry the schema and
+      the history. Read-only with respect to the live stack (its own port,
+      directory and container name, all removed at the end), and honest about
+      its limit: the gateway side is the platform's to restore, not this
+      rehearsal's. Procedure in `docs/ops.md` § *Restoring*.
 - [ ] **Operator visibility that reaches out.** The existing webhook alerts
       cover quota denials and gateway-version drift. 1.0 adds the two failures
       an operator finds out about too late: the control plane being unreachable
       from Genie's side (a turn that could not be attributed), and the usage
       sync not having run. Both are timer-based and both are quiet failures
       today.
-- [ ] **Per-account usage the account can see.** The ledger is written and the
+- [x] **Per-account usage the account can see.** The ledger is written and the
       console shows it to an operator; `GET /api/me/usage` shows a user their
-      own spend. 1.0 makes the user-facing half usable — today's and the
-      rolling window, beside the caps they are measured against — because a
-      quota nobody can read is a quota nobody trusts.
+      own spend. 1.0 makes the user-facing half usable: the response now carries
+      today **and** the rolling window it sits in (`CONTROL_USAGE_WINDOW_DAYS`,
+      default 7, summed from the daily `usage_cache` rows that already exist),
+      the caps the account is measured against (`caps.plan` / `.requestsPerDay` /
+      `.tokensPerDay` / `.spendCapUsd`, `null` meaning uncapped), and the
+      allow/deny verdict with its reasons — from the *same* `decideQuota` the
+      gate calls, so the number a person reads and the number that refuses their
+      next turn cannot disagree. That last property is the point: a quota whose
+      two readings differ is a quota nobody trusts. Covered by
+      `test/me-usage.test.mjs` (today vs window, a day outside the window, the
+      reached cap reading as reached, an empty account, and one account not
+      reading another's).
 - [ ] **A documented threat model for the plane.** It mints gateway keys and
       reads a SQLite file the gateway also reads. What that means for the
       service token, the console's session, the Vault references, and the

@@ -74,6 +74,20 @@ import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
 import { authentikGroupConfig, syncAuthentikGroup } from './authentik.js';
 import { lastGatewayVersionCheck } from './gatewayVersion.js';
 
+/**
+ * How many days of usage an account reads back with its own quota (M8).
+ *
+ * The daily caps are judged on *today*, which makes "how much is left" a
+ * question about tomorrow as much as about this afternoon. A rolling window is
+ * the cheapest way to answer it honestly: seven days of daily rows that already
+ * exist, summed, so nothing new has to be recorded. `CONTROL_USAGE_WINDOW_DAYS`
+ * widens or narrows it; anything unparseable stays at a week.
+ */
+const USAGE_WINDOW_DAYS = (() => {
+  const configured = Number(process.env.CONTROL_USAGE_WINDOW_DAYS || 7);
+  return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : 7;
+})();
+
 /* ---- auth rate limiting ------------------------------------------------- */
 //
 // 0.2.0 (M6): the local password path is break-glass only, but while it is
@@ -688,12 +702,33 @@ export async function handler(req, res, { gateway }) {
   }
 
   if (path === '/api/me/usage' && method === 'GET') {
-    // Today's snapshot from usage_cache (gateway-authoritative after each sync,
-    // chat reports in between) plus the per-model breakdown (M6).
+    // What this account has spent and what it is allowed to spend (M8).
+    //
+    // Today's snapshot (usage_cache — gateway-authoritative after each sync,
+    // chat reports in between) and the per-model breakdown (M6) are what this
+    // route already returned. 1.0 adds the two things that make those numbers
+    // *readable*: the rolling window, so today is read in context rather than
+    // alone, and the caps this account is measured against, so "how much is
+    // left" is answerable without asking an operator. The verdict comes from the
+    // same `decideQuota` the gate calls, so the number the account reads and the
+    // number that refuses its next turn can never disagree — which is the one
+    // failure that makes a quota not worth reading.
+    const today = getUsageToday(me.id);
+    const quota = getQuota(me.id);
+    const decision = decideQuota(quota, today);
     return send(200, {
       date: new Date().toISOString().slice(0, 10),
-      ...getUsageToday(me.id),
+      ...today,
       models: getModelUsageToday(me.id),
+      window: { days: USAGE_WINDOW_DAYS, ...usageFor(me.id, USAGE_WINDOW_DAYS) },
+      caps: {
+        plan: quota.plan,
+        requestsPerDay: quota.requests_per_day,
+        tokensPerDay: quota.tokens_per_day,
+        spendCapUsd: quota.spend_cap_usd,
+      },
+      allowed: decision.allowed,
+      reasons: decision.reasons,
     });
   }
 

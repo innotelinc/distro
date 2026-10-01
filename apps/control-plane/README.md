@@ -129,7 +129,9 @@ Configuration (from env): `PORT`/`HOST` (default `20140`/`0.0.0.0`),
 `GATEWAY_ADMIN_PASSWORD`, `ADMIN_EMAILS`, `CONTROL_INTERNAL_TOKEN` (the
 service-to-service token Genie presents; unset disables those endpoints),
 `CONTROL_SYNC_INTERVAL_MS` (M4 sync
-period; 0 disables), `GATEWAY_DATA_DIR` (unset by default — see below),
+period; 0 disables), `CONTROL_USAGE_WINDOW_DAYS` (M8: how many days
+`GET /api/me/usage` sums for the account's own rolling window; default 7),
+`GATEWAY_DATA_DIR` (unset by default — see below),
 `AUTHENTIK_API_URL`, `AUTHENTIK_API_TOKEN`, and `AUTHENTIK_GROUP_NAME` for
 automatic group membership mapping. Cloud provider credentials are represented
 by `credential_ref` values pointing into the deployment's secret store.
