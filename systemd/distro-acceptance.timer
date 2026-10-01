@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Distro tenancy-loop acceptance check daily
+
+[Timer]
+# After the key check, and before anyone's day starts.
+OnCalendar=*-*-* 06:41:00
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

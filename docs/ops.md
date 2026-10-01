@@ -225,6 +225,7 @@ make ps              # status
 make logs            # tail everything (add a service name to narrow)
 make doctor          # remote gateway health
 make keys-check      # are the accounts' gateway keys still accepted?
+make acceptance      # does the tenancy loop still work end to end?
 ```
 
 
@@ -298,6 +299,25 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   `install -m 0644 systemd/distro-keys-check.* /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now distro-keys-check.timer`.
   Any scheduler works, e.g.
   `23 6 * * * cd /opt/distro && ./scripts/check-account-keys.sh --alert >> /var/log/distro-keys-check.log 2>&1`
+- **The tenancy loop is walked, not assumed**: `make acceptance`
+  (`./scripts/acceptance-check.sh`, `control.mjs acceptance`) runs the loop a turn
+  takes against *this* deployment — a subject resolves to an account (provisioned
+  on first sight), the account's own gateway key answers `quota-check`, a turn's
+  usage is reported to `usage-report` and then reads back through the route the
+  accounting uses — and exits non-zero on the first broken step. A deployment
+  looks healthy while a piece of that loop is quietly dead, and the builder
+  surface reports the result as "every model in the chain failed", which is the
+  same words a quota or provider problem produces. It uses one dedicated account
+  (`ACCEPTANCE_EMAIL`, default `acceptance@distro.invalid`) and reports one
+  turn's usage against it, so it is self-contained. This is the plane's half of
+  the M7 cross-repository acceptance item; the sign-in half lives with the surface
+  that signs in (`ontrak-genie/scripts/verify-tenancy.mjs`), so neither half needs
+  an Authentik, provider or Cerulean credential. The deployment runs it daily as
+  `distro-acceptance.timer` (06:41, after the key check), shipped as
+  `systemd/distro-acceptance.{service,timer}`: install with
+  `install -m 0644 systemd/distro-acceptance.* /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now distro-acceptance.timer`.
+  Any scheduler works, e.g.
+  `41 6 * * * cd /opt/distro && ./scripts/acceptance-check.sh >> /var/log/distro-acceptance.log 2>&1`
 - **Removing an account**: `make keys-check` finds keys that are broken; this is
   how one is retired. `docker compose exec control-plane node bin/control.mjs
   delete-user <email>` (or `DELETE /api/admin/users/:id`) revokes the account's

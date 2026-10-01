@@ -10,6 +10,7 @@ import Database from "better-sqlite3";
 import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayKey, getUsageToday } from "../src/db.js";
 import { openSession } from "../src/auth.js";
 import { handler } from "../src/http.js";
+import { runAcceptance } from "../src/acceptance.js";
 
 /**
  * The internal API (`/api/internal/*`), exercised against a real SQLite file and
@@ -583,6 +584,30 @@ test("a gateway outage no longer turns into a permanent lockout", async () => {
     assert.equal(after.status, 200);
     assert.equal(payload.gatewayKey, "sk-1");
     assert.equal(payload.user.disabled_at, null);
+  } finally {
+    await plane.close();
+  }
+});
+
+test("acceptance: the loop a turn takes, end to end, against a real plane", async () => {
+  const plane = await startPlane();
+
+  try {
+    const result = await runAcceptance({ base: plane.url, token: INTERNAL_TOKEN });
+    // The message is the whole point when it fails: which step, and what it found.
+    assert.equal(result.ok, true, JSON.stringify(result.steps, null, 2));
+    assert.equal(result.steps.length, 6);
+    assert.match(result.steps.find((step) => step.name === "and it reads back").detail, /0 -> 1/);
+
+    // One subject, one account. The check would pass every other step while
+    // destroying attribution if each call provisioned a fresh account, so the
+    // count is asserted rather than the property assumed.
+    const db = plane.db();
+    const users = db.prepare("select count(*) n from users").get().n;
+    const keys = db.prepare("select count(*) n from gateway_keys").get().n;
+    db.close();
+    assert.equal(users, 1, "two calls, one account");
+    assert.equal(keys, 1, "and one key, minted once");
   } finally {
     await plane.close();
   }

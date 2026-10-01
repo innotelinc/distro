@@ -129,12 +129,27 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       This is now cross-repo with **Genie**: reconciling the control-plane
       bearer token with Genie's Authentik session is the same bridge seen from
       the other side, and Genie's own roadmap carries its half.
-- [ ] **Cross-repository acceptance automation.** A scheduled check that proves
+- [~] **Cross-repository acceptance automation.** A scheduled check that proves
       the deployment still works end to end — Genie signs a subject in through
       Authentik, the control plane provisions it, the turn is gated and its
       usage recorded, and the audit row lands — without exposing provider or
       Cerulean credentials. The M7 runner-heartbeat and preview-URL checks went
       with the build plane.
+      **The plane's half shipped (2026-10-01):** `control.mjs acceptance`
+      (`src/acceptance.js`, `scripts/acceptance-check.sh`, `make acceptance`,
+      `systemd/distro-acceptance.{service,timer}`, daily at 06:41) walks the loop
+      a turn takes against the live deployment — a subject resolves to an account
+      and keeps the same one on a second call, that account's own gateway key
+      answers `quota-check`, a turn's usage is reported and reads back through the
+      route the accounting uses — and exits non-zero on the first broken step. It
+      is driven over the real HTTP handler on a temporary database by
+      `test/internal-api.test.mjs`, so the check cannot pass against a stub. The
+      sign-in half lives with the surface that signs in: `verify-sso.py` already
+      drives a real Authentik code flow and
+      `ontrak-genie/scripts/verify-tenancy.mjs` proves two accounts are isolated
+      once signed in. **What remains** is scheduling those two together as one
+      check, so a break that spans the repos (a session the plane will not
+      accept) is caught by the same timer rather than by a person.
 
 ### Added while M7 is open (shipped 17 September 2026)
 

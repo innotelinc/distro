@@ -6,6 +6,7 @@
 //   node bin/control.mjs delete-user <email>
 //   node bin/control.mjs gateway-check
 //   node bin/control.mjs keys-check [--fix] [--alert]
+//   node bin/control.mjs acceptance
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
@@ -16,6 +17,7 @@ import { GatewayClient } from '../src/gateway.js';
 import { syncUsageFromGateway } from '../src/sync.js';
 import { checkGatewayVersion } from '../src/gatewayVersion.js';
 import { checkAccountKeys, remintAccountKey } from '../src/accountKeys.js';
+import { runAcceptance, formatAcceptance } from '../src/acceptance.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 openDb(process.env.CONTROL_DB_PATH || join(here, '..', 'data', 'control.sqlite'));
@@ -178,9 +180,48 @@ async function main() {
       console.log(`backup written: ${dest}`);
       break;
     }
+    case 'acceptance': {
+      // Prove the loop the tenancy layer exists for, end to end, against *this*
+      // deployment — not against a description of it. A scheduled check, because
+      // the failure it catches (a key the gateway forgot, a plane that stopped
+      // answering, accounting that stopped being written) is invisible until
+      // somebody's turn dies, and by then it is reported as a model problem.
+      //
+      // It is the M7 cross-repository acceptance item's plane half: a subject
+      // resolves to an account (provisioned on first sight), the account's own
+      // gateway key is what every later call carries, the quota gate answers, a
+      // turn's usage is reported and reads back through the same route a turn's
+      // accounting uses. The sign-in half lives with the surface that signs in
+      // (`ontrak-genie/scripts/verify-tenancy.mjs`), so this half needs no
+      // Authentik, provider or Cerulean credential.
+      //
+      // It uses one dedicated account (`ACCEPTANCE_EMAIL`, default
+      // `acceptance@distro.invalid`) and reports one turn of usage against it, so
+      // it is self-contained and leaves the other accounts untouched.
+      const base = String(
+        process.env.CONTROL_PLANE_INTERNAL_URL || `http://127.0.0.1:${process.env.PORT || 20140}`,
+      ).replace(/\/+$/, '');
+      const token = String(process.env.CONTROL_INTERNAL_TOKEN || '');
+      if (!token) {
+        console.error(
+          'acceptance: CONTROL_INTERNAL_TOKEN is not set. The internal routes are OFF (503) rather\n' +
+            'than open, so there is no loop to check from here.',
+        );
+        process.exit(1);
+      }
+      const sub = process.env.ACCEPTANCE_SUB || undefined;
+      const email = process.env.ACCEPTANCE_EMAIL || undefined;
+
+      console.log(`acceptance ${base}${email ? ` — ${email}` : ''}`);
+      const result = await runAcceptance({ base, token, sub, email });
+      console.log(formatAcceptance(result));
+      // Non-zero so a timer unit fails and cron mails: the same posture as keys-check.
+      if (!result.ok) process.exit(1);
+      break;
+    }
     default:
       console.error(
-      'usage: control.mjs <health|create-admin|users|delete-user|gateway-check|keys-check|usage-sync|test-alert|backup>',
+      'usage: control.mjs <health|create-admin|users|delete-user|gateway-check|keys-check|usage-sync|test-alert|backup|acceptance>',
     );
       process.exit(1);
   }
