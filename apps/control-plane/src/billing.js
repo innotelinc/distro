@@ -65,14 +65,17 @@ export async function seedDistroPlan() {
       body: JSON.stringify({
         name: 'Distro',
         slug: MAGNATE_BILLING_SLUG,
-        description: 'AI app-building platform — unlimited builds, all models.',
+        // What Distro sells is the tenancy layer, not a builder: the build plane
+        // was retired with the front door it served, and a plan that promises
+        // "unlimited builds" describes a product that no longer exists.
+        description: 'Multi-tenant control plane for the shared AI gateway — accounts, one key each, quota and usage per turn.',
         priceMonthlyCents: 1999,
         priceYearlyCents: 19990,
         features: [
-          'Unlimited app builds',
-          'Access to all AI models via OmniRoute',
-          'Live preview & terminal in-browser',
-          'Priority support'
+          'Unlimited model turns through OmniRoute',
+          'One gateway key per account, minted and revocable',
+          'Quota checked before each turn, usage recorded after',
+          'Admin console: accounts, limits and an audit log'
         ],
         highlighted: true,
         active: true,

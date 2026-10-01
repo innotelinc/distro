@@ -6,7 +6,7 @@
   <title>Distro — build apps with AI, in your browser</title>
   <meta name="description" content="Distro is a self-hosted AI app-building platform: describe an app and the agent writes, runs, previews, and iterates on a full-stack codebase in your browser.">
   <meta property="og:title" content="Distro — build apps with AI, in your browser">
-  <meta property="og:description" content="Self-hosted AI app builder — chat-to-code in your browser, powered by your own OmniRoute gateway. MIT-licensed.">
+  <meta property="og:description" content="Self-hosted multi-tenant control plane for AI agent turns — accounts, one gateway key each, quota and usage per turn. MIT-licensed.">
   <meta property="og:type" content="website">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0f1a'/%3E%3Cpath d='M16 8c-2.5 0-4.5 1.3-5.3 3.3A6.1 6.1 0 0 0 8.2 18.5 6.4 6.4 0 0 0 10.2 22 6.4 6.4 0 0 0 13.6 24a6.4 6.4 0 0 0 4.6-1.9 6.1 6.1 0 0 0 2.2-4.3 6.4 6.4 0 0 0-.3-3.9 6.2 6.2 0 0 0-3.2-2.9 6.4 6.4 0 0 0-2.6-.5z' fill='none' stroke='%2306b6d4' stroke-width='2.4'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="unity-theme.css">
@@ -403,14 +403,14 @@
     <!-- Features -->
     <section id="features">
       <div class="wrap">
-        <h2>Tenancy for the build plane<span class="accent">.</span></h2>
+        <h2>Tenancy for the builder surface<span class="accent">.</span></h2>
         <p class="section-sub">One control plane between the builder and the gateway — so building stays one web UI, and spending stays everyone's own.</p>
         <div class="grid grid-3">
           <div class="card"><span class="icon" aria-hidden="true">🪪</span><h3>Identity → account</h3><p>A signed-in Authentik subject resolves to a control-plane account on first sight — no duplicate accounts, no silent rebinds.</p></div>
           <div class="card"><span class="icon" aria-hidden="true">🔑</span><h3>One key per user</h3><p>The control plane mints, rotates and revokes each user's OmniRoute gateway key through the gateway's own dashboard API.</p></div>
           <div class="card"><span class="icon" aria-hidden="true">🚦</span><h3>Quota at the turn</h3><p>Quota is checked before each model turn and usage is reported after it — 429 before tokens burn, spend caps on the keys as the backstop.</p></div>
           <div class="card"><span class="icon" aria-hidden="true">🔐</span><h3>Keys never leave the server</h3><p>Builder traffic talks to your self-hosted OmniRoute gateway with the user's own key — upstream provider keys live in one place, never in the client.</p></div>
-          <div class="card"><span class="icon" aria-hidden="true">🏢</span><h3>Admin console</h3><p>Per-user limits, enable/disable, revoke/rotate, roles, an audit log, and a read-only view of the builder's build queue.</p></div>
+          <div class="card"><span class="icon" aria-hidden="true">🏢</span><h3>Admin console</h3><p>Per-user limits, enable/disable, revoke/rotate, roles, an audit log, and the historical builder-audit rows kept per user.</p></div>
           <div class="card"><span class="icon" aria-hidden="true">🪶</span><h3>SSO &amp; billing, optional</h3><p>Cerulean Authentik identity and Magnate subscriptions from the platform stack — wired in, off by default.</p></div>
         </div>
       </div>

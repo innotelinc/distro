@@ -112,6 +112,12 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       removed; the builder audit panel stays as history. Covered by
       `test/internal-api.test.mjs`, which proves the retired columns still
       arrive on a legacy database and are never written.
+      The **copy went with the code**: the plan this service seeds into Magnate
+      no longer advertises "unlimited app builds" and an in-browser preview — it
+      describes the tenancy layer it actually sells — and the landing page no
+      longer promises a read-only *build queue view* that was retired with the
+      plane. A retired feature that survives in a price list and a marketing
+      card is not history; it is a claim, and one a buyer could hold you to.
 - [x] Add a gateway-version compatibility check to usage sync (shipped with the
       M6 pin: `checkGatewayVersion` runs before every `syncUsageFromGateway`).
       Quota enforcement does not consult it by design — the decision is served
