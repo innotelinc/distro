@@ -126,8 +126,8 @@ test("keys-check", async (t) => {
     assert.equal(after.gateway_key, "sk-fresh-4444444444444444444444444");
     assert.equal(after.gateway_key_id, "key-reminted");
     assert.equal(mints.length, 1);
-    assert.match(mints[0].name, /^studio-user-/);
-    assert.equal(mints[0].name, `studio-user-${orphan.id.slice(0, 8)}`, "the gateway key stays named for the account");
+    assert.match(mints[0].name, /^genie-user-/);
+    assert.equal(mints[0].name, `genie-user-${orphan.id.slice(0, 8)}`, "the gateway key stays named for the account");
 
     const audits = listAudit(50, { actionPrefix: "key.rotate", userId: orphan.id });
     assert.equal(audits.length, 1, "the rotation is in the audit log");

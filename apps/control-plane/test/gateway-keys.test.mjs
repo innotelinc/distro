@@ -75,10 +75,10 @@ test("only the switched-on connections are read", async () => {
 test("a minted key is scoped to them, without the caller asking", async () => {
   const { client, seen, close } = await fakeDashboard({ providers: CONNECTED });
   try {
-    assert.equal((await client.createApiKey("studio-user-abc")).key, "sk-1");
+    assert.equal((await client.createApiKey("genie-user-abc")).key, "sk-1");
     const mint = seen.requests.find((request) => request.url === "/api/keys");
     assert.deepEqual(mint.body.allowedConnections, ["c-agentrouter", "c-openrouter"]);
-    assert.equal(mint.body.name, "studio-user-abc");
+    assert.equal(mint.body.name, "genie-user-abc");
   } finally {
     await close();
   }
@@ -87,7 +87,7 @@ test("a minted key is scoped to them, without the caller asking", async () => {
 test("an unreadable provider list mints unscoped rather than failing", async () => {
   const { client, seen, close } = await fakeDashboard({ providers: null });
   try {
-    assert.equal((await client.createApiKey("studio-user-abc")).id, "key-1");
+    assert.equal((await client.createApiKey("genie-user-abc")).id, "key-1");
     const mint = seen.requests.find((request) => request.url === "/api/keys");
     assert.equal("allowedConnections" in mint.body, false);
   } finally {
@@ -98,7 +98,7 @@ test("an unreadable provider list mints unscoped rather than failing", async () 
 test("an empty connection set is not sent as an empty scope", async () => {
   const { client, seen, close } = await fakeDashboard({ providers: { connections: [] } });
   try {
-    await client.createApiKey("studio-user-abc");
+    await client.createApiKey("genie-user-abc");
     const mint = seen.requests.find((request) => request.url === "/api/keys");
     assert.equal("allowedConnections" in mint.body, false);
   } finally {
@@ -109,7 +109,7 @@ test("an empty connection set is not sent as an empty scope", async () => {
 test("a caller that names its own scope keeps it", async () => {
   const { client, seen, close } = await fakeDashboard({ providers: CONNECTED });
   try {
-    await client.createApiKey("studio-user-abc", { allowedConnections: ["c-openrouter"] });
+    await client.createApiKey("genie-user-abc", { allowedConnections: ["c-openrouter"] });
     const mint = seen.requests.find((request) => request.url === "/api/keys");
     assert.deepEqual(mint.body.allowedConnections, ["c-openrouter"]);
     assert.equal(

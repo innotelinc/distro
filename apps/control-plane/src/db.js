@@ -42,7 +42,17 @@ function migrate(database) {
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub) WHERE oidc_sub IS NOT NULL',
   );
 
-  // Build plane (M7): a builds/day quota and the counter it is judged against.
+  /*
+   * The build plane (M7) is retired, and its two columns are kept rather than
+   * dropped. They were written by the builder surface that no longer exists,
+   * and a row of history is evidence: `builds_per_day` says what an account was
+   * once capped at, and `usage_cache.builds` says how many it actually spent.
+   * SQLite would make dropping them a table rebuild for no operator-visible
+   * gain, so nothing writes them and nothing reads them.
+   *
+   * The migrations stay for the installs that predate the columns: an operator
+   * restoring an old backup gets the same schema as a fresh deploy.
+   */
   const quotaColumns = new Set(database.prepare('PRAGMA table_info(quotas)').all().map((c) => c.name));
   if (!quotaColumns.has('builds_per_day')) {
     database.exec('ALTER TABLE quotas ADD COLUMN builds_per_day INTEGER');
@@ -150,11 +160,11 @@ export function logAudit({ actorId = null, actorEmail = null, action, targetId =
 /**
  * Latest audit rows, newest first.
  *
- * `actionPrefix` narrows to one namespace (`build.` is the build plane: rows
- * Studio writes through `/api/internal/audit`). `userId` narrows to rows the
- * account either performed or was the target of — build rows carry the
- * account as the actor (resolved from the Authentik `sub`), admin actions
- * carry it as the target, and a per-user view wants both.
+ * `actionPrefix` narrows to one namespace (`build.` is the retired build plane:
+ * rows the builder surface wrote through `/api/internal/audit`). `userId`
+ * narrows to rows the account either performed or was the target of — build
+ * rows carry the account as the actor (resolved from the Authentik `sub`),
+ * admin actions carry it as the target, and a per-user view wants both.
  */
 export function listAudit(limit = 200, { actionPrefix = null, userId = null } = {}) {
   const where = [];
@@ -413,7 +423,6 @@ export function getQuota(userId) {
       requests_per_day: null,
       tokens_per_day: null,
       spend_cap_usd: null,
-      builds_per_day: null,
     }
   );
 }
@@ -425,38 +434,19 @@ export function upsertQuota(userId, fields) {
   const rpd = fields.requests_per_day === undefined ? quota.requests_per_day : fields.requests_per_day;
   const tpd = fields.tokens_per_day === undefined ? quota.tokens_per_day : fields.tokens_per_day;
   const cap = fields.spend_cap_usd === undefined ? quota.spend_cap_usd : fields.spend_cap_usd;
-  const bpd = fields.builds_per_day === undefined ? quota.builds_per_day : fields.builds_per_day;
   getDb()
     .prepare(
-      `INSERT INTO quotas (id, user_id, plan, requests_per_day, tokens_per_day, spend_cap_usd, builds_per_day)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO quotas (id, user_id, plan, requests_per_day, tokens_per_day, spend_cap_usd)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id) DO UPDATE SET
          plan = excluded.plan,
          requests_per_day = excluded.requests_per_day,
          tokens_per_day = excluded.tokens_per_day,
          spend_cap_usd = excluded.spend_cap_usd,
-         builds_per_day = excluded.builds_per_day,
          updated_at = datetime('now')`,
     )
-    .run(quota.id || randomUUID(), userId, plan, rpd, tpd, cap, bpd);
+    .run(quota.id || randomUUID(), userId, plan, rpd, tpd, cap);
   return getQuota(userId);
-}
-
-/** Build plane (M7): one consumed build.start against today. Only this counter
- *  moves — the model calls the build then makes arrive as usage reports / the
- *  ledger sync like any other traffic under the user's key. */
-export function recordBuild(userId) {
-  const day = new Date().toISOString().slice(0, 10);
-  getDb()
-    .prepare(
-      `INSERT INTO usage_cache (user_id, date, builds, updated_at)
-       VALUES (?, ?, 1, datetime('now'))
-       ON CONFLICT (user_id, date) DO UPDATE SET
-         builds = builds + 1,
-         updated_at = datetime('now')`,
-    )
-    .run(userId, day);
-  return getUsageToday(userId);
 }
 
 export function getUsageToday(userId) {
@@ -466,7 +456,7 @@ export function getUsageToday(userId) {
         `SELECT * FROM usage_cache
          WHERE user_id = ? AND date = date('now')`,
       )
-      .get(userId) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0, builds: 0 }
+      .get(userId) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
   );
 }
 

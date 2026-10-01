@@ -90,7 +90,7 @@ export async function checkAccountKeys({ fetchImpl = fetch, base, timeoutMs = TI
 export async function remintAccountKey(entry, { gateway }) {
   const quota = getQuota(entry.userId);
   await gateway.login();
-  const key = await gateway.createApiKey(`studio-user-${entry.userId.slice(0, 8)}`, {
+  const key = await gateway.createApiKey(`genie-user-${entry.userId.slice(0, 8)}`, {
     dailyUsageLimitUsd: quota.spend_cap_usd ?? undefined,
     weeklyUsageLimitUsd: quota.spend_cap_usd != null ? quota.spend_cap_usd * 7 : undefined,
   });

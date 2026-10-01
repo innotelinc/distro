@@ -7,7 +7,7 @@ import test, { after, before } from "node:test";
 
 import Database from "better-sqlite3";
 
-import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayKey, recordBuild, getUsageToday } from "../src/db.js";
+import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayKey, getUsageToday } from "../src/db.js";
 import { openSession } from "../src/auth.js";
 import { handler } from "../src/http.js";
 
@@ -152,7 +152,7 @@ test("provisions an account, mints its key once, and validates its input", async
     assert.equal(created.oidcSub, "sub-1");
     assert.equal(created.user.role, "admin", "the first account on an instance is an admin");
     assert.equal(plane.gateway.state.keys, 1);
-    assert.equal(plane.gateway.state.mints[0].name, `studio-user-${created.user.id.slice(0, 8)}`);
+    assert.equal(plane.gateway.state.mints[0].name, `genie-user-${created.user.id.slice(0, 8)}`);
 
     // Idempotent: the same subject resolves to the same account and key, and
     // mints nothing new — a caller retries on every cold start.
@@ -352,89 +352,6 @@ test("usage reports that name a model build a per-model breakdown beside the tot
   }
 });
 
-test("the build plane asks before it builds: caps shared with chat, builds/day for build.start", async () => {
-  const plane = await startPlane();
-
-  try {
-    const provisioned = await (
-      await identityRequest(plane.url, { body: { sub: "sub-b1", email: "builder@example.com" } })
-    ).json();
-    const check = (body, token = INTERNAL_TOKEN) =>
-      fetch(`${plane.url}/api/internal/build-check`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...(token === null ? {} : { "x-control-internal-token": token }) },
-        body: JSON.stringify(body),
-      });
-
-    // The same credential rules as the other internal routes.
-    assert.equal((await check({ sub: "sub-b1" }, "wrong")).status, 401);
-    assert.equal((await check({ sub: "nobody" })).status, 404, "identity first, then build");
-    assert.equal((await check({ sub: "sub-b1", action: "chat.turn" })).status, 400, "only build.* actions");
-
-    // Two builds a day; the first two are allowed and counted, the third refused.
-    upsertQuota(provisioned.user.id, { builds_per_day: 2 });
-    const first = await (await check({ sub: "sub-b1", action: "build.start", consume: true, targetId: "app-1" })).json();
-    assert.equal(first.allowed, true);
-    assert.equal(first.consumed, true);
-    assert.equal(first.usageToday.builds, 1);
-
-    const peek = await (await check({ sub: "sub-b1", action: "build.start" })).json();
-    assert.equal(peek.allowed, true);
-    assert.equal(peek.consumed, false, "without consume it only asks");
-    assert.equal(peek.usageToday.builds, 1);
-
-    const second = await (await check({ sub: "sub-b1", action: "build.start", consume: true })).json();
-    assert.equal(second.usageToday.builds, 2);
-
-    const third = await (await check({ sub: "sub-b1", action: "build.start", consume: true, targetId: "app-1", slug: "my-app" })).json();
-    assert.equal(third.allowed, false);
-    assert.deepEqual(third.reasons, ["daily build limit reached"]);
-    assert.equal(third.usageToday.builds, 2, "a refusal is not counted");
-
-    // Publishing is not a build: builds/day does not apply to it...
-    const publish = await (await check({ sub: "sub-b1", action: "build.publish" })).json();
-    assert.equal(publish.allowed, true);
-
-    // ...but the chat caps do, because it spends the same key.
-    upsertQuota(provisioned.user.id, { spend_cap_usd: 0 });
-    const capped = await (await check({ sub: "sub-b1", action: "build.publish" })).json();
-    assert.equal(capped.allowed, false);
-    assert.deepEqual(capped.reasons, ["spend cap reached"]);
-
-    // A disabled account is refused before any quota is consulted.
-    updateUser(provisioned.user.id, { disabled_at: new Date().toISOString() });
-    const disabled = await (await check({ sub: "sub-b1", action: "build.start", consume: true })).json();
-    assert.deepEqual(disabled.reasons, ["account disabled"]);
-    assert.equal(disabled.consumed, false);
-    assert.equal(disabled.usageToday.builds, 2, "same response shape as a quota refusal");
-
-    // The chat pre-check is unaffected by the build cap (it mirrors quota-check).
-    updateUser(provisioned.user.id, { disabled_at: null });
-    upsertQuota(provisioned.user.id, { spend_cap_usd: null });
-    const status = await (
-      await fetch(`${plane.url}/api/me/quota-status`, { headers: { authorization: `Bearer ${openSession(provisioned.user.id)}` } })
-    ).json();
-    assert.equal(status.allowed, true, "at the build cap, chat is still allowed");
-    updateUser(provisioned.user.id, { disabled_at: new Date().toISOString() });
-
-    // Every refusal is a build-plane audit row, visible through the same filter the console uses.
-    const admin = createUser({ email: "root3@example.com", passwordHash: "sso:", role: "admin" });
-    const denied = await (
-      await fetch(`${plane.url}/api/admin/audit?action=build.denied&user=${encodeURIComponent(provisioned.user.id)}`, {
-        headers: { authorization: `Bearer ${openSession(admin.id)}` },
-      })
-    ).json();
-    assert.deepEqual(
-      denied.entries.map((row) => row.meta.reasons[0]),
-      ["account disabled", "spend cap reached", "daily build limit reached"],
-    );
-    assert.equal(denied.entries[2].meta.slug, "my-app");
-    assert.equal(denied.entries[2].target_id, "app-1");
-  } finally {
-    await plane.close();
-  }
-});
-
 test("a database from before the build plane gains builds_per_day and builds", async () => {
   const path = join(workdir, "legacy-builds.sqlite");
   const legacy = new Database(path);
@@ -465,15 +382,15 @@ test("a database from before the build plane gains builds_per_day and builds", a
     const quotaCols = db.prepare("PRAGMA table_info(quotas)").all().map((c) => c.name);
     const usageCols = db.prepare("PRAGMA table_info(usage_cache)").all().map((c) => c.name);
     db.close();
+    // The build plane is retired, and its columns are kept: an operator who
+    // restores a backup gets the same schema as a fresh deploy, and the rows
+    // they already have stay readable as history.
     assert.ok(quotaCols.includes("builds_per_day"));
     assert.ok(usageCols.includes("builds"));
 
-    // Old rows read as unlimited builds / none used, and the counter works on them.
-    assert.equal(upsertQuota("u1", {}).builds_per_day, null);
     assert.equal(upsertQuota("u1", {}).requests_per_day, 10, "the existing limit survived");
-    assert.equal(getUsageToday("u1").builds, 0);
-    assert.equal(recordBuild("u1").builds, 1);
     assert.equal(getUsageToday("u1").requests, 3, "the existing usage survived");
+    assert.equal(upsertQuota("u1", {}).builds_per_day, null, "nothing writes the retired column");
   } finally {
     await plane.close();
   }

@@ -12,10 +12,10 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   disabled_at   TEXT,                             -- NULL = active
   -- Authentik subject this account is bound to, once a sibling platform has
-  -- identified the caller. It is how Studio reaches an account it did not
-  -- create a password for: the account is keyed on the control-plane user id,
-  -- and this column is the OIDC identity it was matched to (convergence plan
-  -- §5.2 — "re-key on the control-plane user id, store the sub beside it").
+  -- identified the caller. It is how Genie reaches an account it did not create
+  -- a password for: the account is keyed on the control-plane user id, and this
+  -- column is the OIDC identity it was matched to ("re-key on the control-plane
+  -- user id, store the sub beside it").
   oidc_sub      TEXT
 );
 
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS quotas (
   requests_per_day INTEGER,                       -- NULL = unlimited
   tokens_per_day   INTEGER,
   spend_cap_usd    REAL,                          -- soft cap; gateway enforces hard cap
-  builds_per_day   INTEGER,                       -- NULL = unlimited (build plane, M7)
+  builds_per_day   INTEGER,                       -- retired build plane (M7); kept as history, nothing reads it
   updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS usage_cache (
   tokens_out  INTEGER NOT NULL DEFAULT 0,
   requests    INTEGER NOT NULL DEFAULT 0,
   cost_usd    REAL NOT NULL DEFAULT 0,
-  builds      INTEGER NOT NULL DEFAULT 0,          -- build.start consumed via /api/internal/build-check
+  builds      INTEGER NOT NULL DEFAULT 0,          -- retired build plane; nothing writes this (see db.js)
   updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (user_id, date)
 );

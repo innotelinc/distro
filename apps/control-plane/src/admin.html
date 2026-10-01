@@ -144,12 +144,12 @@
       <em>what it cost</em> — users, per-day quotas (requests / tokens / USD), gateway API keys, and a
       usage + spend ledger.</p>
       <p class="muted">It is the operations and billing surface of the estate: identity comes from Cerulean
-      Authentik, metering from the gateway, prices from a curated rate table, and build operations from
-      Olympus Studio — all rendered here so an operator never needs a shell.</p>
-      <p class="muted">The relationship with <strong>Olympus Studio</strong> is one loop: Studio is where an app is built,
+      Authentik, metering from the gateway, and prices from a curated rate table — all rendered here so an
+      operator never needs a shell.</p>
+      <p class="muted">The relationship with <strong>Genie</strong> is one loop: Genie is where an app is built,
       and every model call that build makes is spent on a Distro-issued per-user gateway key — so quota is gated
-      <em>before</em> each turn and usage recorded after it. Studio's build queue is mirrored here read-only, which is
-      the pipeline below; the same flow is drawn on Studio's own <code>/admin</code> panel, one click away.</p>
+      <em>before</em> each turn and usage recorded after it. Distro owns no builder surface of its own; the
+      console here is the operator's view of the accounts, the keys and the spend behind that one front door.</p>
     </div>
     <div class="panel" style="padding:14px 16px">
       <div class="title" style="padding:0 0 8px">Integrations</div>
@@ -157,30 +157,9 @@
         <li><span class="name">Cerulean Authentik</span><span>SSO (OIDC + PKCE) — identity and admin groups</span></li>
         <li><span class="name">OmniRoute</span><span>issues/revokes per-user gateway keys; enforces quotas &amp; spend caps</span></li>
         <li><span class="name">Magnate</span><span>subscriptions &amp; plans via the entitlements API (Stripe lives in Magnate, never here)</span></li>
-        <li><span class="name">Olympus Studio</span><span>the estate's build factory — its build queue is mirrored here read-only</span></li>
+        <li><span class="name">Genie</span><span>the estate's one builder surface — consumes identity, quota and audit per turn</span></li>
         <li><span class="name">Cerulean Vault</span><span>secrets (magnate token, gateway admin secret) as vault:// refs</span></li>
       </ul>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="title">Build pipeline — Olympus Studio → Distro
-      <span style="float:right;text-transform:none;letter-spacing:0">
-        <a id="olympusLink" href="https://studio.olympus.innotel.us/admin" target="_blank" rel="noopener" style="color:var(--cyan)">Olympus panel ↗</a>
-        <span id="pipeCfg"></span>
-      </span>
-    </div>
-    <div class="pipeline" id="pipeline">
-      <div class="stage" id="st-queued"><div class="n">–</div><div class="l">Queued</div><div class="sub">request written by Olympus Studio</div></div>
-      <div class="stage" id="st-running"><div class="n">–</div><div class="l">Building</div><div class="sub">runner executes the DAG (plan → build → verify)</div></div>
-      <div class="stage" id="st-succeeded"><div class="n">–</div><div class="l">Verified</div><div class="sub">artifact + preview packaged</div></div>
-      <div class="stage" id="st-published"><div class="n">–</div><div class="l">Live</div><div class="sub">published URL on the edge</div></div>
-      <div class="stage" id="st-failed"><div class="n">–</div><div class="l">Failed</div><div class="sub">stopped, error recorded</div></div>
-    </div>
-    <div class="pipeline-foot">
-      <div class="latest" id="latestJob"><span class="muted">No builds yet.</span></div>
-      <div class="muted" style="margin-top:6px">Olympus Studio builds; Distro meters the model calls behind every turn. The queue is
-      Studio's, mirrored here read-only, and the same stages are drawn on Studio's own deployment panel.</div>
     </div>
   </div>
 
@@ -191,7 +170,7 @@
     <table>
       <thead><tr>
         <th>User</th><th>Role</th><th>Status</th><th>Plan</th>
-        <th>Req/day</th><th>Tokens/day</th><th>Spend/day $</th><th>Builds/day</th>
+        <th>Req/day</th><th>Tokens/day</th><th>Spend/day $</th>
         <th>Today (req / tok / $)</th><th>7d (tok / $)</th><th>Key</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -237,22 +216,12 @@
     <div class="table-wrap"><table><thead><tr><th>Pool</th><th>Provider</th><th>Root</th><th>Capacity</th><th>Status</th><th></th></tr></thead><tbody id="poolRows"></tbody></table></div>
   </div>
 
-  <div class="panel" style="margin-top:18px">
-    <div class="title">Build queue — read-only <span id="queueCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
-    <div class="table-wrap">
-    <table>
-      <thead><tr><th>Requested</th><th>State</th><th>Action</th><th>App</th><th>Kind</th><th>By</th><th>Finished</th><th>Result</th></tr></thead>
-      <tbody id="queueRows"></tbody>
-    </table>
-    </div>
-  </div>
-
   <div class="panel" style="margin-top:18px" id="buildAuditPanel">
-    <div class="title">Build plane — audit by user <span id="buildAuditCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
+    <div class="title">Builder audit by user <span id="buildAuditCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
     <div class="filter-bar">
       <select id="buildAuditUser"><option value="">All users</option></select>
       <select id="buildAuditAction">
-        <option value="build.">build.* (all build-plane rows)</option>
+        <option value="build.">build.* (retired build plane — historical rows)</option>
         <option value="build.start">build.start</option>
         <option value="build.preview">build.preview</option>
         <option value="build.publish">build.publish</option>
@@ -383,12 +352,11 @@ async function loadAll() {
       renderAudit(entries);
     } catch { /* audit is non-critical */ }
     populateBuildAuditUsers(users);
-    try { await loadBuildAudit(); } catch { /* build-plane audit is non-critical */ }
+    try { await loadBuildAudit(); } catch { /* the builder audit is non-critical */ }
     try {
       const { entries } = await api('/api/admin/alerts?limit=50');
       renderAlerts(entries);
     } catch { /* alerts are non-critical */ }
-    try { renderBuildQueue(await api('/api/admin/build-queue')); } catch { /* queue is non-critical */ }
     if (!identitySyncAttempted) {
       identitySyncAttempted = true;
       try { await api('/api/admin/identity-groups/sync', { method: 'POST' }); } catch { /* optional integration */ }
@@ -443,9 +411,7 @@ function renderRows(users) {
       '<td><input class="num f-rpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.requests_per_day) + '" /></td>' +
       '<td><input class="num f-tpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.tokens_per_day) + '" /></td>' +
       '<td><input class="num f-cap" type="number" min="0" step="0.01" placeholder="∞" value="' + numOrEmpty(q.spend_cap_usd) + '" /></td>' +
-      '<td><input class="num f-bpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.builds_per_day) + '" title="build.start per day via Studio (M7)" /></td>' +
       '<td class="muted">' + t.requests + ' / ' + (Number(t.tokens_in) + Number(t.tokens_out)).toLocaleString() + ' / ' + money(t.cost_usd) +
-        (Number(t.builds) > 0 ? ' <span class="badge" title="builds started today">· ' + esc(t.builds) + ' build' + (Number(t.builds) === 1 ? '' : 's') + '</span>' : '') +
         modelsMini(u.usageModelsToday) + '</td>' +
       '<td class="muted">' + (Number(w.tokens_in) + Number(w.tokens_out)).toLocaleString() + ' / ' + money(w.cost_usd) + '</td>' +
       '<td>' + (u.hasGatewayKey ? '<span class="pill ok">active</span>' : '<span class="pill off">none</span>') +
@@ -453,7 +419,7 @@ function renderRows(users) {
       '<td><div class="row-actions">' +
         '<select class="f-preset" title="Quota presets"><option value="">Preset…</option><option value="free">Free</option><option value="pro">Pro</option><option value="unlimited">Unlimited</option></select>' +
         '<button class="ghost b-save">Save</button>' +
-        '<button class="ghost b-build-audit" title="Show this user\'s build-plane audit rows">Build audit</button>' +
+        '<button class="ghost b-build-audit" title="Show this user\'s builder audit rows">Build audit</button>' +
         '<button class="ghost b-rotate" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Rotate key</button>' +
         '<button class="ghost b-revoke" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Revoke key</button>' +
         '<button class="danger b-toggle">' + (disabled ? 'Enable' : 'Disable') + '</button>' +
@@ -465,7 +431,6 @@ function renderRows(users) {
           requests_per_day: tr.querySelector('.f-rpd').value === '' ? null : Math.max(0, parseInt(tr.querySelector('.f-rpd').value, 10) || 0),
           tokens_per_day: tr.querySelector('.f-tpd').value === '' ? null : Math.max(0, parseInt(tr.querySelector('.f-tpd').value, 10) || 0),
           spend_cap_usd: tr.querySelector('.f-cap').value === '' ? null : Math.max(0, parseFloat(tr.querySelector('.f-cap').value) || 0),
-          builds_per_day: tr.querySelector('.f-bpd').value === '' ? null : Math.max(0, parseInt(tr.querySelector('.f-bpd').value, 10) || 0),
         },
       };
       try { await api('/api/admin/users/' + encodeURIComponent(u.id), { method: 'PATCH', body: JSON.stringify(body) }); toast('Saved ' + u.email); loadAll(); }
@@ -506,9 +471,9 @@ function renderRows(users) {
       const preset = ev.target.value;
       if (!preset) return;
       const put = (sel, val) => { const el = tr.querySelector(sel); if (el) el.value = val; };
-      if (preset === 'free') { put('.f-plan', 'free'); put('.f-rpd', '100'); put('.f-tpd', '100000'); put('.f-cap', '2'); put('.f-bpd', '5'); }
-      else if (preset === 'pro') { put('.f-plan', 'pro'); put('.f-rpd', '1000'); put('.f-tpd', '2000000'); put('.f-cap', '25'); put('.f-bpd', '50'); }
-      else if (preset === 'unlimited') { put('.f-plan', 'unlimited'); put('.f-rpd', ''); put('.f-tpd', ''); put('.f-cap', ''); put('.f-bpd', ''); }
+      if (preset === 'free') { put('.f-plan', 'free'); put('.f-rpd', '100'); put('.f-tpd', '100000'); put('.f-cap', '2'); }
+      else if (preset === 'pro') { put('.f-plan', 'pro'); put('.f-rpd', '1000'); put('.f-tpd', '2000000'); put('.f-cap', '25'); }
+      else if (preset === 'unlimited') { put('.f-plan', 'unlimited'); put('.f-rpd', ''); put('.f-tpd', ''); put('.f-cap', ''); }
       ev.target.value = '';
       toast('Preset applied — press Save to store it');
     };
@@ -516,10 +481,6 @@ function renderRows(users) {
   }
 }
 
-// Studio's queue, as this control plane sees it. Read-only by construction: the
-// endpoint only reads, and this renders what it returns. `configured: false`
-// means the directory is not mounted HERE — which is a normal deployment shape,
-// not a fault, so it says so instead of looking like an empty queue.
 function renderIdentity(view) {
   const cfg = $('#identityCfg');
   const tb = $('#identityRows');
@@ -588,109 +549,6 @@ function renderPools(pools) {
   }
 }
 
-function renderBuildQueue(view) {
-  const cfg = $('#queueCfg');
-  const tb = $('#queueRows');
-  tb.innerHTML = '';
-
-  // Pipeline summary — the same data the table below renders as rows, seen as
-  // the flow a build actually takes: queued → running → verified → live.
-  const pipeCfg = $('#pipeCfg');
-  const setStage = (id, n, cls, sub) => {
-    const el = $(id);
-    if (!el) return;
-    el.querySelector('.n').textContent = n;
-    el.classList.toggle(cls || '', !!cls);
-    if (sub !== undefined) el.querySelector('.sub').textContent = sub;
-  };
-  if (!view || !view.configured) {
-    if (pipeCfg) pipeCfg.innerHTML = '<span class="pill off">queue not mounted</span>';
-    ['#st-queued', '#st-running', '#st-succeeded', '#st-published', '#st-failed'].forEach((id) => setStage(id, '–'));
-    const lj = $('#latestJob');
-    if (lj) lj.innerHTML = '<span class="muted">Studio\'s queue is not visible from this container (STUDIO_BUILD_QUEUE_DIR unset) — the pipeline view lights up when it is mounted.</span>';
-    // The table has nothing to show either, and the renderer below reads
-    // `view.runner` — stop here instead of falling through to it with no view.
-    cfg.innerHTML = '<span class="pill off">not mounted</span> — set STUDIO_BUILD_QUEUE_DIR to Studio\'s queue directory';
-    tb.innerHTML = '<tr><td colspan="8" class="muted">Studio\'s build queue is not visible from this container.</td></tr>';
-    return;
-  } else {
-    const counts = view.counts || {};
-    const runner = view.runner || {};
-    const published = (view.jobs || []).filter((j) => j.state === 'succeeded' && (j.publishedUrl || j.previewUrl)).length;
-    const failed = counts.failed || 0;
-    if (pipeCfg) pipeCfg.innerHTML = runner.live
-      ? '<span class="pill ok">runner live</span>' + (runner.busyWith ? ' · building <code>' + esc(runner.busyWith) + '</code>' : ' · idle')
-      : '<span class="pill off">no runner</span>';
-    setStage('#st-queued', counts.queued || 0, (counts.queued || 0) > 0 ? 'hot' : '');
-    setStage('#st-running', counts.running || 0, (counts.running || 0) > 0 ? 'hot' : '', runner.busyWith ? 'building: ' + runner.busyWith : 'runner executes the DAG (plan \u2192 build \u2192 verify)');
-    setStage('#st-succeeded', counts.succeeded || 0, (counts.succeeded || 0) > 0 ? '' : '');
-    setStage('#st-published', published, published > 0 ? '' : '');
-    setStage('#st-failed', failed, failed > 0 ? 'bad' : '');
-    const jobs = view.jobs || [];
-    const latest = jobs.find((j) => j.state === 'running' || j.state === 'queued') || jobs[0];
-    const lj = $('#latestJob');
-    if (lj) {
-      if (!latest) {
-        lj.innerHTML = '<span class="muted">No builds yet — queue an app from Olympus Studio and it appears here.</span>';
-      } else {
-        const cls = latest.state === 'succeeded' ? 'ok' : latest.state === 'failed' || latest.state === 'cancelled' ? 'off' : 'admin';
-        const link = latest.publishedUrl && /^https?:\/\//i.test(latest.publishedUrl)
-          ? '<a href="' + esc(latest.publishedUrl) + '" target="_blank" rel="noopener">open \u2197</a>'
-          : '';
-        lj.innerHTML =
-          '<span class="pill ' + cls + '">' + esc(latest.state) + '</span>' +
-          '<strong>' + esc(latest.title || latest.slug || latest.job) + '</strong>' +
-          '<span class="where">by ' + esc(latest.requestedBy || 'unknown') + (latest.finishedAt ? ' · finished ' + esc(latest.finishedAt) : latest.requestedAt ? ' · requested ' + esc(latest.requestedAt) : '') + '</span>' +
-          link;
-      }
-    }
-  }
-
-  const runner = view.runner || {};
-  const counts = view.counts || {};
-  const runnerPill = runner.live
-    ? '<span class="pill ok">runner live</span>'
-    : '<span class="pill off">no runner</span>';
-  cfg.innerHTML =
-    runnerPill +
-    ' · ' + esc(String(counts.queued || 0)) + ' queued · ' + esc(String(counts.running || 0)) + ' running' +
-    ' · <span class="badge">' + esc(view.dir || '') + '</span>' +
-    (runner.host ? ' · ' + esc(runner.host) + (runner.busyWith ? ' busy with <code>' + esc(runner.busyWith) + '</code>' : '') : '');
-
-  if (!view.readable) {
-    tb.innerHTML = '<tr><td colspan="8" class="muted">The queue directory is configured but could not be read.</td></tr>';
-    return;
-  }
-  if (!view.jobs || !view.jobs.length) {
-    tb.innerHTML = '<tr><td colspan="8" class="muted">Nothing in the queue.</td></tr>';
-    return;
-  }
-
-  for (const j of view.jobs) {
-    const tr = document.createElement('tr');
-    const stateCls = j.state === 'succeeded' ? 'ok' : j.state === 'failed' || j.state === 'cancelled' ? 'off' : j.state === 'running' ? 'admin' : 'user';
-    // What the operator wants next: the name it was published on, or why it did
-    // not get that far.
-    // Linkified only for http(s): the URL comes from a file another process
-    // writes, and a bare `esc` would still render a `javascript:` one as a link.
-    const result = j.publishedUrl && /^https?:\/\//i.test(j.publishedUrl)
-      ? '<a href="' + esc(j.publishedUrl) + '" target="_blank" rel="noopener">' + esc(j.publishedUrl) + '</a>'
-      : j.publishedUrl || j.previewUrl
-        ? esc(j.publishedUrl || j.previewUrl)
-        : esc(j.message || (j.exitCode != null ? 'exit ' + String(j.exitCode) : ''));
-    tr.innerHTML =
-      '<td class="badge">' + esc(j.requestedAt || '') + '</td>' +
-      '<td><span class="pill ' + stateCls + '">' + esc(j.state) + '</span></td>' +
-      '<td><code>' + esc(j.action) + '</code></td>' +
-      '<td>' + esc(j.title || j.slug || '') + '</td>' +
-      '<td>' + esc(j.kind || '') + '</td>' +
-      '<td>' + esc(j.requestedBy || '') + '</td>' +
-      '<td class="badge">' + esc(j.finishedAt || '') + '</td>' +
-      '<td class="muted">' + result + '</td>';
-    tb.appendChild(tr);
-  }
-}
-
 // M6 — the gateway-version pin, as the last check saw it. `compatible` is
 // true/false/null: null means the gateway could not be asked or did not say,
 // which is "unchecked", not a fault.
@@ -750,10 +608,12 @@ function modelsMini(models) {
   return '<div class="models-mini" title="' + esc(title) + '">' + top + more + '</div>';
 }
 
-// Build-plane audit: the `build.*` rows Studio writes through
+// Builder audit: the `build.*` rows the retired build plane wrote through
 // /api/internal/audit (start, preview, publish, export), narrowed to one
-// account. The server does the filtering (?action= prefix, ?user= id) so the
-// view stays honest when the general log is dominated by sign-ins.
+// account. The plane is gone, so these are history rather than a live feed —
+// kept because an audit row is evidence, and the server still filters
+// (?action= prefix, ?user= id) so the view stays honest when the general log is
+// dominated by sign-ins.
 function populateBuildAuditUsers(users) {
   const sel = $('#buildAuditUser');
   const current = sel.value;
@@ -787,7 +647,7 @@ function renderBuildAudit(entries, { userId } = {}) {
   count.textContent = entries && entries.length ? entries.length + ' row' + (entries.length === 1 ? '' : 's') : '';
   if (!entries || !entries.length) {
     tb.innerHTML = '<tr><td colspan="5" class="muted">' +
-      (who ? 'No build-plane rows for ' + esc(who) + ' yet.' : 'No build-plane rows yet — Studio writes them via <code>POST /api/internal/audit</code> on build, preview, publish and export.') +
+      (who ? 'No builder rows for ' + esc(who) + ' yet.' : 'No builder rows yet. The build plane that wrote <code>build.*</code> rows is retired; the rows already written are kept here as history.') +
       '</td></tr>';
     return;
   }

@@ -4,12 +4,12 @@
 #   control-plane — the control plane (accounts, per-user gateway keys,
 #             quotas/usage, admin console, OIDC SSO, billing entitlements).
 #             This is Distro's remaining deliverable: the tenancy layer for
-#             whatever builder surface the ecosystem runs (Studio today).
+#             the ecosystem's one builder surface, Genie.
 #
-#             The builder front door (the bolt.diy fork, apps/web) is retired:
-#             one web UI (Studio) serves the ecosystem. See
-#             ips/docs/convergence-onyx-olympus-distro-atlas.md §5 for the
-#             change list, and docs/ops.md for the runbook.
+#             The builder front door (the bolt.diy fork, apps/web) is retired,
+#             and Distro runs no builder of its own: Genie is where an app is
+#             built and this plane is what its turns are metered by. See
+#             docs/ops.md for the runbook.
 #
 # Before first run: cp .env.example .env and fill in secrets. Then:
 #   docker compose up -d --build
@@ -42,8 +42,8 @@ services:
       # http://host.docker.internal:8080/hook
       - 'host.docker.internal:host-gateway'
     ports:
-      # Browser-facing (the admin console at /admin; Studio and the builder
-      # surface call the same API). Bind LAN via 0.0.0.0, loopback via
+      # Browser-facing (the admin console at /admin; Genie calls the same API
+      # server-to-server). Bind LAN via 0.0.0.0, loopback via
       # CONTROL_BIND_HOST=127.0.0.1. Protect with CONTROL_CORS_ORIGIN.
       - '${CONTROL_BIND_HOST:-0.0.0.0}:20140:20140'
 
