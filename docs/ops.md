@@ -252,10 +252,60 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   `better-sqlite3 .backup()`, so no downtime — into `./backups/`
   (git-ignored; prune keeps 14 days). Cron example:
   `0 3 * * * cd /opt/distro && ./scripts/backup.sh >> /var/log/distro-backup.log 2>&1`
-  Restore: copy a `backups/control-plane/control-*.sqlite` to the
-  `control-data` volume path (`/data/control.sqlite`) with the stack stopped.
   There is no gateway copy to restore — that store belongs to the remote
   gateway and is backed up on the platform host.
+
+  **Restoring.** The rehearsal below is the procedure, and it was run against
+  this host's own backups (2026-10-01): put the file at the `control-data`
+  volume's path, `/data/control.sqlite`, with the stack stopped.
+
+  ```bash
+  # 1. take a fresh one while the stack is live, so the file is consistent
+  cd /opt/distro && ./scripts/backup.sh
+  # 2. stop the stack, replace the store, start it again
+  docker compose down
+  docker run --rm -v distro_control-data:/data -v /opt/distro/backups/control-plane:/backup \
+    alpine sh -c 'cp /backup/control-<stamp>.sqlite /data/control.sqlite'
+  docker compose up -d
+  ```
+
+  **Rehearse it before you need it.** `make restore-check`
+  (`scripts/restore-rehearsal.sh`) takes a fresh backup and boots the newest and
+  the oldest into a scratch container on `:20141`, then removes it. A restore
+  that has never been tried is a hope: this proves the backup is a database
+  rather than a truncated copy, and that the migrations that run at boot still
+  apply to it. What it runs:
+
+  ```bash
+  cd /opt/distro
+  mkdir -p /tmp/restore-rehearsal && cp backups/control-plane/control-<stamp>.sqlite \
+    /tmp/restore-rehearsal/control.sqlite && chmod -R 777 /tmp/restore-rehearsal
+  docker run -d --name distro-restore-check -p 127.0.0.1:20141:20140 \
+    -v /tmp/restore-rehearsal:/data distro-control-plane:local
+  curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:20141/health   # 200
+  docker exec distro-restore-check node bin/control.mjs users              # the accounts
+  docker exec distro-restore-check node --input-type=module -e '
+    import Database from "better-sqlite3";
+    const db = new Database(process.env.CONTROL_DB_PATH, { readonly: true });
+    console.log(db.prepare("PRAGMA table_info(quotas)").all().map(c => c.name).join(","));
+    console.log(db.prepare("SELECT COUNT(*) n FROM audit_log").get());
+  '
+  docker rm -f distro-restore-check && rm -rf /tmp/restore-rehearsal
+  ```
+
+  Rehearsed on 2026-10-01 against the newest backup (two accounts, 53 audit
+  rows, last `user.delete`) and the oldest one on the host (2026-09-19, one
+  account, one audit row): both answered `200` on `/health`, both listed their
+  accounts, and the older copy came back with the `oidc_sub` and `builds`
+  columns the boot migration adds — which is the claim `src/db.js` makes, tested
+  rather than assumed. The live stack was untouched throughout: it used no
+  volume the scratch container had, and listed the same accounts afterwards.
+
+  Two things the rehearsal is not: it does not prove the **gateway** side (the
+  keys in the restored rows point at the gateway's own store, which is the
+  platform's to back up), and it does not exercise a restore *onto the live
+  volume* — the scratch container answers "is this backup good", not "is the
+  stopped-stack swap done right".
 
 - **Upgrading the gateway**: the gateway is the shared platform service, so its
   upgrades are the platform operators' (Server 2) — there is no image tag or

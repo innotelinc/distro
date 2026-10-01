@@ -42,6 +42,9 @@ doctor: ## Verify the remote gateway reachability from the host
 backup: ## Back up the control-plane DB to ./backups
 	./scripts/backup.sh
 
+restore-check: ## Rehearse a restore of the newest and oldest backups in a scratch container
+	./scripts/restore-rehearsal.sh
+
 typecheck: ## Syntax-check the control-plane sources (node --check)
 	@for f in apps/control-plane/src/*.js apps/control-plane/bin/*.mjs; do node --check "$$f" || exit 1; done
 	@echo "control-plane sources parse"
