@@ -7,6 +7,7 @@
 //   node bin/control.mjs gateway-check
 //   node bin/control.mjs keys-check [--fix] [--alert]
 //   node bin/control.mjs acceptance
+//   node bin/control.mjs accounts [limit]
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
@@ -17,7 +18,7 @@ import { GatewayClient } from '../src/gateway.js';
 import { syncUsageFromGateway } from '../src/sync.js';
 import { checkGatewayVersion } from '../src/gatewayVersion.js';
 import { checkAccountKeys, remintAccountKey } from '../src/accountKeys.js';
-import { runAcceptance, formatAcceptance } from '../src/acceptance.js';
+import { runAcceptance, formatAcceptance, linkedAccountPairs } from '../src/acceptance.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 openDb(process.env.CONTROL_DB_PATH || join(here, '..', 'data', 'control.sqlite'));
@@ -219,9 +220,19 @@ async function main() {
       if (!result.ok) process.exit(1);
       break;
     }
+    case 'accounts': {
+      // The accounts the cross-repository check signs in as, in the flag shape
+      // `ontrak-genie/scripts/verify-tenancy.mjs` takes (`sub=email`). The whole
+      // point is that the *plane* names them: a check that invented a subject
+      // would prove the console mints a cookie, not that the accounts people use
+      // resolve here. Printed as data so a shell can pass it straight through.
+      const limit = Number(args[0]) > 0 ? Number(args[0]) : 2;
+      for (const pair of linkedAccountPairs(listUsers(), limit)) console.log(pair);
+      break;
+    }
     default:
       console.error(
-      'usage: control.mjs <health|create-admin|users|delete-user|gateway-check|keys-check|usage-sync|test-alert|backup|acceptance>',
+      'usage: control.mjs <health|create-admin|users|delete-user|gateway-check|keys-check|usage-sync|test-alert|backup|acceptance|accounts>',
     );
       process.exit(1);
   }

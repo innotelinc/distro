@@ -1,5 +1,5 @@
 [Unit]
-Description=Run the Distro tenancy-loop acceptance check daily
+Description=Run the Distro cross-repository tenancy-loop acceptance check daily
 
 [Timer]
 # After the key check, and before anyone's day starts.

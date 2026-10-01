@@ -312,12 +312,27 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   turn's usage against it, so it is self-contained. This is the plane's half of
   the M7 cross-repository acceptance item; the sign-in half lives with the surface
   that signs in (`ontrak-genie/scripts/verify-tenancy.mjs`), so neither half needs
-  an Authentik, provider or Cerulean credential. The deployment runs it daily as
+  an Authentik, provider or Cerulean credential. Run it alone with
+  `make acceptance`; `make cross-check` (below) runs it *and* the console half.
+- **Both halves, as one check**: `make cross-check`
+  (`./scripts/cross-repo-check.sh`) runs the plane half above and then the
+  console half — `ontrak-genie/scripts/verify-tenancy.mjs`, which signs two
+  accounts in and requires two workspaces, two chat lists and two records. The
+  two halves are the M7 item, and each passes perfectly while the *join* is
+  broken (a session the plane will not accept, an account bound to the wrong
+  subject), which is why the roadmap asked for them under one timer. The console
+  half needs a Genie checkout, so set `GENIE_DIR` (or `GENIE_VERIFY` to the
+  script); without one the console half is printed as **SKIP by name** and only
+  the plane half decides the exit code — a check that silently “passed” the half
+  it never ran would be worse than one that says so. The two accounts are named
+  by the plane itself (`control.mjs accounts`, which reads the accounts bound to
+  an identity), not carried by the script, so what is proved is that the
+  accounts people use resolve. The deployment runs it daily as
   `distro-acceptance.timer` (06:41, after the key check), shipped as
   `systemd/distro-acceptance.{service,timer}`: install with
   `install -m 0644 systemd/distro-acceptance.* /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now distro-acceptance.timer`.
   Any scheduler works, e.g.
-  `41 6 * * * cd /opt/distro && ./scripts/acceptance-check.sh >> /var/log/distro-acceptance.log 2>&1`
+  `41 6 * * * cd /opt/distro && ./scripts/cross-repo-check.sh >> /var/log/distro-acceptance.log 2>&1`
 - **Removing an account**: `make keys-check` finds keys that are broken; this is
   how one is retired. `docker compose exec control-plane node bin/control.mjs
   delete-user <email>` (or `DELETE /api/admin/users/:id`) revokes the account's

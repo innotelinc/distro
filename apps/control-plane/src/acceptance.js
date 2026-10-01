@@ -124,6 +124,31 @@ export async function runAcceptance(options) {
 }
 
 /**
+ * The accounts a cross-repository check may sign in as.
+ *
+ * The M7 item is two halves — the plane's loop and the console's sign-in — and the
+ * sign-in half has to name *real* subjects. A check that carried its own made-up
+ * subject would prove the console mints a cookie, not that the accounts people use
+ * resolve through this plane; so the plane is asked which accounts exist, and only
+ * the ones bound to an identity (`oidc_sub`) can be signed in as. Disabled accounts
+ * are left out for the same reason: they are precisely the ones a sign-in must
+ * refuse, so including them would make a healthy deployment look broken.
+ *
+ * The return shape is the flag `ontrak-genie/scripts/verify-tenancy.mjs` takes
+ * (`sub=email`), so the two halves join without a translation table in between.
+ *
+ * @param {Array<{ oidc_sub?: string|null, email?: string, disabled_at?: string|null }>} users
+ * @param {number} [limit]
+ * @returns {string[]}
+ */
+export function linkedAccountPairs(users, limit = 2) {
+  return users
+    .filter((user) => user && user.oidc_sub && !user.disabled_at && user.email)
+    .slice(0, limit)
+    .map((user) => `${user.oidc_sub}=${user.email}`);
+}
+
+/**
  * Render a run the way the CLI and the scheduled wrapper print it.
  * @param {AcceptanceResult} result
  * @returns {string}

@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 .PHONY: help up down logs ps build bootstrap doctor \
-        discover-gateway mesh-setup clean backup typecheck keys-check acceptance
+        discover-gateway mesh-setup clean backup typecheck keys-check acceptance cross-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -54,3 +54,6 @@ keys-check: ## Verify the accounts' gateway keys are still accepted (FIX=1 rotat
 
 acceptance: ## Walk the tenancy loop end to end (identity -> quota -> usage) and exit non-zero on a break
 	./scripts/acceptance-check.sh
+
+cross-check: ## Walk both halves of the tenancy loop (this plane and the console) as one check
+	./scripts/cross-repo-check.sh

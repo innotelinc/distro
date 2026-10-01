@@ -1,17 +1,21 @@
 [Unit]
-Description=Distro tenancy-loop acceptance check
+Description=Distro tenancy-loop acceptance check, both repositories
 Documentation=https://github.com/innotelinc/distro
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
 
-# Walks the loop a turn takes on this deployment: a subject resolves to an
-# account, the account's own gateway key answers the quota gate, usage is
-# reported and reads back. A deployment looks healthy while a piece of that loop
-# is quietly dead — a key the gateway forgot, a plane that stopped writing
-# accounting — and the builder surface reports the result as a model problem.
-# It exits non-zero on the first broken step. See docs/ops.md.
+# Walks the loop a turn takes on this deployment, as one check across both
+# repositories. The plane half proves a subject resolves to an account, the
+# account's own gateway key answers the quota gate, and a turn's usage is
+# reported and reads back. The console half proves the *console* signs two real
+# accounts in and gives each its own workspace, chat list and record. Either half
+# passes while the join between them is broken — a session the plane will not
+# accept, an account bound to the wrong subject — which is what running them
+# together catches. It exits non-zero on the first broken step. Where the console
+# checkout is absent the console half is reported as SKIP by name rather than
+# silently passing; set GENIE_DIR to run both. See docs/ops.md.
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/distro
-ExecStart=/usr/bin/bash ./scripts/acceptance-check.sh
+ExecStart=/usr/bin/bash ./scripts/cross-repo-check.sh

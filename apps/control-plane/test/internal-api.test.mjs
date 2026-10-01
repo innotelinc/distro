@@ -7,10 +7,12 @@ import test, { after, before } from "node:test";
 
 import Database from "better-sqlite3";
 
-import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayKey, getUsageToday } from "../src/db.js";
+import { execFileSync } from "node:child_process";
+
+import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayKey, getUsageToday, setUserOidcSub } from "../src/db.js";
 import { openSession } from "../src/auth.js";
 import { handler } from "../src/http.js";
-import { runAcceptance } from "../src/acceptance.js";
+import { runAcceptance, linkedAccountPairs } from "../src/acceptance.js";
 
 /**
  * The internal API (`/api/internal/*`), exercised against a real SQLite file and
@@ -611,4 +613,46 @@ test("acceptance: the loop a turn takes, end to end, against a real plane", asyn
   } finally {
     await plane.close();
   }
+});
+
+test("the cross-repository check is handed real accounts, not invented ones", async () => {
+  // The console half of the cross-repo check signs in as accounts *this* plane
+  // names. What must not happen: the check carrying a made-up subject (it would
+  // prove the console mints a cookie and nothing about this deployment), or
+  // naming an account a sign-in must refuse.
+  const pairs = linkedAccountPairs([
+    { oidc_sub: "authentik:1111", email: "dhunter@innotel.us" },
+    { oidc_sub: "authentik:2222", email: "admin@cerulean.innotel.us" },
+    { oidc_sub: null, email: "password-only@innotel.us" },
+    { oidc_sub: "authentik:3333", email: "leaver@innotel.us", disabled_at: "2026-09-01T00:00:00Z" },
+    { oidc_sub: "authentik:4444", email: "third@innotel.us" },
+  ]);
+  assert.deepEqual(pairs, ["authentik:1111=dhunter@innotel.us", "authentik:2222=admin@cerulean.innotel.us"]);
+
+  // A disabled account is exactly the one a sign-in refuses, so including it
+  // would make a healthy deployment read as broken; the limit is how the two
+  // halves agree on how many accounts the isolation claim needs.
+  assert.equal(linkedAccountPairs([{ oidc_sub: "a", email: "x@y.z" }]).length, 1);
+  assert.deepEqual(linkedAccountPairs([], 2), []);
+});
+
+test("the CLI prints the pairs in the flag shape the console check takes", () => {
+  // `control.mjs accounts` is a pipe: the shell passes its lines straight to
+  // `verify-tenancy.mjs --account <line>`, so a bare subject/email goes out and
+  // nothing else — a label or a prefix would break the join between the halves
+  // silently, which is the one thing this check exists to make visible.
+  const path = join(workdir, `cli-accounts-${(dbSeq += 1)}.sqlite`);
+  openDb(path);
+  const first = createUser({ email: "dhunter@innotel.us", passwordHash: "x", role: "user" });
+  const second = createUser({ email: "admin@cerulean.innotel.us", passwordHash: "x", role: "admin" });
+  setUserOidcSub(first.id, "authentik:1111");
+  setUserOidcSub(second.id, "authentik:2222");
+
+  const out = execFileSync(process.execPath, [new URL("../bin/control.mjs", import.meta.url).pathname, "accounts"], {
+    env: { ...process.env, CONTROL_DB_PATH: path },
+    encoding: "utf8",
+  });
+  const lines = out.split("\n").filter(Boolean);
+  assert.deepEqual(lines, ["authentik:1111=dhunter@innotel.us", "authentik:2222=admin@cerulean.innotel.us"]);
+  for (const line of lines) assert.match(line, /^[^=\s]+=[^@\s]+@[^@\s]+$/);
 });

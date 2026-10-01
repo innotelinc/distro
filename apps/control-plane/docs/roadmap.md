@@ -129,7 +129,7 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       This is now cross-repo with **Genie**: reconciling the control-plane
       bearer token with Genie's Authentik session is the same bridge seen from
       the other side, and Genie's own roadmap carries its half.
-- [~] **Cross-repository acceptance automation.** A scheduled check that proves
+- [x] **Cross-repository acceptance automation.** A scheduled check that proves
       the deployment still works end to end — Genie signs a subject in through
       Authentik, the control plane provisions it, the turn is gated and its
       usage recorded, and the audit row lands — without exposing provider or
@@ -147,9 +147,19 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       sign-in half lives with the surface that signs in: `verify-sso.py` already
       drives a real Authentik code flow and
       `ontrak-genie/scripts/verify-tenancy.mjs` proves two accounts are isolated
-      once signed in. **What remains** is scheduling those two together as one
-      check, so a break that spans the repos (a session the plane will not
-      accept) is caught by the same timer rather than by a person.
+      once signed in. **Both halves now run as one check (2026-10-01):**
+      `make cross-check` (`scripts/cross-repo-check.sh`) runs the plane half and
+      then the console half, and the daily `distro-acceptance.timer` was
+      repointed at it, so a break that spans the repos — a session the plane will
+      not accept, an account bound to the wrong subject — is caught by the same
+      timer rather than by a person. The console half needs a Genie checkout
+      (`GENIE_DIR`, else a sibling/`/opt` search), and where there is none it is
+      reported as **SKIP by name** rather than counted a pass, leaving the plane
+      half to decide the exit code. The accounts the console signs in as are named
+      by the plane itself (`control.mjs accounts`, from the accounts bound to an
+      identity), so what is proved is that the *actual* accounts resolve — a check
+      with its own invented subject would prove the console mints a cookie and
+      nothing more.
 
 ### Added while M7 is open (shipped 17 September 2026)
 
