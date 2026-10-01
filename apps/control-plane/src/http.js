@@ -205,6 +205,20 @@ export async function handler(req, res, { gateway }) {
     return user;
   }
 
+  // ---- root: the console, not the API ----
+  //
+  // `GET /` is not an API route, so it used to fall through to the catch-all
+  // 401 below: a person typing the host got `{"error":"unauthorized"}` where
+  // every other surface in the estate shows a UI. `distro.innotel.us` publishes
+  // this service (see apps/control-plane/docs/roadmap.md), so the bare host has
+  // to land somewhere useful. Only `/` redirects — every real route keeps its
+  // meaning — and the relative Location preserves the origin, which is what the
+  // host-only `distro_oidc_state` cookie depends on.
+  if ((path === '/' || path === '') && (method === 'GET' || method === 'HEAD')) {
+    res.writeHead(302, { Location: '/admin' });
+    return res.end();
+  }
+
   // ---- admin console (public shell; data requires the admin API) ----
   if ((path === '/admin' || path === '/admin/') && method === 'GET') {
     const html = readFileSync(join(here, 'admin.html'), 'utf8');
