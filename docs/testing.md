@@ -2,7 +2,7 @@
 
 Goal: prove the tenancy service end to end — accounts, per-user gateway keys,
 quota enforcement, usage accounting, the admin console, and the service API
-the builder surface (Studio) consumes.
+the builder surface (Genie) consumes.
 
 ## 0. Prereqs
 
@@ -42,7 +42,7 @@ another machine use the host's LAN IP (`hostname -I`).
    if the control plane is unreachable (quota-check is deliberately
    fail-open).
 
-## 3. The service API (what Studio consumes)
+## 3. The service API (what Genie consumes)
 
 With `CONTROL_INTERNAL_TOKEN` set (Distro's `bootstrap.sh` generates it):
 
@@ -67,9 +67,8 @@ With `CONTROL_INTERNAL_TOKEN` set (Distro's `bootstrap.sh` generates it):
 - enable/disable (disable revokes the gateway key immediately),
 - revoke / rotate a user's key,
 - role changes (last-admin guard) and account deletion (revokes key, cascades),
-- the audit log panel, and the read-only build-queue view
-  (`STUDIO_BUILD_QUEUE_DIR` mounted `:ro`; unset renders an explanatory
-  empty panel, never an error page).
+- the audit log panel, and the builder-audit panel (which now shows only the
+  historical `build.*` rows the retired build plane wrote).
 
 `DELETE /api/admin/users/:id` removes a test account — try it with a
 throwaway signup; the key is revoked and all rows cascade.
@@ -80,9 +79,9 @@ throwaway signup; the key is revoked and all rows cascade.
 cd apps/control-plane && npm install && npm test
 ```
 
-Covers the schema migration (including the `oidc_sub` upgrade path on an
-existing database), identity provisioning/conflict, quota gating, usage
-reports, audit writes, and the build-queue reader.
+Covers the schema migration (including the `oidc_sub` upgrade path and the
+retired build-plane columns on an existing database), identity
+provisioning/conflict, quota gating, usage reports and audit writes.
 
 ## 6. Backups
 
@@ -104,7 +103,7 @@ websocket proxying needed.
 | `gateway.example.com` | `http://<host>:20128` | OmniRoute dashboard — keep private/restricted |
 
 Lock CORS to the builder surface's origin:
-`CONTROL_CORS_ORIGIN=https://<studio-host>` → restart control-plane. When
+`CONTROL_CORS_ORIGIN=https://<genie-host>` → restart control-plane. When
 set, only requests whose `Origin` matches get the allow-origin header, and
 preflights from any other origin get `403` (no CORS grant).
 

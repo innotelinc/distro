@@ -27,7 +27,7 @@ fill_secret() {
 fill_secret JWT_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
 fill_secret API_KEY_SECRET "$(openssl rand -hex 32)"
 # Service-to-service token for the control plane's provisioning/audit routes
-# (`/api/internal/identity`, `/api/internal/audit`). Studio presents the same
+# (`/api/internal/identity`, `/api/internal/audit`). Genie presents the same
 # value; until it is set those routes refuse rather than open.
 fill_secret CONTROL_INTERNAL_TOKEN "$(openssl rand -hex 32)"
 
@@ -133,7 +133,7 @@ cat <<EOF
       make doctor
       # admin console: http://127.0.0.1:20140/admin
 
- Builder surfaces (Studio) consume this control plane's
+ Builder surfaces (Genie) consume this control plane's
  quota/usage/identity APIs — there is no Distro web app to open anymore.
  Upstream provider keys NEVER go into Distro — they live in the gateway.
  See docs/ops.md and docs/architecture.md.

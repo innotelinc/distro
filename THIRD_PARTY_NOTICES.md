@@ -14,7 +14,7 @@ version that was used.
 - Used as: the retired builder front door (`apps/web`, a rebranded fork:
   in-browser agent IDE, WebContainer sandbox, live preview, terminal,
   git/deploy). Retired as a surface in the build-plane convergence (§5.2);
-  one web UI (Studio) serves the ecosystem. Retained here as the record.
+  one web UI (Genie) serves the ecosystem. Retained here as the record.
 
 ## OmniRoute
 

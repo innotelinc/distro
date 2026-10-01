@@ -58,7 +58,7 @@ ASSIGNMENT = re.compile(
 )
 
 # A <something>_KEY holding a dotted lowercase identifier is naming a storage or
-# registry key, not carrying a credential — e.g. STORAGE_KEY = "studio.token".
+# registry key, not carrying a credential — e.g. STORAGE_KEY = "genie.token".
 # Real credentials essentially never take this shape, so the exemption is kept
 # this narrow on purpose.
 NAMESPACED_IDENTIFIER_KEY = re.compile(r"_key$", re.IGNORECASE)

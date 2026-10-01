@@ -5,7 +5,7 @@
 > design it follows. References to the Distro web app (`apps/web`, the bolt.diy
 > fork) are historical: the front door retired in the build-plane convergence
 > (§5.2), and the control plane now serves the ecosystem's builder surface
-> (Studio) through its token-gated `/api/internal/*` routes — the per-user
+> (Genie) through its token-gated `/api/internal/*` routes — the per-user
 > gateway key design below is unchanged, only the client in front of it.
 
 Distro is being built **multi-tenant** (Phase 2 of the master plan): accounts,

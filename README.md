@@ -5,8 +5,8 @@
 **Tenancy service for AI app building — BuilderOps.**
 
 Accounts, one OmniRoute gateway key per user, quota/usage enforcement, spend
-tracking, and an admin console — the multi-tenant layer the ecosystem's
-builder surface (Olympus Studio) consumes for every model turn.
+tracking, and an admin console — the multi-tenant layer the family's browser
+agent console, **Genie**, consumes for every model turn.
 
 [![CI](https://github.com/innotelinc/distro/actions/workflows/ci.yml/badge.svg)](https://github.com/innotelinc/distro/actions/workflows/ci.yml)
 [![Conformity](https://github.com/innotelinc/distro/actions/workflows/conform.yml/badge.svg)](https://github.com/innotelinc/distro/actions/workflows/conform.yml)
@@ -16,11 +16,11 @@ builder surface (Olympus Studio) consumes for every model turn.
 </div>
 
 > **About Distro** — Distro began as an assembly of two MIT-licensed projects:
-> bolt.diy (in-browser IDE) + OmniRoute (AI routing gateway). In the build-plane
-> convergence it shed the surfaces other platforms own — the bundled gateway
-> first (§4.1), then the bolt.diy front door (§5.2) — and now ships the part
-> that was always its own: the **multi-tenant control plane**. Upstream
-> attribution is retained in
+> bolt.diy (in-browser IDE) + OmniRoute (AI routing gateway). It shed the
+> surfaces other platforms own — the bundled gateway first, then the bolt.diy
+> front door — and now ships the part that was always its own: the
+> **multi-tenant control plane** behind **Genie**, the ecosystem's one builder
+> surface. Upstream attribution is retained in
 > [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). **Landing page (the
 > product's history and gallery):**
 > [innotelinc.github.io/distro](https://innotelinc.github.io/distro)
@@ -32,7 +32,7 @@ builder surface (Olympus Studio) consumes for every model turn.
   console, and an audit log.
 - **A token-gated service API** — `POST /api/internal/identity`,
   `GET /api/internal/quota-check`, `POST /api/internal/usage-report`,
-  `POST /api/internal/audit` — which the builder surface (Studio) calls
+  `POST /api/internal/audit` — which the builder surface (Genie) calls
   before and after every model turn, keyed to the signed-in Authentik
   subject.
 
@@ -42,7 +42,7 @@ upstream provider keys.
 
 ```
 ┌────────────────────────────┐   /v1/*   ┌──────────────────────────────┐
-│  Builder surface (Studio)  ├──────────►│         OmniRoute            │
+│  Builder surface (Genie)   ├──────────►│         OmniRoute            │
 │  the one web UI            │ user's own│  routing · fallback ·        ├──► upstream
 │        │                   │  API key  │  usage accounting · MCP      │    providers
 │        ▼ /api/internal/*   │           └──────────────────────────────┘
@@ -60,8 +60,8 @@ upstream provider keys.
 | --- | --- |
 | No accountability per user | Per-user gateway keys — every model call is attributable, capped, revocable |
 | Runaway spend | Quota enforcement per turn + USD spend caps on the keys themselves (the hard backstop) |
-| No operator visibility | Admin console: limits, enable/disable, revoke/rotate, roles, audit log, build-queue view |
-| Ecosystem sprawl | One tenancy layer behind one web UI — identity in Authentik, building in Studio, gateway in OmniRoute |
+| No operator visibility | Admin console: limits, enable/disable, revoke/rotate, roles, audit log |
+| Ecosystem sprawl | One tenancy layer behind one web UI — identity in Authentik, building in Genie, gateway in OmniRoute |
 | Identity you don't control | Optional Authentik SSO through Cerulean |
 | Billing you don't control | Optional Magnate subscriptions — entitlements checked server-to-server |
 
@@ -97,7 +97,7 @@ make doctor
 # admin console: http://127.0.0.1:20140/admin
 ```
 
-Point the builder surface at it (Olympus Studio):
+Point the builder surface at it (Genie):
 `CONTROL_PLANE_INTERNAL_URL=http://<host>:20140` +
 `CONTROL_INTERNAL_TOKEN=<the token bootstrap.sh generated>`.
 
@@ -132,7 +132,7 @@ docs/                stack · architecture · ops · upstream · multi-tenant ·
 Shipped and verified on the live stack: multi-tenant control plane with
 per-user gateway keys, quota enforcement, spend tracking, alert webhooks,
 backups, and an admin console; Authentik SSO; Magnate entitlement checks;
-the token-gated service API Studio consumes (identity → quota → turn →
+the token-gated service API Genie consumes (identity → quota → turn →
 usage/audit).
 
 Roadmap beyond this (documented in the control-plane roadmap): billing hooks

@@ -38,16 +38,14 @@ free — no gateway forking required.
 | Authentik SSO | `src/oidc.js` + `/api/auth/oidc/{config,start,callback}` | OIDC authorization-code login via Authentik (popup posts the session back to the app); SSO accounts get an unusable `sso:` password hash, auto-provisioned with their own gateway key. Verified against a local OIDC mock |
 | Per-user keys (M2) | signup mints a key; `GET /api/me/gateway-key`; `POST /api/me/gateway-key/rotate` | key lifecycle driven through the gateway dashboard API |
 | Quota gate (M3) | `GET /api/internal/quota-check` + `POST /api/internal/usage-report` | the web app identifies the user by their gateway key and enforces/records before/after each chat turn (`DISTRO_ENFORCE_QUOTA`) |
-| Build-plane quota (M7) | `POST /api/internal/build-check` | service token + Authentik `sub`: may this identity `build.*` now? Shares the chat caps (same key); `build.start` is judged against `builds_per_day` and counted with `consume: true`; refusals are `build.denied` audit rows + the quota alert |
-| Tenancy for the builder (convergence §5.2) | `POST /api/internal/identity` + `POST /api/internal/audit` | service-to-service (`x-control-internal-token` = `CONTROL_INTERNAL_TOKEN`): resolves an Authentik `sub` to an account (creating it and minting its key on first sight, `users.oidc_sub` is the join), so Studio can key its library on the control-plane user id, spend the user's own key, and write build/publish/export rows into `audit_log` |
+| Tenancy for the builder (convergence §5.2) | `POST /api/internal/identity` + `POST /api/internal/audit` | service-to-service (`x-control-internal-token` = `CONTROL_INTERNAL_TOKEN`): resolves an Authentik `sub` to an account (creating it and minting its key on first sight, `users.oidc_sub` is the join), so Genie can key its library on the control-plane user id, spend the user's own key, and write build/publish/export rows into `audit_log` |
 | Usage sync (M4) | `src/sync.js` + `src/gatewayUsage.js` | scheduled/CLI sync of the gateway's per-key ledger into `usage_cache` (needs the gateway data dir mounted ro at `GATEWAY_DATA_DIR`; off for the remote gateway) |
 | Admin API (M5) | users list/stats, PATCH (disable, quota, role), revoke/rotate key, DELETE user, audit list | disabling/deleting revokes the gateway key; last-admin guard |
 | Admin console (M5) | `GET /admin` → `src/admin.html` | no build step, no CDNs; login as an admin |
-| Build-queue view (§5.2) | `src/buildQueue.js` + `GET /api/admin/build-queue` | read-only render of Studio's queue (`STUDIO_BUILD_QUEUE_DIR`): jobs merged from request+status files, the runner's heartbeat, per-state counts. Never writes, claims or cancels — the runner stays the only writer |
 | Authentik group mapping | `src/authentik.js` + `/api/admin/identity-groups/*` | mirrors the configured Authentik group, creates it when missing, provisions missing local users and replaces the local membership cache |
 | Cloud storage providers and pools | `cloud_storage_providers`, `storage_pools` + `/api/admin/storage-{providers,pools}` | Shares GUI can register providers and create logical pools rooted at a provider path; stores metadata and Vault references only, never raw provider credentials |
-| Audit log (M5) | `audit_log` table + `GET /api/admin/audit` | signups, key lifecycle, quota/role/disable changes, deletes. `?action=<prefix>` narrows to a namespace (`build.` = rows Studio writes), `?user=<id>` to rows an account performed or was the target of |
-| Build-plane audit by user (M7) | "Build plane — audit by user" panel in `/admin` | per-user view of `build.*` rows (start/preview/publish/export) with user + action filters and a **Build audit** shortcut per user row; http(s) preview/publish URLs are linkified |
+| Audit log (M5) | `audit_log` table + `GET /api/admin/audit` | signups, key lifecycle, quota/role/disable changes, deletes. `?action=<prefix>` narrows to a namespace (`build.` = rows the retired build plane wrote), `?user=<id>` to rows an account performed or was the target of |
+| Builder audit by user | "Builder audit by user" panel in `/admin` | the historical `build.*` rows the retired build plane wrote (start/preview/publish/export), with user + action filters and a **Build audit** shortcut per user row; http(s) preview/publish URLs are linkified |
 | Alert history | `alert_log` table + `GET /api/admin/alerts` | every webhook attempt (sent/failed) recorded; cooldown-suppressed repeats are not |
 | Spend rollups | `usage7d` on users, `week` on stats, admin console columns/cards | rolling 7-day totals from the gateway-ledger usage cache |
 | Backups (M5) | `make backup` → `scripts/backup.sh` | online `.backup()` of control + gateway DBs into `./backups/` |
@@ -92,10 +90,6 @@ POST   /api/internal/audit         { action, sub?, actorEmail?, targetId?, targe
                                                                     (build.start, build.publish, build.export, …)
 
 # Admin — auth by session token; admin role required (first signup or ADMIN_EMAILS)
-# `/api/admin/build-queue` is read-only: it renders Studio's queue directory
-# (STUDIO_BUILD_QUEUE_DIR, unset = the panel says it is not mounted) so the
-# builder's work is visible where the users and quotas already are. It never
-# writes, claims or cancels a job — the runner stays the only writer.
 GET    /api/admin/stats                                           → aggregate today totals
 GET    /api/admin/identity-groups                                 → local Authentik group mappings
 POST   /api/admin/identity-groups/sync                            → create/find configured group and sync members
@@ -108,9 +102,6 @@ POST   /api/admin/storage-pools                                  → create a po
 DELETE /api/admin/storage-pools/:id                              → remove a pool
 GET    /api/shares/storage-providers                             → enabled providers for signed-in Shares views
 GET    /api/shares/storage-pools                                 → enabled pools for signed-in Shares views
-GET    /api/admin/build-queue                                     → read-only view of the builder's queue:
-                                                                    { configured, dir, readable, runner, counts, jobs }
-                                                                    (configured=false when STUDIO_BUILD_QUEUE_DIR is unset)
 GET    /api/admin/users                                           → users + quotas + usageToday + key
 PATCH  /api/admin/users/:id       { disabled?, quota?, role? }    → disable/delete revokes gateway key
 POST   /api/admin/users/:id/revoke-key
@@ -136,7 +127,7 @@ docker compose exec control-plane node bin/control.mjs users
 Configuration (from env): `PORT`/`HOST` (default `20140`/`0.0.0.0`),
 `CONTROL_DB_PATH` (`/data/control.sqlite` in the image), `GATEWAY_DASHBOARD_URL`,
 `GATEWAY_ADMIN_PASSWORD`, `ADMIN_EMAILS`, `CONTROL_INTERNAL_TOKEN` (the
-service-to-service token Studio presents; unset disables those endpoints),
+service-to-service token Genie presents; unset disables those endpoints),
 `CONTROL_SYNC_INTERVAL_MS` (M4 sync
 period; 0 disables), `GATEWAY_DATA_DIR` (unset by default — see below),
 `AUTHENTIK_API_URL`, `AUTHENTIK_API_TOKEN`, and `AUTHENTIK_GROUP_NAME` for

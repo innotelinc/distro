@@ -1,6 +1,6 @@
 # Distro ↔ Atlas Integration
 
-**The builder surface is where you build (Studio). Atlas is where you ship.
+**The builder surface is where you build (Genie). Atlas is where you ship.
 Distro is the tenancy layer underneath the building.**
 
 These platforms are separate by design — single-responsibility architecture —
@@ -10,10 +10,10 @@ but work together as a seamless workflow.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│          BUILDER SURFACE (Studio) + DISTRO CONTROL PLANE    │
+│          BUILDER SURFACE (Genie) + DISTRO CONTROL PLANE    │
 │  "Build it, accounted for"                                  │
 │                                                             │
-│  1. Describe app in natural language (Studio)               │
+│  1. Describe app in natural language (Genie)               │
 │  2. AI writes code; Distro's control plane gates the turn   │
 │     (identity → quota-check → user's own gateway key)       │
 │  3. Iterate, refine — usage reported per turn               │
@@ -39,7 +39,7 @@ but work together as a seamless workflow.
 The builder surface can push the current project to an Atlas/Gitea remote:
 
 ```bash
-# In Studio: Export → Git
+# In Genie: Export → Git
 # Export config is served by the Distro control plane:
 GET /api/export/config     # → { configured, url, remote }
 POST /api/export/validate  # validates the remote URL (SSH or HTTPS)
@@ -74,7 +74,7 @@ Apps that target Convex get a backend on Atlas's self-hosted Convex
 ### 4. Cross-platform references
 
 - **Builder surface** → Atlas: "Export to Git" pushes to Gitea
-- **Atlas** → builder surface: "Open in Studio" for the repo's project
+- **Atlas** → builder surface: "Open in Genie" for the repo's project
 - **Both** share the same user accounts (Authentik) and billing (Magnate)
 - **Distro** underpins the building: per-user gateway keys, quotas, audit
 
@@ -134,7 +134,7 @@ OIDC_CLIENT_SECRET=<from Cerulean>
 
 | Platform | Role | Runtime | Output |
 |---|---|---|---|
-| **Studio** | Build | Olympus (Group 4) | Source code |
+| **Genie** | Build | Genie (Group 4) | Source code |
 | **Distro** | Tenancy for the build | Control plane (Group 5) | Accounts, keys, quotas, audit |
 | **Atlas** | Ship | Convex + Gitea CI/CD | Deployed app |
 

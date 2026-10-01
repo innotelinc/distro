@@ -381,7 +381,7 @@
           Distro began as an in-browser AI app builder (the bolt.diy fork) and now ships the
           part that was always its own: the multi-tenant control plane. Accounts, one OmniRoute
           gateway key per user, quota and spend enforcement, an admin console — the tenancy
-          layer the ecosystem's builder surface (Studio) calls for every model turn.
+          layer the ecosystem's builder surface (Genie) calls for every model turn.
         </p>
         <div class="cta-row">
           <a class="btn btn-primary" href="https://github.com/innotelinc/distro#quickstart-self-hosted-docker">Get started</a>
@@ -424,7 +424,7 @@
         <div class="split">
           <div>
             <div class="grid" style="gap:14px">
-              <div class="card"><h3>bolt.diy <span style="color:var(--d-text-muted);font-weight:400">· MIT · retired</span></h3><p>The in-browser IDE — chat-to-code, WebContainer sandbox, live preview, file tree, terminal. Forked and rebranded as the Distro front door until the build-plane convergence retired it; one web UI (Studio) serves the ecosystem now. License retained in-tree.</p></div>
+              <div class="card"><h3>bolt.diy <span style="color:var(--d-text-muted);font-weight:400">· MIT · retired</span></h3><p>The in-browser IDE — chat-to-code, WebContainer sandbox, live preview, file tree, terminal. Forked and rebranded as the Distro front door until the build-plane convergence retired it; one web UI (Genie) serves the ecosystem now. License retained in-tree.</p></div>
               <div class="card"><h3>OmniRoute <span style="color:var(--d-text-muted);font-weight:400">· MIT · consumed remotely</span></h3><p>The AI routing gateway: one OpenAI-compatible <code>/v1/*</code> endpoint in front of hundreds of upstream providers, with fallback and token/cost accounting.</p></div>
               <div class="card"><h3>Control plane <span style="color:var(--d-text-muted);font-weight:400">· ships today</span></h3><p>Multi-tenant layer: accounts, per-user gateway keys, quota enforcement, spend tracking, admin console, audit log — consumed by the builder surface over a token-gated service API.</p></div>
               <div class="card"><h3>The seam</h3><p>Every model call carries the user's own gateway key, and the control plane decides identity, quota and audit around it. Attributable, capped, revocable.</p></div>
@@ -438,7 +438,7 @@ $ <span class="p">./scripts/bootstrap.sh</span>
 $ <span class="p">docker</span> <span class="o">compose up -d --build &amp;&amp; make doctor</span>
 <span class="ok">control plane healthy · service key wired</span>
 
-<span class="cmt"># point the builder surface (Studio) at it:</span>
+<span class="cmt"># point the builder surface (Genie) at it:</span>
 <span class="cmt">#   CONTROL_PLANE_INTERNAL_URL + CONTROL_INTERNAL_TOKEN</span></pre>
         </div>
       </div>

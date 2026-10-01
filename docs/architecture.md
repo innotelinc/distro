@@ -4,7 +4,7 @@
 one OmniRoute gateway key per user, quota/usage enforcement, spend tracking,
 an admin console, and an audit log. Its builder surface — the rebranded
 bolt.diy in-browser IDE that used to live in `apps/web` — is **retired**
-(build-plane convergence §5.2): one web UI, Olympus's Studio, serves the
+(build-plane convergence §5.2): one web UI, Genie, serves the
 ecosystem, and it consumes this control plane over its service API.
 
 ## Components
@@ -12,12 +12,12 @@ ecosystem, and it consumes this control plane over its service API.
 | Layer | Upstream / code | Role |
 |---|---|---|
 | Tenancy / control plane | `apps/control-plane` (this repo, plain Node + SQLite) | Accounts, per-user gateway keys, quotas/usage, audit log, admin console, optional Authentik OIDC, Magnate entitlements, Atlas git-export config. |
-| Builder surface | Studio (Olympus, Group 4) — not in this repo | The web UI users build in. Calls this control plane's `/api/internal/*` service routes per model turn. |
+| Builder surface | Genie (Group 4) — not in this repo | The web UI users build in. Calls this control plane's `/api/internal/*` service routes per model turn. |
 | Model routing / gateway | [OmniRoute](https://github.com/diegosouzapw/OmniRoute) — consumed REMOTELY as a platform service (Innotel platform stack, Server 2; Consul service `omniroute`). Distro runs no gateway of its own. | One OpenAI-compatible endpoint (`/v1/*`) across many upstream providers with fallback, token/cost accounting and format translation. |
 
 ```
 ┌──────────────────────────────────────────────┐
-│  Builder surface (Studio, Olympus)           │
+│  Builder surface (Genie)                     │
 │  the one web UI of the ecosystem             │
 └──────────────┬───────────────┬───────────────┘
                │               │  /v1/chat/completions
@@ -39,7 +39,7 @@ ecosystem, and it consumes this control plane over its service API.
 └──────────────────────────────────────────────┘
 ```
 
-## The service API (what Studio consumes)
+## The service API (what Genie consumes)
 
 Configuration is `CONTROL_PLANE_INTERNAL_URL` + `CONTROL_INTERNAL_TOKEN`
 (both fail closed: an unset token answers `503` on these routes rather than
@@ -55,12 +55,13 @@ leaving them open). Per model turn, the builder surface:
 3. **Dispatch.** The model call goes to OmniRoute with the **user's own
    gateway key** — attributable, capped, revocable per user.
 4. **Record.** `POST /api/internal/usage-report` after the turn, plus audit
-   rows (`POST /api/internal/audit`) for build/publish/export — the three
-   actions that touch a public name or a repo.
+   rows (`POST /api/internal/audit`) for publish/export — the actions that
+   touch a public name or a repo.
 
 The admin console at `/admin` remains the operator's view: per-user limits,
 enable/disable (disable revokes the key immediately), revoke/rotate, roles,
-audit log, and the read-only build-queue view (`BUILD_QUEUE_DIR`).
+audit log, and the historical `build.*` audit rows the retired build plane
+left behind.
 
 ## Where the code lives
 
@@ -96,13 +97,13 @@ audit log, and the read-only build-queue view (`BUILD_QUEUE_DIR`).
 WebContainer sandbox, live preview, file tree, terminal) — was Distro's
 builder surface until the convergence. It is deleted from this repo:
 
-- **Why:** three app-builder front doors (Studio, Distro's fork, Atlas's
-  Chef fork) for one ecosystem; the convergence keeps one web UI (Studio)
+- **Why:** three app-builder front doors (Genie, Distro's fork, Atlas's
+  Chef fork) for one ecosystem; the convergence keeps one web UI (Genie)
   and one engine. Distro's durable contribution was always the multi-tenant
   layer on top of the gateway — that is what survives.
 - **What survives:** the control plane, its admin console, and its service
-  API (which Studio consumes); the WebContainer-specific affordances worth
-  keeping (a file tree, a terminal pane) are tracked as Studio work.
+  API (which Genie consumes); the WebContainer-specific affordances worth
+  keeping (a file tree, a terminal pane) are tracked as Genie work.
 - **The record:** git history of this repo, `docs/upstream.md`,
   `THIRD_PARTY_NOTICES.md` and the retained license text in `licenses/`.
 

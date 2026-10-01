@@ -5,7 +5,7 @@
 The tenancy service for AI app building: accounts, one OmniRoute gateway key
 per user, quota/usage enforcement, spend tracking, and an admin console. Its
 builder surface — the rebranded bolt.diy in-browser IDE — is retired
-(convergence §5.2); one web UI, Olympus Studio, serves the ecosystem and
+(convergence §5.2); one web UI, Genie, serves the ecosystem and
 consumes this control plane's service API per model turn.
 
 This page declares Distro's role in the
@@ -58,11 +58,11 @@ platform owns, consumes, provides, and explicitly does not own.
 
 ## Explicitly does NOT own
 
-- The builder web UI — Olympus Studio is the ecosystem's one web UI; Distro's
+- The builder web UI — Genie is the ecosystem's one web UI; Distro's
   bolt.diy fork (`apps/web`) is retired (§5.2), its license text retained in
   `licenses/`
 - In-browser app execution (WebContainer) — went with the front door; the
-  studio-side equivalents (file tree, terminal pane) are Studio work
+  equivalents worth keeping (a file tree, a terminal pane) are Genie's work
 - Identity (Authentik / Cerulean) — Distro runs its own control-plane accounts
   today; Cerulean's Authentik SSO is the convergence target
 - Secrets (Cerulean Vault)
@@ -84,7 +84,7 @@ platform owns, consumes, provides, and explicitly does not own.
 > (billing) + Cerulean (trust/DNS/TLS) + Atlas (git export) already wired in.
 >
 > **Convergence:** see the [**build-plane convergence plan**](https://github.com/innotelinc/innotel-platform-stack/blob/main/docs/convergence-onyx-olympus-distro-atlas.md)
-> — one web UI (Studio), one terminal UI, one full-stack app builder, one
+> — one web UI (Genie), one terminal UI, one full-stack app builder, one
 > OmniRoute. Distro's part is done: the `local-gateway` profile is removed
 > (§4.1) and the control plane **is** the builder's tenancy layer (§5), now the
 > repo's only deliverable.
@@ -93,7 +93,7 @@ platform owns, consumes, provides, and explicitly does not own.
 
 | Flow | Path |
 |---|---|
-| Tenancy (build) | Studio → Distro `/api/internal/{identity,quota-check,usage-report,audit}` (service token) |
+| Tenancy | Genie → Distro `/api/internal/{identity,quota-check,usage-report,audit}` (service token) |
 | Billing | Distro control plane → Magnate `/api/entitlements` + `/api/admin/plans` |
 | Identity (optional) | Cerulean Authentik OIDC → Distro `/api/auth/oidc/*` |
 | DNS / TLS | Cerulean BIND (nsupdate + TSIG, DNS-01) → NPM Edge → Distro hosts |

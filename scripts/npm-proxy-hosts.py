@@ -8,8 +8,8 @@ Creates the Distro subdomains on an Nginx Proxy Manager instance via its API:
     cp.<DOMAIN>         -> http://127.0.0.1:20140 (control plane API under /cp)
     gateway.<DOMAIN>    -> http://127.0.0.1:20128 (OmniRoute dashboard, private)
 
-(The retired Distro web app used to take slots.<DOMAIN> → :5173; the builder
-surface is Studio now.)
+(The retired Distro web app used to take slots.<DOMAIN> → :5173; the
+builder surface is Genie now.)
 
 A wildcard Let's Encrypt certificate ( *.DOMAIN + DOMAIN ) is issued via the
 DNS challenge so every subdomain gets SSL automatically. Requires NPM >= 2.11

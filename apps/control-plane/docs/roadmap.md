@@ -1,16 +1,33 @@
 # Control-plane roadmap
 
-> Progress: **M0–M5 are DONE** (service + gateway client + identity +
-> per-user keys + quotas + usage sync + admin console + Magnate billing).
-> Integration option A (browser holds key) was chosen; see docs/ops.md.
+> Progress: **M0–M6 are DONE** (service + gateway client + identity +
+> per-user keys + quotas + usage sync + admin console + Magnate billing +
+> hardening). **0.3.0 (M7) is IN PROGRESS** — the Shares identity/storage
+> slice is shipped and the build plane has been retired; what remains is the
+> server-side session bridge.
 >
-> **0.3.0 (M7) is IN PROGRESS** — the Shares identity/storage slice is
-> shipped below; build-plane convergence remains open.
+> **Target: 1.0** — the tenancy layer under the ecosystem's one builder
+> surface, Genie: every model call attributable, capped and revocable per
+> account, with the operator able to answer "who, how much, what did it cost"
+> without a shell.
 >
 > **0.2.0 (M6) is DONE (19 September 2026)** — hardening the surface that
 > shipped in 0.1: auth rate limit, the gateway-version pin, and per-model
 > usage. The session-model reconciliation moved to M7, where it is the same
 > work as the server-side session bridge.
+>
+> **Build plane retired — 30 September 2026.** Distro's builder surface is
+> **Genie**, and the build plane existed to serve the one it replaced:
+> `src/buildQueue.js` and its read-only `/api/admin/build-queue` view,
+> `POST /api/internal/build-check`, the `builds_per_day` quota dimension and
+> the console's build pipeline are gone, and gateway keys are now minted as
+> `genie-user-<id8>`. Two columns (`quotas.builds_per_day`,
+> `usage_cache.builds`) and the `build.*` audit rows are **kept**: an audit row
+> is evidence, the migrations leave a restored backup with the same schema as
+> a fresh deploy, and nothing reads either one. The Distro-side complication
+> this removes is the largest one in the file: with no build plane to mirror,
+> the control plane's whole job is the identity → quota → turn → usage/audit
+> loop Genie already drives.
 >
 > **Live deployment note — 17 September 2026.** The Cerulean edge now serves
 > `distro.innotel.us`, `cp.distro.innotel.us`, and
@@ -73,16 +90,12 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       on the admin users list, `models` on `/api/admin/stats`, plus a *Model
       usage — today* panel (share-of-spend bars) and top-models under each
       user's Today cell in `/admin`.
-- [x] Reconcile the two session models (control-plane bearer token vs Studio
-      cookie) — **moved to M7**, not done here: Studio's cookie lives in Olympus, so this is
-      cross-repository and is the same work as the server-side session bridge
-      there.
 
-## M7 — 0.3.0: build-plane convergence and Shares UX
+## M7 — 0.3.0: the Genie loop and the console (in progress)
 
 - [x] Widen the admin console to use the available desktop viewport and keep
-      the users, queue, audit, alerts, identity, and Shares sections visible in
-      one operator surface.
+      the users, audit, alerts, identity, and Shares sections visible in one
+      operator surface.
 - [x] Mirror the configured Authentik group into local membership tables;
       create the group through Authentik's API when it is missing, provision
       missing local accounts, and reconcile membership on the first admin-panel
@@ -93,54 +106,26 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       enter the UI or API response.
 - [x] Include enabled storage providers and pools in authenticated Shares/
       workspace responses for the builder surface.
-
-
-- [ ] Make Distro the durable source of per-identity quotas and audit events for
-      Olympus build, preview, publish, and export actions.
-  - [x] **First slice (19 September 2026): build-plane audit per user in the
-        console.** `GET /api/admin/audit` takes `?action=<prefix>` (namespace,
-        e.g. `build.`; escaped LIKE so `_`/`%` cannot widen it) and `?user=<id>`
-        (rows the account performed *or* was the target of). `/admin` gains a
-        "Build plane — audit by user" panel with user and action filters, a
-        per-row **Build audit** shortcut in the users table, and http(s)-only
-        linkification of `previewUrl`/`publishedUrl` metadata. Covered in
-        `test/internal-api.test.mjs`.
-  - [x] **Second slice (19 September 2026): the build plane asks before it
-        builds.** `POST /api/internal/build-check` (service token; body
-        `{ sub, action, consume?, targetId?, slug? }`) resolves the Authentik
-        subject the way `/identity` does (unknown = 404, never a provisioning),
-        applies the entitlement-gated quota and answers the same
-        `{ allowed, reasons, quota, usageToday }` shape as the chat check.
-        Decisions: every `build.*` action shares the chat caps (same gateway
-        key underneath); only `build.start` is judged against the new
-        **`builds_per_day`** quota and, with `consume: true`, counted in
-        `usage_cache.builds`. A refusal writes a `build.denied` audit row (it
-        lands in the console's build-plane panel) and raises the existing
-        quota alert. Console: *Builds/day* column, builds-today badge, presets
-        (free 5 / pro 50). Both columns arrive on legacy databases through
-        `migrate()`; covered in `test/internal-api.test.mjs`.
-  - [ ] Next: Studio calls `build-check` before enqueueing and reports the
-        build's model spend under the user's key (cross-repo; the Distro side
-        is in place).
+- [x] **Retire the build plane** (30 September 2026). The queue mirror, the
+      `build-check` route, the `builds_per_day` quota and the pipeline view are
+      removed; the builder audit panel stays as history. Covered by
+      `test/internal-api.test.mjs`, which proves the retired columns still
+      arrive on a legacy database and are never written.
 - [x] Add a gateway-version compatibility check to usage sync (shipped with the
       M6 pin: `checkGatewayVersion` runs before every `syncUsageFromGateway`).
       Quota enforcement does not consult it by design — the decision is served
       from `usage_cache`, which stays correct whichever accounting path fills it.
-- [ ] Replace the remaining browser-held gateway-key assumptions with a scoped
-      server-side session bridge while preserving per-user attribution. This
-      absorbs the former M6 item: reconciling the control-plane bearer token
-      with Studio's cookie is the same bridge, seen from the other side
-      (cross-repo with Olympus).
-- [x] Add acceptance coverage for an Olympus preview/build lifecycle: queued,
-      picked up, failed with an actionable reason, retried, and completed. The Olympus
-      runner now records queue state and delivery URLs, rejects empty-agent artifacts,
-      retries rate-limited tool calls, and keeps preview credentials scoped to delivery.
-- [ ] Add cross-repository acceptance automation so Distro can periodically verify the
-      live Olympus runner heartbeat, a queued smoke build, and the resulting preview
-      URL without exposing provider or Cerulean credentials. Current live checks confirm
-      the runner is active, queue pickup works, `resume-generator` builds successfully,
-      and its preview returns HTTP 200. The remaining hardening item is sustained shared
-      OmniRoute model capacity, not the Distro control plane.
+- [ ] **Replace the remaining browser-held gateway-key assumptions with a
+      scoped server-side session bridge**, preserving per-user attribution.
+      This is now cross-repo with **Genie**: reconciling the control-plane
+      bearer token with Genie's Authentik session is the same bridge seen from
+      the other side, and Genie's own roadmap carries its half.
+- [ ] **Cross-repository acceptance automation.** A scheduled check that proves
+      the deployment still works end to end — Genie signs a subject in through
+      Authentik, the control plane provisions it, the turn is gated and its
+      usage recorded, and the audit row lands — without exposing provider or
+      Cerulean credentials. The M7 runner-heartbeat and preview-URL checks went
+      with the build plane.
 
 ### Added while M7 is open (shipped 17 September 2026)
 
@@ -154,13 +139,44 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       Cerulean's `NPM_EMAIL`/`NPM_PASSWORD` credentials and the provisioning is
       idempotent from either stack's `.env`.
 
+## M8 — 1.0: the tenancy layer, finished
+
+The 1.0 claim is narrow and testable: **an operator can run this for other
+people.** Everything below is in service of that, and nothing below is a new
+feature for its own sake.
+
+- [ ] **A restore that has been rehearsed.** `make backup` writes verified
+      SQLite snapshots; nothing proves they come *back*. A documented restore
+      drill against a scratch container, with the schema/row counts checked, so
+      "we have backups" is a measured statement rather than an assumption.
+- [ ] **Operator visibility that reaches out.** The existing webhook alerts
+      cover quota denials and gateway-version drift. 1.0 adds the two failures
+      an operator finds out about too late: the control plane being unreachable
+      from Genie's side (a turn that could not be attributed), and the usage
+      sync not having run. Both are timer-based and both are quiet failures
+      today.
+- [ ] **Per-account usage the account can see.** The ledger is written and the
+      console shows it to an operator; `GET /api/me/usage` shows a user their
+      own spend. 1.0 makes the user-facing half usable — today's and the
+      rolling window, beside the caps they are measured against — because a
+      quota nobody can read is a quota nobody trusts.
+- [ ] **A documented threat model for the plane.** It mints gateway keys and
+      reads a SQLite file the gateway also reads. What that means for the
+      service token, the console's session, the Vault references, and the
+      backup directory belongs in one page, written before somebody has to
+      reason about it during an incident.
+- [ ] **Version and upgrade posture.** A single place that says which OmniRoute
+      release the plane is verified against (the pin does), what breaks if the
+      gateway moves, and how to roll the image forward and back. The pin is
+      mechanism; this is the runbook around it.
+
 ## M0 — Service skeleton + gateway client ✅
 
 - [x] Stand up `apps/control-plane` as a small Node service (plain Node HTTP,
       no framework) with its own `package.json`, health endpoint, config from
       env, and a SQLite store loaded from `schema.sql`.
 - [x] Add it to the root compose network (`control-plane` service; no public
-      port; only the web app and gateway can reach it).
+      port; only the builder surface and gateway can reach it).
 - [x] Implement `gatewayClient` wrapping the inventory in
       `docs/gateway-api-inventory.md`: login (service session), create key,
       list keys, revoke key. (Per-key usage read deferred to M4.)
@@ -172,7 +188,7 @@ Estimated sizes are relative; revisit against the pinned gateway version.
 - [x] Signup + login + logout with sessions (opaque bearer tokens, hashed at
       rest; see `schema.sql`).
 - [x] Admin role bootstrap (first user or `ADMIN_EMAILS` env).
-- [x] `/health`, error envelope. (Rate limiting on auth endpoints still TODO.)
+- [x] `/health`, error envelope.
 - [x] Acceptance: two users can sign up and get distinct sessions; disabled
       users can't log in (verified live).
 
@@ -183,36 +199,37 @@ Estimated sizes are relative; revisit against the pinned gateway version.
 - [x] On disable/delete: revoke gateway key (verified: key 401s after disable).
 - [x] Key rotation endpoint (`POST /api/me/gateway-key/rotate`).
 - [x] Decide integration option A vs B (chosen: **A — browser holds key**).
-      Web app fetches `/me/gateway-key` at login and uses it as its
-      `OpenAILike` key; quota gating lives in the web-app middleware calling
-      `/api/internal/quota-check` (M3).
+      The builder surface fetches the user's key and uses it as its
+      `OpenAILike` key; quota gating lives in its middleware calling
+      `/api/internal/quota-check` (M3). The M7 session bridge is the path away
+      from A.
 - [x] Acceptance: each user's requests are attributed to their own gateway key
       (key-per-user visible in the gateway dashboard).
 
-## M3 — Quotas (done: server-side gate + key spend caps)
+## M3 — Quotas ✅ (server-side gate + key spend caps)
 
-- [x] Server-side enforcement middleware in the web app: `/api/chat` calls
-      `GET /api/internal/quota-check` (identity = the user's gateway key from
-      the `apiKeys` cookie) before streaming; 429 with reasons when over.
-      Fail-open if the control plane is unreachable; host-key ("skip for
-      now") traffic is never gated. Toggle: `DISTRO_ENFORCE_QUOTA`.
+- [x] Server-side enforcement middleware in the builder surface: a turn calls
+      `GET /api/internal/quota-check` (identity = the user's gateway key)
+      before streaming; 429 with reasons when over. Fail-open if the control
+      plane is unreachable; host-key ("skip for now") traffic is never gated.
+      Toggle: `DISTRO_ENFORCE_QUOTA`.
 - [x] Hard spend cap on each per-user gateway key at mint/rotate
       (`dailyUsageLimitUsd`, `weeklyUsageLimitUsd`) — the backstop when the
       gateway is called directly.
-- [x] Acceptance: capped user's `/api/chat` returns HTTP 429 with reasons
+- [x] Acceptance: capped user's turn returns HTTP 429 with reasons
       (verified over HTTP against the running stack); admin can change the
       cap and it applies without key rotation (null clears a limit).
 
-## M4 — Usage visibility (done: chat reports + authoritative gateway-ledger sync)
+## M4 — Usage visibility ✅ (chat reports + authoritative gateway-ledger sync)
 
-- [x] `POST /api/internal/usage-report` — the web app records every finished
-      chat turn (tokens in/out + call count) against the user after streaming
-      (real-time fill between syncs).
+- [x] `POST /api/internal/usage-report` — the builder surface records every
+      finished turn (tokens in/out + call count) against the user after
+      streaming (real-time fill between syncs).
 - [x] **Authoritative sync from the gateway's own ledger**: `usage_history`
       rows carry `api_key_id`, so the control plane reads the gateway SQLite
       volume (mounted ro) and replaces each user's `usage_cache` with the
       gateway's per-key aggregates for the day — covering ALL traffic under
-      the key (chat, direct /v1, dashboard usage), not just web chat turns.
+      the key (chat, direct /v1, dashboard usage), not just console turns.
       Scheduled via `CONTROL_SYNC_INTERVAL_MS`; CLI: `control.mjs usage-sync`.
       NOTE: requires the gateway's data dir mounted read-only at
       `GATEWAY_DATA_DIR`. With the shared remote gateway there is no such
@@ -222,13 +239,13 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       daily request/token caps are gateway-authoritative after each sync.
 - [x] Minimal UI: admin console usage columns (`/admin`).
 - [x] Schema-drift guard: a failed gateway read warns and never crashes;
-      chat usage reports keep caps working meanwhile.
+      usage reports keep caps working meanwhile.
 
 Verified live: sync matched the operator's account key against the gateway
 ledger (per-key rows → usage_cache) and left unmapped keys (host key, deleted
 test accounts) untouched.
 
-## M5 — Hardening & operator UX (done except billing)
+## M5 — Hardening & operator UX ✅
 
 - [x] Admin console at `http://<host>:20140/admin` (no build step): stats
       cards, per-user quota editing, disable/enable (revokes key), revoke &
@@ -240,13 +257,16 @@ test accounts) untouched.
       changes, key revoke/rotate, deletes; `GET /api/admin/audit` + console
       panel. Append-only, survives user deletion.
 - [x] Backups: `make backup` / `scripts/backup.sh` snapshots the control-plane
-      and gateway SQLite stores via each app's online `better-sqlite3
-      .backup()` (verified `integrity_check: ok`) into `./backups/`.
+      SQLite store via its online `better-sqlite3 .backup()` (verified
+      `integrity_check: ok`) into `./backups/`.
+- [x] Key health: `make keys-check` (`scripts/check-account-keys.sh`) asks the
+      gateway to accept each stored key and exits non-zero when one is refused;
+      `systemd/distro-keys-check.{service,timer}` runs it daily.
 - [x] Billing: Magnate integration (`src/billing.js`) — entitlements check,
       plans list, checkout forwarding, plan auto-seed on boot, free-tier
-      quota gating (`gatedQuota`), `/billing` web route + header link.
-      Env: `MAGNATE_URL` / `MAGNATE_ENTITLEMENTS_TOKEN` / `MAGNATE_BILLING_SLUG`;
-      runbook: docs/ops.md § "Magnate billing integration".
+      quota gating (`gatedQuota`). Env: `MAGNATE_URL` /
+      `MAGNATE_ENTITLEMENTS_TOKEN` / `MAGNATE_BILLING_SLUG`; runbook:
+      docs/ops.md § "Magnate billing integration".
 
 ## Open questions — resolved
 
@@ -254,21 +274,9 @@ test accounts) untouched.
   Re-verifying the inventory before moving the pin is now the documented step.
 - ~~Whether OmniRoute exposes per-key model-level usage~~ → it does, in the
   `usage_history` ledger; stored in `usage_models` (M6).
-- ~~Option A vs B~~ → A (browser holds key), chosen at M2; the M7 session
-  bridge is the path away from it.
-- ~~Where the quota check lives~~ → web-app middleware calling
+- ~~Option A vs B~~ → A (the surface holds the key), chosen at M2; the M7
+  session bridge is the path away from it.
+- ~~Where the quota check lives~~ → the builder surface's middleware calling
   `/api/internal/quota-check` (M3).
-
-## M7 progress notes (2026-09-18)
-
-- [x] **Console story + pipeline view**: the admin console now opens with
-      "What Distro is" (gateway control plane: who may call, how much they
-      may spend, what it cost) plus the integration map (Authentik SSO,
-      OmniRoute keys/quotas, Magnate entitlements, Olympus Studio build ops,
-      Cerulean Vault secrets), and a build-pipeline view (queued → building
-      → verified → live, runner status, latest-build banner with deep link)
-      driven by the read-only queue API. Deployed and verified on .46.
-- [x] **Estate surface**: `req.magnate.innotel.us` (Jellyseerr door on .56)
-      provisioned through Cerulean — DNS A record + NPM proxy host with the
-      magnate wildcard cert (id 45) — closing the last 404 in the media
-      group's public surface.
+- ~~Does Distro meter builds?~~ → no. The build plane was retired on
+  30 September 2026; the caps that matter are requests, tokens and spend.

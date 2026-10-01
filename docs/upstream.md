@@ -20,10 +20,10 @@ git-ignored reference checkout used for diffs) is obsolete.
 Three app-builder front doors had grown up across the ecosystem (Olympus
 Studio, Distro's bolt.diy fork, Atlas's Chef fork), each with its own agent,
 account model and gateway wiring. The convergence keeps **one web UI
-(Studio)** and one engine; Distro's durable contribution was always the
+(Genie)** and one engine; Distro's durable contribution was always the
 multi-tenant layer on top of the gateway, and that is what survives as the
 repo's deliverable. The WebContainer affordances worth keeping (a file tree,
-a terminal pane) are tracked as Studio work.
+a terminal pane) are tracked as Genie's work.
 
 ## Why OmniRoute source isn't committed
 
