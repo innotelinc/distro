@@ -51,7 +51,8 @@ free — no gateway forking required.
 | Alert history | `alert_log` table + `GET /api/admin/alerts` | every webhook attempt (sent/failed) recorded; cooldown-suppressed repeats are not |
 | Spend rollups | `usage7d` on users, `week` on stats, admin console columns/cards | rolling 7-day totals from the gateway-ledger usage cache |
 | Backups (M5) | `make backup` → `scripts/backup.sh` | online `.backup()` of control + gateway DBs into `./backups/` |
-| CLI | `bin/control.mjs` | `health`, `create-admin`, `users`, `gateway-check`, `usage-sync`, `test-alert`, `backup` |
+| CLI | `bin/control.mjs` | `health`, `create-admin`, `users`, `delete-user <email>`, `gateway-check`, `keys-check [--fix] [--alert]`, `usage-sync`, `test-alert`, `backup` |
+| Account deletion | `DELETE /api/admin/users/:id` + `control.mjs delete-user` | one path for both: the gateway key is revoked *before* the row is deleted, so a gateway that will not take the key back leaves the account intact rather than orphaning a live credential. Audited as `user.delete` |
 
 ## HTTP API
 

@@ -24,7 +24,6 @@ import {
   recordUsage,
   recordBuild,
   setUserRole,
-  deleteUser,
   logAudit,
   listAudit,
   listAlerts,
@@ -53,6 +52,7 @@ import {
   createStoragePool,
   deleteStoragePool,
 } from './db.js';
+import { deleteAccount } from './accounts.js';
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
 import { alert, alertsConfig } from './alerts.js';
 import { estimateCostUsd } from './pricing.js';
@@ -1205,17 +1205,11 @@ export async function handler(req, res, { gateway }) {
         return send(400, { error: 'cannot delete the last active admin' });
       }
     }
-    const key = getGatewayKey(target.id);
-    if (key) {
-      try {
-        await gateway.login();
-        await gateway.revokeApiKey(key.gateway_key_id);
-      } catch (err) {
-        return send(502, { error: `gateway unreachable: ${err.message}` });
-      }
+    try {
+      await deleteAccount(target, { gateway, actor: admin });
+    } catch (err) {
+      return send(502, { error: `gateway unreachable: ${err.message}` });
     }
-    logAudit({ action: 'user.delete', actorId: admin.id, actorEmail: admin.email, targetId: target.id, targetEmail: target.email, meta: { gatewayKeyId: key?.gateway_key_id || null } });
-    deleteUser(target.id);
     return send(200, { deleted: true, id: target.id });
   }
 

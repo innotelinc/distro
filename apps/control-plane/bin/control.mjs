@@ -3,12 +3,14 @@
 //   node bin/control.mjs health
 //   node bin/control.mjs create-admin <email> <password>
 //   node bin/control.mjs users
+//   node bin/control.mjs delete-user <email>
 //   node bin/control.mjs gateway-check
 //   node bin/control.mjs keys-check [--fix] [--alert]
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { openDb, createUser, userCount, listUsers, getQuota, getGatewayKey, getDb } from '../src/db.js';
+import { openDb, createUser, userCount, listUsers, getQuota, getGatewayKey, getUserByEmail, getDb } from '../src/db.js';
+import { deleteAccount } from '../src/accounts.js';
 import { hashPassword } from '../src/passwords.js';
 import { GatewayClient } from '../src/gateway.js';
 import { syncUsageFromGateway } from '../src/sync.js';
@@ -46,6 +48,37 @@ async function main() {
           `${u.role.padEnd(5)} ${u.email} key=${getGatewayKey(u.id) ? 'yes' : 'no'} disabled=${!!u.disabled_at} quota=${JSON.stringify(getQuota(u.id))}`,
         );
       }
+      break;
+    }
+    case 'delete-user': {
+      // The row and the gateway key are two pieces of state, and the key is the
+      // one that keeps spending after the account is gone. So the revoke comes
+      // first: if the gateway will not take it back, nothing is deleted and the
+      // command says so, rather than leaving a credential nobody can attribute.
+      const [email] = args;
+      if (!email) {
+        console.error('usage: control.mjs delete-user <email>');
+        process.exit(1);
+      }
+      const user = getUserByEmail(email);
+      if (!user) {
+        console.error(`no such account: ${email}`);
+        process.exit(1);
+      }
+      const key = getGatewayKey(user.id);
+      const gateway = new GatewayClient({ adminPassword: process.env.GATEWAY_ADMIN_PASSWORD });
+      try {
+        await deleteAccount(user, { gateway });
+      } catch (err) {
+        console.error(`could not delete ${user.email}: ${err.message}`);
+        console.error('the account is untouched — fix the gateway and run this again');
+        process.exit(1);
+      }
+      console.log(
+        key
+          ? `deleted ${user.email} (gateway key ${key.gateway_key_id} revoked)`
+          : `deleted ${user.email} (no gateway key)`,
+      );
       break;
     }
     case 'gateway-check': {
@@ -147,7 +180,7 @@ async function main() {
     }
     default:
       console.error(
-      'usage: control.mjs <health|create-admin|users|gateway-check|keys-check|usage-sync|test-alert|backup>',
+      'usage: control.mjs <health|create-admin|users|delete-user|gateway-check|keys-check|usage-sync|test-alert|backup>',
     );
       process.exit(1);
   }
