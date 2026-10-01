@@ -388,7 +388,7 @@ the console is reachable at, canonical first — for the platform deployment:
 OIDC_REDIRECT_URI=https://admin.distro.innotel.us/api/auth/oidc/callback,\
                   https://cp.distro.innotel.us/api/auth/oidc/callback,\
                   https://distro.innotel.us/api/auth/oidc/callback,\
-                  http://192.168.1.46:20140/api/auth/oidc/callback
+                  http://192.168.1.74:20140/api/auth/oidc/callback
 ```
 
 Register the same list on the Authentik provider (Cerulean's

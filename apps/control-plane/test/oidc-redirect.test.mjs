@@ -12,7 +12,7 @@ import { openDb } from "../src/db.js";
  *
  * The failure this covers was live: the console is served on
  * `admin.distro.innotel.us` while the only registered callback was
- * `http://192.168.1.46:20140/...`, so the provider returned the browser to a
+ * `http://192.168.1.74:20140/...`, so the provider returned the browser to a
  * different origin, the host-only `distro_oidc_state` cookie was not sent with
  * it, and the console answered "Sign-in failed: invalid or expired state."
  *
@@ -24,7 +24,7 @@ import { openDb } from "../src/db.js";
 const CALLBACKS = [
   "https://admin.distro.innotel.us/api/auth/oidc/callback",
   "https://cp.distro.innotel.us/api/auth/oidc/callback",
-  "http://192.168.1.46:20140/api/auth/oidc/callback",
+  "http://192.168.1.74:20140/api/auth/oidc/callback",
 ];
 
 let workdir = "";
@@ -110,8 +110,8 @@ test("the callback follows the origin the sign-in started on", () => {
     "https://admin.distro.innotel.us/api/auth/oidc/callback",
   );
   assert.equal(
-    oidc.callbackUrlFor({ host: "192.168.1.46:20140" }),
-    "http://192.168.1.46:20140/api/auth/oidc/callback",
+    oidc.callbackUrlFor({ host: "192.168.1.74:20140" }),
+    "http://192.168.1.74:20140/api/auth/oidc/callback",
   );
 });
 

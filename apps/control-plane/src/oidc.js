@@ -62,7 +62,7 @@ function firstHeaderValue(value) {
  * `distro_oidc_state` cookie is host-only — so a fixed callback URL only works
  * on the origin it names. Measured: the console is served on
  * `admin.distro.innotel.us` while the one registered callback was
- * `http://192.168.1.46:20140/...`, so the callback landed on a different origin,
+ * `http://192.168.1.74:20140/...`, so the callback landed on a different origin,
  * the browser sent no state cookie with it, and every attempt failed with
  * "invalid or expired state".
  *

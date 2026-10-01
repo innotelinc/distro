@@ -25,7 +25,7 @@ console. What this asserts, in the order it can break:
 
 Usage:
     python3 scripts/verify-sso.py
-    python3 scripts/verify-sso.py --url http://192.168.1.46:20140 --verbose
+    python3 scripts/verify-sso.py --url http://192.168.1.74:20140 --verbose
 
 The admin API token used to create the throwaway identity is taken from
 `AUTHENTIK_BOOTSTRAP_TOKEN` in the environment, then this repo's `.env`, then
