@@ -1,0 +1,17 @@
+[Unit]
+Description=Distro account gateway-key check (report-only)
+Documentation=https://github.com/innotelinc/distro
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+# Asks the gateway whether each account's stored key is still accepted. A key
+# the gateway refuses stops every turn for that account before a model is
+# chosen, and the builder surface reports it as "every model in the chain
+# failed" — a credential problem wearing a model problem's coat. The check does
+# not rotate anything: re-minting is a person's call, so it reports (and alerts)
+# and leaves the key alone. See docs/ops.md.
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/distro
+ExecStart=/usr/bin/bash ./scripts/check-account-keys.sh --alert

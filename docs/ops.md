@@ -246,8 +246,21 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   same words a quota problem produces, which is why nothing else catches it.
   `--fix` rotates the refused keys through the gateway (audited as
   `key.rotate`, with the superseded key prefix in the row) and `--alert`
-  fires `gateway.account-keys` at `CONTROL_ALERT_WEBHOOK_URL`. On a timer:
+  fires `gateway.account-keys` at `CONTROL_ALERT_WEBHOOK_URL`. The deployment
+  runs it daily as `distro-keys-check.timer` (06:23, report-only — it does not
+  rotate anything, because re-minting is a person's call), shipped as
+  `systemd/distro-keys-check.{service,timer}`. Install them with
+  `install -m 0644 systemd/distro-keys-check.* /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now distro-keys-check.timer`.
+  Any scheduler works, e.g.
   `23 6 * * * cd /opt/distro && ./scripts/check-account-keys.sh --alert >> /var/log/distro-keys-check.log 2>&1`
+- **Removing an account**: `make keys-check` finds keys that are broken; this is
+  how one is retired. `docker compose exec control-plane node bin/control.mjs
+  delete-user <email>` (or `DELETE /api/admin/users/:id`) revokes the account's
+  gateway key **before** it deletes the row. The order matters: a row deleted
+  alone leaves the key live on the gateway — an orphan nobody can attribute,
+  which is the shape of the failure that started all of this. If the gateway
+  will not take the key back the account is left intact and the command says so,
+  so a retry means something; the whole thing is one `user.delete` audit row.
 - **Backups**: `make backup` (or `./scripts/backup.sh`) snapshots both the
   control-plane and gateway SQLite stores — each via the app's own online
   `better-sqlite3 .backup()`, so no downtime — into `./backups/`
