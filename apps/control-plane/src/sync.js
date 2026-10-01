@@ -4,6 +4,22 @@
 import { getUserByGatewayKeyId, replaceUsageFromGateway, replaceModelUsageFromGateway } from './db.js';
 import { readGatewayUsageToday, gatewayDbAvailable } from './gatewayUsage.js';
 
+/**
+ * Whether the scheduled usage sync has gone quiet (M8).
+ *
+ * A timer that stopped, a process that wedged, and a sync that has never once
+ * succeeded all read the same way from the outside: `usage_cache` is frozen and
+ * nobody is told. `lastSuccessAt` is null until the first success, so a sync
+ * that has never completed counts as stale from `startedAt`.
+ *
+ * Pure and exported for its own test — the interesting part is the boundary, not
+ * the timer around it.
+ */
+export function syncIsStale({ now, lastSuccessAt, startedAt, staleMs }) {
+  const since = lastSuccessAt ?? startedAt;
+  return now - since > staleMs;
+}
+
 export async function syncUsageFromGateway() {
   if (!gatewayDbAvailable()) {
     return { ok: false, reason: 'gateway data volume not mounted' };

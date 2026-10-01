@@ -625,6 +625,33 @@ export async function handler(req, res, { gateway }) {
     return send(201, { ok: true });
   }
 
+  // An outage a *consumer* observed and could not report at the time.
+  //
+  // Genie's tenancy calls fail when this plane is unreachable, and the only
+  // component that knows is the one that could not reach it — so it reports the
+  // window here, on the next call that succeeds. Named events with a cooldown
+  // (see alerts.js) keep a retry storm to one alert. Exposed to a sibling
+  // platform, never to browser JS, and off unless the service token is set.
+  if (path === '/api/internal/alert' && method === 'POST') {
+    if (!internalTokenOk()) return internalDenied(send);
+
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+
+    const event = String(body.event || '').trim();
+    if (!/^[a-z][a-z0-9._-]{0,79}$/.test(event)) {
+      return send(400, { error: 'event must be a lowercase dotted name (e.g. controlplane.unreachable)' });
+    }
+    const title = String(body.title || '').trim().slice(0, 200) || event;
+    const message = String(body.message || '').trim().slice(0, 2000);
+    const meta = body.meta && typeof body.meta === 'object' && !Array.isArray(body.meta) ? body.meta : null;
+
+    const result = await alert(event, { title, message, meta });
+    // 202, not 200: an event suppressed by its cooldown was still received, so
+    // the caller must not read the status as "the operator was paged".
+    return send(202, { ok: true, ...result });
+  }
+
   if (path === '/api/internal/quota-check' && method === 'GET') {
     const user = await userFromGatewayKey(req);
     if (!user) return send(401, { error: 'unknown or revoked gateway key' });

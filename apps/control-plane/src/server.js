@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { openDb } from './db.js';
 import { GatewayClient } from './gateway.js';
 import { handler } from './http.js';
-import { syncUsageFromGateway } from './sync.js';
+import { syncUsageFromGateway, syncIsStale } from './sync.js';
 import { checkGatewayVersion } from './gatewayVersion.js';
 import { alert } from './alerts.js';
 import { seedDistroPlan } from './billing.js';
@@ -29,6 +29,18 @@ openDb();
 // deployment that mounts the gateway's data directory itself.
 const SYNC_INTERVAL_MS = Number(process.env.CONTROL_SYNC_INTERVAL_MS ?? 0);
 
+// When the sync goes quiet (M8): a timer that stopped, a process that wedged,
+// or a sync that has never once succeeded. `CONTROL_SYNC_STALE_MS` overrides;
+// the default is three intervals or five minutes, whichever is longer, so a
+// single slow pass is not an outage. The watchdog is only armed when the sync
+// is scheduled at all — an interval of 0 is a deployment saying "not this".
+const STARTED_AT = Date.now();
+const SYNC_STALE_MS =
+  Number(process.env.CONTROL_SYNC_STALE_MS || 0) > 0
+    ? Number(process.env.CONTROL_SYNC_STALE_MS)
+    : Math.max(SYNC_INTERVAL_MS * 3, 5 * 60 * 1000);
+let lastSyncSuccessAt = null;
+
 async function runUsageSync() {
   try {
     // M6 pin: the ledger read below assumes the verified release's schema. A
@@ -44,6 +56,7 @@ async function runUsageSync() {
       });
       return;
     }
+    lastSyncSuccessAt = Date.now();
     if (result.keys > 0) {
       console.log(
         `[control-plane] usage sync: ${result.matched} user(s) matched, ${result.unknownKeys} unmapped key(s), ` +
@@ -58,6 +71,33 @@ async function runUsageSync() {
       message: err?.message || String(err),
     });
   }
+}
+
+/**
+ * Alert when the usage sync has not completed inside its window (M8).
+ *
+ * Different from `sync.failed`: that fires on a *bad pass*, this fires when
+ * passes stopped happening at all and `usage_cache` is quietly frozen — the
+ * failure an operator otherwise reads as "nobody used the gateway today".
+ */
+function checkSyncStale() {
+  if (!syncIsStale({ now: Date.now(), lastSuccessAt: lastSyncSuccessAt, startedAt: STARTED_AT, staleMs: SYNC_STALE_MS })) {
+    return;
+  }
+  const since = lastSyncSuccessAt ?? STARTED_AT;
+  const minutes = Math.round((Date.now() - since) / 60000);
+  void alert('sync.stale', {
+    title: 'Gateway usage sync has not completed',
+    message:
+      lastSyncSuccessAt === null
+        ? `No usage sync has succeeded in ${minutes} min of running; the ledger is only as fresh as the last chat report.`
+        : `The last successful usage sync was ${minutes} min ago (scheduled every ${Math.round(SYNC_INTERVAL_MS / 1000)}s).`,
+    meta: {
+      lastSuccessAt: lastSyncSuccessAt === null ? null : new Date(lastSyncSuccessAt).toISOString(),
+      intervalMs: SYNC_INTERVAL_MS,
+      staleMs: SYNC_STALE_MS,
+    },
+  });
 }
 
 const gateway = new GatewayClient({
@@ -117,6 +157,9 @@ server.listen(PORT, HOST, async () => {
   if (SYNC_INTERVAL_MS > 0) {
     runUsageSync(); // immediate first pass
     setInterval(runUsageSync, SYNC_INTERVAL_MS).unref();
-    console.log(`[control-plane] usage sync every ${SYNC_INTERVAL_MS} ms`);
+    // The watchdog rides the same schedule: a sync that never runs again is the
+    // failure no single pass reports.
+    setInterval(checkSyncStale, SYNC_INTERVAL_MS).unref();
+    console.log(`[control-plane] usage sync every ${SYNC_INTERVAL_MS} ms (stale after ${SYNC_STALE_MS} ms)`);
   }
 });

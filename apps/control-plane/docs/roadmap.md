@@ -157,12 +157,22 @@ feature for its own sake.
       directory and container name, all removed at the end), and honest about
       its limit: the gateway side is the platform's to restore, not this
       rehearsal's. Procedure in `docs/ops.md` § *Restoring*.
-- [ ] **Operator visibility that reaches out.** The existing webhook alerts
+- [x] **Operator visibility that reaches out.** The existing webhook alerts
       cover quota denials and gateway-version drift. 1.0 adds the two failures
-      an operator finds out about too late: the control plane being unreachable
-      from Genie's side (a turn that could not be attributed), and the usage
-      sync not having run. Both are timer-based and both are quiet failures
-      today.
+      an operator finds out about too late. **The usage sync not having run** is
+      now a watchdog on the sync's own schedule: when the sync is scheduled
+      (`CONTROL_SYNC_INTERVAL_MS` > 0), a pass older than three intervals or five
+      minutes (`CONTROL_SYNC_STALE_MS`) raises `sync.stale` — distinct from
+      `sync.failed`, which fires on one bad pass while a wedged timer fires on
+      none. **The control plane being unreachable from Genie's side** cannot be
+      reported at the moment it happens — the caller is the only witness and it
+      is the one that cannot get through — so Genie records the window and
+      reports it on the next call that succeeds, or on its own timer, through a
+      new service route `POST /api/internal/alert`; the plane pages the operator
+      as `controlplane.unreachable`, and its per-event cooldown turns a retry
+      storm into one alert. Covered by `test/sync-stale.test.mjs`,
+      `test/alert-report.test.mjs`, and Genie's
+      `src/test/controlplane-outage.test.ts`.
 - [x] **Per-account usage the account can see.** The ledger is written and the
       console shows it to an operator; `GET /api/me/usage` shows a user their
       own spend. 1.0 makes the user-facing half usable: the response now carries

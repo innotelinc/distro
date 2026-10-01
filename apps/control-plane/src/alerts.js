@@ -70,7 +70,11 @@ export async function alert(key, { title, message, meta }) {
     record('sent');
     return { sent: true };
   } catch (err) {
-    console.warn(`[alerts] webhook ${key} failed: ${err?.message || err}`);
+    // `fetch` reports every transport failure as the same "fetch failed"; the
+    // cause is the only part that says whether it was DNS, a refusal or a
+    // timeout, and a log line without it sends an operator to the wrong place.
+    const cause = err?.cause?.code || err?.cause?.message || '';
+    console.warn(`[alerts] webhook ${key} failed: ${err?.message || err}${cause ? ` (${cause})` : ''}`);
     record('failed', err?.message || String(err));
     return { sent: false, reason: err?.message };
   }
