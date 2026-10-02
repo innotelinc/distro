@@ -704,10 +704,22 @@ export async function handler(req, res, { gateway }) {
   }
 
   if (path === '/api/me/gateway-key' && method === 'GET') {
-    const key = getGatewayKey(me.id);
-    if (!key) return send(404, { error: 'no gateway key; contact an admin' });
-    // Option A: browser-held key. Distro stores only gateway-issued keys.
-    return send(200, { gatewayKeyId: key.gateway_key_id, gatewayKey: key.gateway_key });
+    // Retired 2026-10-02 — the last of M2's "option A" (browser-held key).
+    //
+    // A per-user key is a bearer credential for the whole gateway: handing it to
+    // a browser session makes every XSS, extension and shared tab a way to spend
+    // that account's quota directly on the gateway, around this plane. The
+    // builder surface does not need it here — it resolves the account's key
+    // server-side through `POST /api/internal/identity` under the service token,
+    // which is the scoped server-side bridge this route is the way away from.
+    //
+    // 410 rather than 404: a caller that still expects a key is told *why* it is
+    // gone, instead of reading an empty response as "this account has no key".
+    return send(410, {
+      error:
+        'the browser-facing gateway key was retired; accounts and their keys are resolved ' +
+        'server-side via /api/internal/identity with the service token',
+    });
   }
 
   if (path === '/api/me/gateway-key/rotate' && method === 'POST') {
@@ -722,7 +734,12 @@ export async function handler(req, res, { gateway }) {
       });
       const key = setGatewayKey(me.id, { gatewayKeyId: fresh.id, gatewayKey: fresh.key });
       logAudit({ action: 'key.rotate', actorId: me.id, actorEmail: me.email, targetId: me.id, targetEmail: me.email, meta: { gatewayKeyId: key.gateway_key_id } });
-      return send(200, { gatewayKeyId: key.gateway_key_id, gatewayKey: key.gateway_key });
+      // The rotation is real and the secret is stored for the surface to read
+      // server-side; it is not *returned*. Rotating is how an account revokes a
+      // key that leaked, and a response that carried the replacement would put
+      // the fresh credential back in the browser the retirement above removed it
+      // from. The surface reads the new key through /api/internal/identity.
+      return send(200, { gatewayKeyId: key.gateway_key_id, gatewayKeyPresent: true });
     } catch (err) {
       return send(502, { error: `gateway unreachable: ${err.message}` });
     }

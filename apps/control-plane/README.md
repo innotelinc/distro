@@ -36,7 +36,7 @@ free — no gateway forking required.
 | Per-model usage (M6) | `usage_models` table; `models` on `GET /api/me/usage` and `/api/admin/stats`, `usageModelsToday` on admin users | filled by chat usage reports that name a `model` and replaced by the gateway-ledger sync; `usage_cache` stays the quota authority. *Model usage — today* panel in `/admin` |
 | Identity (M1) | `POST /api/auth/signup`, `/api/auth/login`, `/api/auth/logout`, `GET /api/me` | first account = admin; otherwise role from `ADMIN_EMAILS` |
 | Authentik SSO | `src/oidc.js` + `/api/auth/oidc/{config,start,callback}` | OIDC authorization-code login via Authentik (popup posts the session back to the app); SSO accounts get an unusable `sso:` password hash, auto-provisioned with their own gateway key. Verified against a local OIDC mock |
-| Per-user keys (M2) | signup mints a key; `GET /api/me/gateway-key`; `POST /api/me/gateway-key/rotate` | key lifecycle driven through the gateway dashboard API |
+| Per-user keys (M2) | signup mints a key; `POST /api/me/gateway-key/rotate` | key lifecycle driven through the gateway dashboard API. **No browser-facing read**: `GET /api/me/gateway-key` is retired (410) — M2's "option A" held the key in the browser, and the surface now resolves it server-side through `/api/internal/identity` (M7 bridge) |
 | Quota gate (M3) | `GET /api/internal/quota-check` + `POST /api/internal/usage-report` | the web app identifies the user by their gateway key and enforces/records before/after each chat turn (`DISTRO_ENFORCE_QUOTA`) |
 | Tenancy for the builder (convergence §5.2) | `POST /api/internal/identity` + `POST /api/internal/audit` | service-to-service (`x-control-internal-token` = `CONTROL_INTERNAL_TOKEN`): resolves an Authentik `sub` to an account (creating it and minting its key on first sight, `users.oidc_sub` is the join), so Genie can key its library on the control-plane user id, spend the user's own key, and write build/publish/export rows into `audit_log` |
 | Usage sync (M4) | `src/sync.js` + `src/gatewayUsage.js` | scheduled/CLI sync of the gateway's per-key ledger into `usage_cache` (needs the gateway data dir mounted ro at `GATEWAY_DATA_DIR`; off for the remote gateway) |
@@ -62,8 +62,8 @@ POST   /api/auth/signup            { email, password, plan? }      → 201 user+
 POST   /api/auth/login             { email, password }             → 200 { token, user }
 POST   /api/auth/logout
 GET    /api/me                                                    → user, quota, usageToday
-GET    /api/me/gateway-key                                        → { gatewayKeyId, gatewayKey }   (option A)
-POST   /api/me/gateway-key/rotate                                 → fresh key (old one revoked)
+GET    /api/me/gateway-key                                        → 410 (retired; keys are server-side, M7)
+POST   /api/me/gateway-key/rotate                                 → { gatewayKeyId, gatewayKeyPresent } (rotates; never returns the secret)
 GET    /api/me/usage                                              → today snapshot (M4: cache only)
 GET    /api/me/quota-status                                       → { allowed, reasons, quota }
 

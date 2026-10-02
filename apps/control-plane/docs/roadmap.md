@@ -4,7 +4,8 @@
 > per-user keys + quotas + usage sync + admin console + Magnate billing +
 > hardening). **0.3.0 (M7) is IN PROGRESS, and M8 (1.0) is underway** — the
 > Shares identity/storage slice is shipped and the build plane has been retired;
-> what remains in M7 is the server-side session bridge. **M8 is complete**: the
+> what remains in M7 is making the server-side bridge *scoped* — the browser-held
+> key itself was retired on 2026-10-02 (see M7). **M8 is complete**: the
 > restore drill, the account-facing usage view, the failure alerts, the threat
 > model for the plane, and the version/upgrade posture have all shipped — which is
 > the 1.0 claim, *an operator can run this for other people*, met.
@@ -124,11 +125,26 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       M6 pin: `checkGatewayVersion` runs before every `syncUsageFromGateway`).
       Quota enforcement does not consult it by design — the decision is served
       from `usage_cache`, which stays correct whichever accounting path fills it.
-- [ ] **Replace the remaining browser-held gateway-key assumptions with a
-      scoped server-side session bridge**, preserving per-user attribution.
-      This is now cross-repo with **Genie**: reconciling the control-plane
-      bearer token with Genie's Authentik session is the same bridge seen from
-      the other side, and Genie's own roadmap carries its half.
+- [x] **Retire the browser-held gateway key** (2026-10-02) — the last of M2's
+      option A, and the half of this item that was cross-repo with **Genie**.
+      `GET /api/me/gateway-key` used to answer a browser session with the
+      account's raw gateway key, and `POST /api/me/gateway-key/rotate` used to
+      return the replacement, so any XSS, extension or shared tab could spend
+      that account on the gateway directly, around this plane. The read now
+      answers **410** with the reason, the rotate returns the key id and
+      `gatewayKeyPresent` and stores the secret for the surface alone, and the
+      surface gets the key through `POST /api/internal/identity` under the
+      service token — Genie's `src/controlplane.ts` half already resolved the
+      key in the request handler and never sent it to the browser. Covered by
+      `test/me-gateway-key.test.mjs`, which holds both directions at once: no
+      secret to a session, the secret still to the service.
+- [ ] **Make the bridge *scoped*.** The service token above is account-wide — it
+      resolves *any* account's key, so its blast radius is the whole plane and
+      every consumer shares one credential. What "scoped" asks for is a
+      credential bound to a surface and an audience (issuable, revocable, short
+      lived), which is the remaining work in this item. Not urgent while one
+      surface holds it over the estate's own network; not optional once a second
+      one does.
 - [x] **Cross-repository acceptance automation.** A scheduled check that proves
       the deployment still works end to end — Genie signs a subject in through
       Authentik, the control plane provisions it, the turn is gated and its
@@ -277,7 +293,8 @@ feature for its own sake.
       The builder surface fetches the user's key and uses it as its
       `OpenAILike` key; quota gating lives in its middleware calling
       `/api/internal/quota-check` (M3). The M7 session bridge is the path away
-      from A.
+      from A. **Taken at M7 (2026-10-02):** the browser read is retired and the
+      surface resolves the key server-side.
 - [x] Acceptance: each user's requests are attributed to their own gateway key
       (key-per-user visible in the gateway dashboard).
 
