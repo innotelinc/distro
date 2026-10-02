@@ -158,6 +158,19 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       storage, scope refusal, revocation, expiry, the bootstrap token across all
       three routes, and that a live credential arms the routes with no env token
       set.
+      **Retired on the estate (2026-10-02).** `CONTROL_INTERNAL_TOKEN` is now
+      **empty** on the live plane, so nothing can call the service routes with a
+      credential covering the whole plane. Two scoped credentials carry the
+      traffic instead: Genie holds `identity:resolve,audit:write,alert:report`
+      (90-day TTL, stored in Cerulean Vault and delivered as the existing
+      `vault://cerulean/ontrak#CONTROL_INTERNAL_TOKEN` reference, so the console
+      needed no code change) and the plane's own acceptance check holds an
+      `identity:resolve`-only credential in `CONTROL_ACCEPTANCE_TOKEN`. The
+      migration also repaired live drift: Genie's running token, the Vault value
+      and the plane's bootstrap token were **three different strings**, so tenancy
+      had been refusing every turn (`401`) while looking configured. Rotation is
+      `service-credential issue` (a new row + token), update the surface's
+      credential, then `service-credential revoke <old id>`.
 - [x] **Cross-repository acceptance automation.** A scheduled check that proves
       the deployment still works end to end — Genie signs a subject in through
       Authentik, the control plane provisions it, the turn is gated and its

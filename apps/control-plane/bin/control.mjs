@@ -206,11 +206,20 @@ async function main() {
       const base = String(
         process.env.CONTROL_PLANE_INTERNAL_URL || `http://127.0.0.1:${process.env.PORT || 20140}`,
       ).replace(/\/+$/, '');
-      const token = String(process.env.CONTROL_INTERNAL_TOKEN || '');
+      // The credential this check presents. It prefers its OWN scoped credential
+      // (`CONTROL_ACCEPTANCE_TOKEN`, scope `identity:resolve`) over the legacy
+      // bootstrap `CONTROL_INTERNAL_TOKEN`, because the point of the scoped
+      // bridge is that nothing needs a credential covering the whole plane —
+      // including the plane's own checks. The fallback keeps an older deployment
+      // working until it is migrated.
+      const token = String(
+        process.env.CONTROL_ACCEPTANCE_TOKEN || process.env.CONTROL_INTERNAL_TOKEN || '',
+      );
       if (!token) {
         console.error(
-          'acceptance: CONTROL_INTERNAL_TOKEN is not set. The internal routes are OFF (503) rather\n' +
-            'than open, so there is no loop to check from here.',
+          'acceptance: no service credential. Set CONTROL_ACCEPTANCE_TOKEN (issue one with\n' +
+            '`control.mjs service-credential issue --surface acceptance --scopes identity:resolve`)\n' +
+            'or, for a deployment not yet migrated, CONTROL_INTERNAL_TOKEN.',
         );
         process.exit(1);
       }

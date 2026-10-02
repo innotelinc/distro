@@ -315,7 +315,10 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   surface reports the result as "every model in the chain failed", which is the
   same words a quota or provider problem produces. It uses one dedicated account
   (`ACCEPTANCE_EMAIL`, default `acceptance@distro.invalid`) and reports one
-  turn's usage against it, so it is self-contained. This is the plane's half of
+  turn's usage against it, so it is self-contained. It presents its **own**
+  scoped credential (`CONTROL_ACCEPTANCE_TOKEN`, scope `identity:resolve`) rather
+  than the account-wide bootstrap token, so the check is not the reason a
+  deployment cannot retire that token. This is the plane's half of
   the M7 cross-repository acceptance item; the sign-in half lives with the surface
   that signs in (`ontrak-genie/scripts/verify-tenancy.mjs`), so neither half needs
   an Authentik, provider or Cerulean credential. Run it alone with
