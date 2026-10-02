@@ -38,7 +38,7 @@ free — no gateway forking required.
 | Authentik SSO | `src/oidc.js` + `/api/auth/oidc/{config,start,callback}` | OIDC authorization-code login via Authentik (popup posts the session back to the app); SSO accounts get an unusable `sso:` password hash, auto-provisioned with their own gateway key. Verified against a local OIDC mock |
 | Per-user keys (M2) | signup mints a key; `POST /api/me/gateway-key/rotate` | key lifecycle driven through the gateway dashboard API. **No browser-facing read**: `GET /api/me/gateway-key` is retired (410) — M2's "option A" held the key in the browser, and the surface now resolves it server-side through `/api/internal/identity` (M7 bridge) |
 | Quota gate (M3) | `GET /api/internal/quota-check` + `POST /api/internal/usage-report` | the web app identifies the user by their gateway key and enforces/records before/after each chat turn (`DISTRO_ENFORCE_QUOTA`) |
-| Tenancy for the builder (convergence §5.2) | `POST /api/internal/identity` + `POST /api/internal/audit` | service-to-service (`x-control-internal-token` = `CONTROL_INTERNAL_TOKEN`): resolves an Authentik `sub` to an account (creating it and minting its key on first sight, `users.oidc_sub` is the join), so Genie can key its library on the control-plane user id, spend the user's own key, and write build/publish/export rows into `audit_log` |
+| Tenancy for the builder (convergence §5.2) | `POST /api/internal/identity` + `POST /api/internal/audit` | service-to-service via a **scoped service credential** (`x-control-internal-token`; `src/serviceCredentials.js`, `service_credentials`): resolves an Authentik `sub` to an account (creating it and minting its key on first sight, `users.oidc_sub` is the join), so Genie can key its library on the control-plane user id, spend the user's own key, and write build/publish/export rows into `audit_log` |
 | Usage sync (M4) | `src/sync.js` + `src/gatewayUsage.js` | scheduled/CLI sync of the gateway's per-key ledger into `usage_cache` (needs the gateway data dir mounted ro at `GATEWAY_DATA_DIR`; off for the remote gateway) |
 | Admin API (M5) | users list/stats, PATCH (disable, quota, role), revoke/rotate key, DELETE user, audit list | disabling/deleting revokes the gateway key; last-admin guard |
 | Admin console (M5) | `GET /admin` → `src/admin.html` | no build step, no CDNs; login as an admin |
@@ -79,8 +79,12 @@ GET    /api/auth/oidc/callback                                    → exchanges 
 GET    /api/internal/quota-check                                  → { allowed, reasons, quota, usageToday }
 POST   /api/internal/usage-report  { tokensIn, tokensOut, requests } → { ok, usageToday }
 
-# Internal — service-to-service, auth by `x-control-internal-token`
-# (= CONTROL_INTERNAL_TOKEN). Unset token = these are OFF (503), never open.
+# Internal — service-to-service, auth by `x-control-internal-token`.
+# Two kinds of credential: a SCOPED one (surface + scopes, issued/revoked with
+# `control.mjs service-credential`, optionally expiring) or the legacy
+# CONTROL_INTERNAL_TOKEN (bootstrap, every scope). A route refuses a credential
+# missing its scope with 403; with neither set these are OFF (503), never open.
+# Scopes: identity:resolve, audit:write, alert:report.
 # identity resolves an Authentik subject to an account + its gateway key,
 # provisioning the account on first sight (409 if the email is bound to a
 # DIFFERENT subject — never silently rebound).
@@ -127,7 +131,9 @@ docker compose exec control-plane node bin/control.mjs users
 Configuration (from env): `PORT`/`HOST` (default `20140`/`0.0.0.0`),
 `CONTROL_DB_PATH` (`/data/control.sqlite` in the image), `GATEWAY_DASHBOARD_URL`,
 `GATEWAY_ADMIN_PASSWORD`, `ADMIN_EMAILS`, `CONTROL_INTERNAL_TOKEN` (the
-service-to-service token Genie presents; unset disables those endpoints),
+bootstrap service credential Genie presents today — every scope; unset plus no
+issued credential disables those endpoints. Issue a scoped one with
+`control.mjs service-credential issue`),
 `CONTROL_SYNC_INTERVAL_MS` (M4 sync
 period; 0 disables), `CONTROL_USAGE_WINDOW_DAYS` (M8: how many days
 `GET /api/me/usage` sums for the account's own rolling window; default 7),
@@ -154,9 +160,11 @@ cd apps/control-plane && npm install && npm test
 is tested against a real SQLite file because the parts worth checking are the ones
 a stub would hide: the schema migration (a database created before `oidc_sub`
 existed), the subject ↔ account join, which credential each route demands, and
-that an unset `CONTROL_INTERNAL_TOKEN` turns the provisioning routes **off**
-rather than leaving them open. The gateway is the one thing faked, since minting a
-key is a call to another service.
+that with no credential and no `CONTROL_INTERNAL_TOKEN` the provisioning routes
+are **off** rather than open. `test/service-credentials.test.mjs` holds the scoped
+model itself: hashed storage, scope refusal (403 vs 401), revocation, expiry, and
+the bootstrap token across all three routes. The gateway is the one thing faked,
+since minting a key is a call to another service.
 
 ## Still to do
 

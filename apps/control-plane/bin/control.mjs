@@ -8,10 +8,14 @@
 //   node bin/control.mjs keys-check [--fix] [--alert]
 //   node bin/control.mjs acceptance
 //   node bin/control.mjs accounts [limit]
+//   node bin/control.mjs service-credential issue --surface genie --scopes identity:resolve,audit:write
+//   node bin/control.mjs service-credential list
+//   node bin/control.mjs service-credential revoke <id>
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { openDb, createUser, userCount, listUsers, getQuota, getGatewayKey, getUserByEmail, getDb } from '../src/db.js';
+import { openDb, createUser, userCount, listUsers, getQuota, getGatewayKey, getUserByEmail, getDb, listServiceCredentials, revokeServiceCredential } from '../src/db.js';
+import { issueServiceCredential, SCOPES } from '../src/serviceCredentials.js';
 import { deleteAccount } from '../src/accounts.js';
 import { hashPassword } from '../src/passwords.js';
 import { GatewayClient } from '../src/gateway.js';
@@ -220,6 +224,80 @@ async function main() {
       if (!result.ok) process.exit(1);
       break;
     }
+    case 'service-credential': {
+      // Scoped credentials for the service routes (M7). `issue` prints the token
+      // exactly once — only its hash is stored, so it cannot be read back, which
+      // is the property that makes 'revoke and reissue' mean something.
+      const [sub, ...rest] = args;
+      const opts = {};
+      for (let i = 0; i < rest.length; i += 1) {
+        const arg = rest[i];
+        if (!arg.startsWith('--')) continue;
+        const eq = arg.indexOf('=');
+        if (eq !== -1) {
+          opts[arg.slice(2, eq)] = arg.slice(eq + 1);
+        } else {
+          opts[arg.slice(2)] = rest[i + 1];
+          i += 1;
+        }
+      }
+      if (sub === 'issue') {
+        const surface = opts.surface || 'genie';
+        const scopes = opts.scopes ? String(opts.scopes).split(',') : [...SCOPES];
+        const ttlDays = Number(opts['ttl-days']) > 0 ? Number(opts['ttl-days']) : 0;
+        try {
+          const { credential, token } = issueServiceCredential({
+            surface,
+            scopes,
+            label: opts.label,
+            ttlMs: ttlDays * 24 * 60 * 60 * 1000,
+          });
+          console.log(`issued ${credential.id} for surface '${credential.surface}'`);
+          console.log(`  scopes:  ${credential.scopes}`);
+          console.log(`  expires: ${credential.expires_at || 'never'}`);
+          console.log('');
+          console.log('token (shown once — put it where the surface reads it):');
+          console.log(token);
+        } catch (err) {
+          console.error(err.message);
+          process.exit(1);
+        }
+        break;
+      }
+      if (sub === 'list') {
+        const rows = listServiceCredentials({ surface: opts.surface });
+        for (const row of rows) {
+          const expired = row.expires_at && Date.parse(row.expires_at) < Date.now();
+          const state = row.revoked_at ? 'revoked' : expired ? 'expired' : 'live';
+          console.log(
+            `${row.id}  ${String(row.surface).padEnd(10)} ${String(row.label).padEnd(12)} ` +
+              `${state.padEnd(8)} scopes=${row.scopes} last_used=${row.last_used_at || 'never'}`,
+          );
+        }
+        if (rows.length === 0) console.log('no service credentials issued');
+        break;
+      }
+      if (sub === 'revoke') {
+        const id = rest.find((a) => !a.startsWith('--'));
+        if (!id) {
+          console.error('usage: control.mjs service-credential revoke <id>');
+          process.exit(1);
+        }
+        const row = revokeServiceCredential(id);
+        if (!row) {
+          console.error(`no live service credential: ${id}`);
+          process.exit(1);
+        }
+        console.log(`revoked ${row.id} (surface ${row.surface})`);
+        break;
+      }
+      console.error(
+        'usage: control.mjs service-credential <issue|list|revoke> ' +
+          '[--surface genie] [--scopes a,b] [--label name] [--ttl-days n]',
+      );
+      process.exit(1);
+      break;
+    }
     case 'accounts': {
       // The accounts the cross-repository check signs in as, in the flag shape
       // `ontrak-genie/scripts/verify-tenancy.mjs` takes (`sub=email`). The whole
@@ -232,7 +310,7 @@ async function main() {
     }
     default:
       console.error(
-      'usage: control.mjs <health|create-admin|users|delete-user|gateway-check|keys-check|usage-sync|test-alert|backup|acceptance|accounts>',
+      'usage: control.mjs <health|create-admin|users|delete-user|gateway-check|keys-check|usage-sync|test-alert|backup|acceptance|accounts|service-credential>',
     );
       process.exit(1);
   }

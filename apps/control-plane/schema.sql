@@ -225,3 +225,28 @@ CREATE TABLE IF NOT EXISTS storage_pools (
 );
 CREATE INDEX IF NOT EXISTS idx_storage_pools_provider ON storage_pools(provider_id);
 CREATE INDEX IF NOT EXISTS idx_storage_pools_enabled ON storage_pools(enabled);
+
+-- Scoped service credentials (M7 "scoped bridge").
+--
+-- A sibling surface (Genie today) presents one of these as
+-- `x-control-internal-token`. The row names the SURFACE it was issued to and
+-- the SCOPES it may use, so the credential a caller holds is a subset of the
+-- plane rather than the whole plane — one leaked token no longer resolves every
+-- account's key, writes any audit row and reports any outage. Scopes:
+-- identity:resolve, audit:write, alert:report. Issuable, revocable, and
+-- optionally short-lived (expires_at). The legacy CONTROL_INTERNAL_TOKEN env
+-- value is accepted separately as a bootstrap credential and is never stored
+-- here; see src/serviceCredentials.js.
+CREATE TABLE IF NOT EXISTS service_credentials (
+  id           TEXT PRIMARY KEY,                 -- uuid
+  surface      TEXT NOT NULL,                    -- who holds it: 'genie', ...
+  label        TEXT NOT NULL DEFAULT 'default',  -- display name within a surface
+  token_hash   TEXT NOT NULL UNIQUE,             -- sha256 of the presented token
+  scopes       TEXT NOT NULL,                    -- comma-separated scope names
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at   TEXT,                             -- NULL = no expiry
+  revoked_at   TEXT,                             -- NULL = live
+  last_used_at TEXT
+);
+-- A whole new table (never an ALTER), so its index is safe here.
+CREATE INDEX IF NOT EXISTS idx_service_credentials_surface ON service_credentials(surface);

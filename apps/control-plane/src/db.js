@@ -774,3 +774,55 @@ export function createStoragePool({ name, providerId, rootPath, capacityLabel, e
 export function deleteStoragePool(id) {
   getDb().prepare('DELETE FROM storage_pools WHERE id = ?').run(id);
 }
+
+// ── scoped service credentials (M7) ───────────────────────────────────────
+//
+// The credential a sibling surface presents on the service routes. The row is
+// the authority for "which surface, which scopes, still live?" — the check
+// itself lives in src/serviceCredentials.js so HTTP and the CLI agree.
+
+export function createServiceCredential({
+  surface,
+  tokenHash,
+  scopes,
+  label = 'default',
+  expiresAt = null,
+}) {
+  const id = randomUUID();
+  getDb()
+    .prepare(
+      `INSERT INTO service_credentials (id, surface, label, token_hash, scopes, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(id, String(surface), String(label), tokenHash, scopes.join(','), expiresAt);
+  return getServiceCredentialById(id);
+}
+
+export function getServiceCredentialById(id) {
+  return getDb().prepare('SELECT * FROM service_credentials WHERE id = ?').get(id);
+}
+
+/** Look up by the sha256 of the presented token. Returns the row whatever its
+ *  state; the caller decides liveness so it can tell revoked from unknown. */
+export function getServiceCredentialByHash(tokenHash) {
+  return getDb().prepare('SELECT * FROM service_credentials WHERE token_hash = ?').get(tokenHash);
+}
+
+export function listServiceCredentials({ surface = null } = {}) {
+  const where = surface ? 'WHERE surface = ?' : '';
+  const params = surface ? [String(surface)] : [];
+  return getDb()
+    .prepare(`SELECT * FROM service_credentials ${where} ORDER BY created_at DESC`)
+    .all(...params);
+}
+
+export function revokeServiceCredential(id) {
+  const result = getDb()
+    .prepare("UPDATE service_credentials SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL")
+    .run(id);
+  return result.changes > 0 ? getServiceCredentialById(id) : null;
+}
+
+export function touchServiceCredential(id) {
+  getDb().prepare("UPDATE service_credentials SET last_used_at = datetime('now') WHERE id = ?").run(id);
+}

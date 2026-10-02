@@ -64,10 +64,18 @@
 - **A — the browser.** A session is a bearer token; CORS is `*` by default and
   should be pinned to the Distro origin (`CONTROL_CORS_ORIGIN`) wherever the
   console is reachable from more than one place.
-- **B — the service token.** `CONTROL_INTERNAL_TOKEN`, presented by Genie as
-  `x-control-internal-token`, compared with `timingSafeEqual`. **Unset means the
-  `/api/internal` identity and audit routes are OFF (503), never open** — a
-  deployment that has not named a token has not accepted service traffic.
+- **B — the service credential.** Presented by Genie as
+  `x-control-internal-token`. There are two kinds: **scoped credentials**
+  (`service_credentials`, issued/revoked by `control.mjs service-credential`,
+  bound to a surface and a set of scopes, optionally expiring) and the **legacy
+  `CONTROL_INTERNAL_TOKEN`**, accepted as a bootstrap credential carrying every
+  scope. A route demands a scope and refuses a credential that lacks it with
+  `403`, which is deliberately a different answer from the `401` for "no
+  credential". **With neither set, the `/api/internal` identity/audit/alert
+  routes are OFF (503), never open** — a deployment that has not accepted
+  service traffic has not accepted it. The bootstrap token is a migration
+  affordance; the scoped credential is the target state, because its blast
+  radius is one surface's scopes rather than the whole plane.
 - **C — the gateway.** The plane authenticates with the dashboard password and
   mints keys through the management API; it never reads the gateway's data
   directory in the shipped stack.
@@ -85,7 +93,8 @@ The residual is the part that matters: it is what is still true after the contro
 
 | Adversary | Failure mode | Control | Residual |
 | --- | --- | --- | --- |
-| **A peer on the LAN** | reaches `:20140` and tries the internal routes | `CONTROL_INTERNAL_TOKEN` unset ⇒ those routes are 503, not open; a set token is compared in constant time | The plane still binds `0.0.0.0` by default. It is meant to sit behind the Cerulean edge; a LAN host that can reach the port can still call the public auth and admin routes. |
+| **A peer on the LAN** | reaches `:20140` and tries the internal routes | no credential and no bootstrap token ⇒ those routes are 503, not open; tokens are hashed at rest and compared in constant time; each route demands a scope | The plane still binds `0.0.0.0` by default. It is meant to sit behind the Cerulean edge; a LAN host that can reach the port can still call the public auth and admin routes. |
+| **A leaked service credential** | calls the service routes as its holder | scoped credentials carry only the scopes issued to them (a credential with `audit:write` cannot resolve identities), are revocable, and can be given a `--ttl-days` expiry; the bootstrap env token carries every scope by design | A leaked credential is usable until it is revoked or expires — so give the non-bootstrap ones a TTL, and revoke on rotation. The bootstrap token's blast radius is the whole plane, which is why it is the thing to retire, not the thing to rely on. |
 | **A stolen console session** | acts as an admin until the token expires | tokens are stored hashed; logout revokes; a session has a TTL | A bearer token is a bearer token: anyone who has it is the admin until it expires or is revoked. Bind the console behind TLS and a VPN/host allowlist. |
 | **A forged `Host` header** | aims an OIDC authorization code at an attacker origin | `OIDC_REDIRECT_URI` is a comma-separated allowlist; the request's own origin is used only when it is on that list | Any origin the operator adds to the list is trusted by construction. Keep the list to the hostnames you actually serve. |
 | **A leaked `.env`** | reads every credential the plane holds | `.env` carries `vault://` references, not values, wherever SecretOps is in use | The Vault **token** and the gateway dashboard password must still be present somewhere in the environment. A leaked process environment is a leaked `.env`. |

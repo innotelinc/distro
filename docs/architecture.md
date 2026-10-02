@@ -41,9 +41,14 @@ ecosystem, and it consumes this control plane over its service API.
 
 ## The service API (what Genie consumes)
 
-Configuration is `CONTROL_PLANE_INTERNAL_URL` + `CONTROL_INTERNAL_TOKEN`
-(both fail closed: an unset token answers `503` on these routes rather than
-leaving them open). Per model turn, the builder surface:
+Configuration is `CONTROL_PLANE_INTERNAL_URL` + a service credential presented as
+`x-control-internal-token` (both fail closed: no credential answers `503` on
+these routes rather than leaving them open). The credential is either a
+**scoped** one — bound to a surface and a set of scopes (`identity:resolve`,
+`audit:write`, `alert:report`), issued/revoked with `control.mjs
+service-credential`, optionally expiring — or the legacy `CONTROL_INTERNAL_TOKEN`
+(bootstrap, every scope; the migration affordance). Per model turn, the builder
+surface:
 
 1. **Identity.** `POST /api/internal/identity` — the signed-in Authentik
    subject becomes (or provisions) a control-plane account; the response

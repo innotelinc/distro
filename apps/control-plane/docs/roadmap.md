@@ -4,8 +4,8 @@
 > per-user keys + quotas + usage sync + admin console + Magnate billing +
 > hardening). **0.3.0 (M7) is IN PROGRESS, and M8 (1.0) is underway** — the
 > Shares identity/storage slice is shipped and the build plane has been retired;
-> what remains in M7 is making the server-side bridge *scoped* — the browser-held
-> key itself was retired on 2026-10-02 (see M7). **M8 is complete**: the
+> and the browser-held key was retired and the server-side bridge made *scoped*
+> on 2026-10-02 (see M7), so M7 has no open items. **M8 is complete**: the
 > restore drill, the account-facing usage view, the failure alerts, the threat
 > model for the plane, and the version/upgrade posture have all shipped — which is
 > the 1.0 claim, *an operator can run this for other people*, met.
@@ -138,13 +138,26 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       key in the request handler and never sent it to the browser. Covered by
       `test/me-gateway-key.test.mjs`, which holds both directions at once: no
       secret to a session, the secret still to the service.
-- [ ] **Make the bridge *scoped*.** The service token above is account-wide — it
-      resolves *any* account's key, so its blast radius is the whole plane and
-      every consumer shares one credential. What "scoped" asks for is a
-      credential bound to a surface and an audience (issuable, revocable, short
-      lived), which is the remaining work in this item. Not urgent while one
-      surface holds it over the estate's own network; not optional once a second
-      one does.
+- [x] **Make the bridge *scoped*** (2026-10-02). The service token was
+      account-wide: it resolved *any* account's key, so its blast radius was the
+      whole plane and every consumer shared one credential. Now a credential is
+      bound to a **surface** and an **audience** — `src/serviceCredentials.js`
+      and the `service_credentials` table. Each route demands a scope
+      (`identity:resolve`, `audit:write`, `alert:report`) and a credential that
+      lacks it is refused **403**, a different answer from the **401** for "no
+      credential". Credentials are **issuable, revocable and optionally
+      short-lived**: `control.mjs service-credential issue --surface genie
+      --scopes identity:resolve,audit:write --ttl-days 90`, `… list`, `… revoke
+      <id>`; only the sha256 is stored, so `issue` prints the token exactly once
+      and "revoke and reissue" means something. The legacy
+      `CONTROL_INTERNAL_TOKEN` still works, deliberately, as a **bootstrap**
+      credential carrying every scope — that is the migration affordance that let
+      this ship without a flag day, and it is the thing to retire once Genie is
+      issued a real credential (it already presents whatever value is in its
+      env). Covered by `test/service-credentials.test.mjs`: issuance and hashed
+      storage, scope refusal, revocation, expiry, the bootstrap token across all
+      three routes, and that a live credential arms the routes with no env token
+      set.
 - [x] **Cross-repository acceptance automation.** A scheduled check that proves
       the deployment still works end to end — Genie signs a subject in through
       Authentik, the control plane provisions it, the turn is gated and its

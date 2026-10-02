@@ -44,7 +44,9 @@ another machine use the host's LAN IP (`hostname -I`).
 
 ## 3. The service API (what Genie consumes)
 
-With `CONTROL_INTERNAL_TOKEN` set (Distro's `bootstrap.sh` generates it):
+With a service credential set — `CONTROL_INTERNAL_TOKEN` (Distro's
+`bootstrap.sh` generates it; every scope) or a scoped one from
+`control.mjs service-credential issue`:
 
 1. `POST /api/internal/identity` with an Authentik subject → provisions (or
    finds) the account and returns its gateway key. Repeat → same account, no

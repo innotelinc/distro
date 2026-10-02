@@ -53,9 +53,10 @@ import {
 } from './db.js';
 import { deleteAccount } from './accounts.js';
 import { openSession, currentUser, closeSession, requireAdmin } from './auth.js';
+import { authenticateService, allowsScope, serviceAuthEnabled } from './serviceCredentials.js';
 import { alert, alertsConfig } from './alerts.js';
 import { estimateCostUsd } from './pricing.js';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import {
   oidcEnabled,
   oidcPublicConfig,
@@ -443,21 +444,26 @@ export async function handler(req, res, { gateway }) {
   //   * the quota routes identify the ACCOUNT by the user's gateway key
   //     (Authorization: Bearer <gateway key>) — the web app holds it already;
   //   * the provisioning/audit routes are service-to-service, so they present
-  //     CONTROL_INTERNAL_TOKEN (x-control-internal-token). They mint and read
-  //     credentials, so an unset token turns them OFF rather than open.
-  function internalTokenOk() {
-    const expected = String(process.env.CONTROL_INTERNAL_TOKEN || '');
-    if (!expected) return false;
-    const provided = String(req.headers['x-control-internal-token'] || '');
-    if (provided.length !== expected.length) return false;
-    return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
-  }
+  //     a scoped service credential (x-control-internal-token) — see
+  //     src/serviceCredentials.js. Each route demands a scope, and a credential
+  //     that lacks it is refused 403 rather than being read as unauthenticated.
+  //     The legacy CONTROL_INTERNAL_TOKEN env value is still accepted as a
+  //     bootstrap credential carrying every scope, so this changed the check
+  //     without a flag day. With neither a credential nor the env token set
+  //     these routes answer 503 (off) rather than open.
+  const service = authenticateService(req);
 
-  function internalDenied(send) {
-    if (!String(process.env.CONTROL_INTERNAL_TOKEN || '')) {
-      return send(503, { error: 'internal API not configured (CONTROL_INTERNAL_TOKEN)' });
-    }
-    return send(401, { error: 'unauthorized' });
+  // Returns true when it DENIED (and has answered): callers write
+  // `if (requireScope('…')) return;`. Returning `send(...)` would not work —
+  // the response helpers return undefined, so the route would carry on and try
+  // to answer twice.
+  function requireScope(scope) {
+    if (allowsScope(service, scope)) return false;
+    if (service) send(403, { error: `service credential lacks scope '${scope}'` });
+    else if (!serviceAuthEnabled())
+      send(503, { error: 'internal API not configured (set CONTROL_INTERNAL_TOKEN or issue a service credential)' });
+    else send(401, { error: 'unauthorized' });
+    return true;
   }
 
   /**
@@ -485,7 +491,7 @@ export async function handler(req, res, { gateway }) {
   // its quota and its gateway key live here. Called once per user per process
   // by Genie, which caches the answer.
   if (path === '/api/internal/identity' && method === 'POST') {
-    if (!internalTokenOk()) return internalDenied(send);
+    if (requireScope('identity:resolve')) return;
 
     const body = await readBody(req);
     if (body.__invalid) return send(400, { error: 'invalid JSON' });
@@ -600,7 +606,7 @@ export async function handler(req, res, { gateway }) {
   // — the three that touch a public name or the repository. The actor is the
   // identity the caller names, resolved to an account when this plane knows it.
   if (path === '/api/internal/audit' && method === 'POST') {
-    if (!internalTokenOk()) return internalDenied(send);
+    if (requireScope('audit:write')) return;
 
     const body = await readBody(req);
     if (body.__invalid) return send(400, { error: 'invalid JSON' });
@@ -633,7 +639,7 @@ export async function handler(req, res, { gateway }) {
   // (see alerts.js) keep a retry storm to one alert. Exposed to a sibling
   // platform, never to browser JS, and off unless the service token is set.
   if (path === '/api/internal/alert' && method === 'POST') {
-    if (!internalTokenOk()) return internalDenied(send);
+    if (requireScope('alert:report')) return;
 
     const body = await readBody(req);
     if (body.__invalid) return send(400, { error: 'invalid JSON' });
