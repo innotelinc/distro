@@ -61,6 +61,8 @@ test("normalizeVersion strips prefixes and suffixes, rejects noise", () => {
 test("extractVersion finds the version under the names it has appeared under", () => {
   assert.deepEqual(extractVersion({ version: "3.8.51" }), { version: "3.8.51", buildSha: null });
   assert.deepEqual(extractVersion({ build: { version: "v3.8.51", sha: "abcdef1234" } }), { version: "3.8.51", buildSha: "abcdef1234" });
+  // `/api/system/version` reports the running release as `current`.
+  assert.deepEqual(extractVersion({ current: "3.8.51", latest: "3.9.0", updateAvailable: true }), { version: "3.8.51", buildSha: null });
   assert.deepEqual(extractVersion({ status: "ok", buildSha: "0123abc" }), { version: null, buildSha: "0123abc" });
   assert.deepEqual(extractVersion({ buildSha: "not-a-sha!" }), { version: null, buildSha: null });
   assert.deepEqual(extractVersion(null), { version: null, buildSha: null });
@@ -144,6 +146,27 @@ test("the probe falls back to /api/health when the monitoring route is missing",
     const result = await checkGatewayVersion(gw.client, quiet);
     assert.equal(result.endpoint, "/api/health");
     assert.equal(result.compatible, true);
+  } finally {
+    await gw.close();
+  }
+});
+
+test("the probe reads /api/system/version first, which stays reachable behind SSO", async () => {
+  delete process.env.GATEWAY_EXPECTED_VERSION;
+  resetGatewayVersionCheck();
+  const gw = await fakeGateway({
+    // The one route the gateway's sign-in proxy whitelists, so it answers even
+    // when the dashboard has been put behind Cerulean SSO.
+    "/api/system/version": { body: { current: DEFAULT_EXPECTED_VERSION, latest: "3.9.0", updateAvailable: true, channel: "source" } },
+    // The health route would redirect to the IdP, so it must not be preferred.
+    "/api/monitoring/health": { body: { version: "3.9.0" } },
+  });
+  try {
+    const result = await checkGatewayVersion(gw.client, quiet);
+    assert.equal(result.endpoint, "/api/system/version");
+    assert.equal(result.running, DEFAULT_EXPECTED_VERSION);
+    assert.equal(result.compatible, true);
+    assert.equal(result.error, null);
   } finally {
     await gw.close();
   }

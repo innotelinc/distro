@@ -147,12 +147,17 @@ export class GatewayClient {
   /**
    * The running gateway's version, as it reports it.
    *
-   * OmniRoute has no dedicated version route; `/api/monitoring/health` carries
-   * build metadata and `/api/health` is the lightweight probe. Neither payload
-   * shape is part of a contract this plane controls, so the read is defensive:
-   * try both routes, without a session first (health is public) and with one
-   * on a 401/403, and look for the version under the names it has appeared
-   * under. `version: null` means the gateway answered but did not say.
+   * `GET /api/system/version` is OmniRoute's own version route and, because it
+   * is explicitly whitelisted for GET on the gateway's sign-in proxy, it is the
+   * one route that answers whether or not the dashboard sits behind SSO. The
+   * older health routes (`/api/monitoring/health`, `/api/health`) are tried
+   * only as fallbacks: once the dashboard is fronted by oauth2-proxy they
+   * redirect to the identity provider, so this plane reads an HTML sign-in page
+   * instead of a version and the console shows `unknown`. No payload shape is
+   * part of a contract this plane controls, so the read stays defensive: try
+   * each route, without a session first and with one on a 401/403, and look for
+   * the version under the names it has appeared under. `version: null` means the
+   * gateway answered but did not say.
    *
    * @returns {Promise<{ version: string|null, buildSha: string|null, endpoint: string|null }>}
    */
@@ -160,7 +165,7 @@ export class GatewayClient {
     await this.#ensureDashboardUrl();
     let lastError = null;
     let answeredWithoutVersion = null;
-    for (const path of ['/api/monitoring/health', '/api/health']) {
+    for (const path of ['/api/system/version', '/api/monitoring/health', '/api/health']) {
       try {
         let res = await fetch(`${this.dashboardUrl}${path}`, { headers: this.cookie ? { Cookie: this.cookie } : {} });
         if ((res.status === 401 || res.status === 403) && this.adminPassword) {
@@ -195,6 +200,8 @@ export function extractVersion(data) {
   const out = { version: null, buildSha: null };
   if (!data || typeof data !== 'object') return out;
   const candidates = [
+    // `/api/system/version` reports the running release as `current`.
+    data.current,
     data.version,
     data.appVersion,
     data.app_version,
