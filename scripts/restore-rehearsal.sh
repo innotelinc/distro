@@ -18,7 +18,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
+cd "$ROOT" || exit 1
 
 IMAGE="${CONTROL_IMAGE:-distro-control-plane:local}"
 LIVE_URL="http://127.0.0.1:${CONTROL_PORT:-20140}"
@@ -33,8 +33,12 @@ echo "live /health: $(curl -s -o /dev/null -w '%{http_code}' "$LIVE_URL/health")
 echo
 echo "=== a fresh backup, taken while the stack is live ==="
 ./scripts/backup.sh | tail -2
-NEWEST="$(ls -t backups/control-plane/control-*.sqlite | head -1)"
-OLDEST="$(ls -t backups/control-plane/control-*.sqlite | tail -1)"
+# `ls -t ... | head` risks SIGPIPE under `pipefail` and trips SC2012; order by
+# mtime with find and read the ends from the sorted list instead.
+mapfile -t _backups < <(find backups/control-plane -maxdepth 1 -name 'control-*.sqlite' \
+  -printf '%T@ %p\n' | sort -n | cut -d' ' -f2-)
+NEWEST="${_backups[-1]:-}"
+OLDEST="${_backups[0]:-}"
 echo "newest: $NEWEST"
 echo "oldest: $OLDEST"
 
