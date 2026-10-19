@@ -12,7 +12,12 @@ import {
   setGatewayKey,
   updateUser,
 } from "../src/db.js";
-import { checkAccountKeys, gatewayApiBase, remintAccountKey } from "../src/accountKeys.js";
+import {
+  brokenAccountKeys,
+  checkAccountKeys,
+  gatewayApiBase,
+  remintAccountKey,
+} from "../src/accountKeys.js";
 
 /**
  * One account's key can be broken while every other account works, and the
@@ -148,5 +153,105 @@ test("keys-check", async (t) => {
     const base = await gatewayApiBase();
     assert.equal(base.endsWith("/v1/v1"), false);
     delete process.env.GATEWAY_API_URL;
+  });
+});
+
+/**
+ * The two ways a key is wrong that a gateway probe cannot see.
+ *
+ * A stored key the gateway has forgotten comes back `401` and this check has
+ * always caught it. A key two accounts both hold comes back `200` — for both — so
+ * the old check cleared it while every turn was spent as one identity. And a row
+ * with no key at all was asked about with an empty bearer, which is not a question
+ * the gateway's answer means anything about.
+ */
+test("a shared or missing key is not a working one", async (t) => {
+  const sharedKey = "sk-shared-5555555555555555555555555";
+  const first = account("shared-a@example.com", sharedKey, { gatewayKeyId: "key-shared-a" });
+  const second = account("shared-b@example.com", sharedKey, { gatewayKeyId: "key-shared-b" });
+  const gateless = account("no-key@example.com", null, { gatewayKeyId: "key-absent" });
+
+  await t.test("one key on two accounts is reported, and only the first account keeps it", async () => {
+    const gateway = fakeGateway({});
+    const result = await checkAccountKeys({ fetchImpl: gateway.fetch, base: "http://gateway.test" });
+
+    assert.deepEqual(
+      result.shared.map((entry) => entry.email),
+      ["shared-b@example.com"],
+      "the later holder is the one that has to be re-minted; the key was minted for the first",
+    );
+    assert.deepEqual(result.missing.map((entry) => entry.email), ["no-key@example.com"]);
+    assert.equal(
+      result.ok.some((entry) => entry.email === "shared-b@example.com"),
+      false,
+      "the account whose key is somebody else's is not reported as fine",
+    );
+    assert.deepEqual(
+      result.ok.filter((entry) => entry.email.startsWith("shared-")).map((entry) => entry.email),
+      ["shared-a@example.com"],
+      "the keeper is probed and accepted: the key does work, it is just not only its own",
+    );
+    assert.equal(gateway.asked.includes(sharedKey), true, "the keeper is still probed");
+    assert.equal(
+      gateway.asked.filter((key) => key === sharedKey).length,
+      1,
+      "the shared key is asked about once, not once per holder",
+    );
+    assert.equal(gateway.asked.includes(""), false, "an account with no key is never asked about with an empty bearer");
+    assert.match(result.shared[0].reason, /cannot be attributed/);
+    assert.equal(result.shared[0].keyPrefix, "sk-shared-55");
+    assert.equal(result.shared[0].gatewayKeyId, "key-shared-b");
+    assert.equal(result.missing[0].label, "default");
+
+    assert.deepEqual(
+      brokenAccountKeys(result).map((entry) => entry.email).sort(),
+      ["no-key@example.com", "shared-b@example.com"],
+      "--fix rotates every account that cannot spend, whichever verdict found it",
+    );
+    assert.equal(first.id === second.id, false);
+    assert.ok(gateless.id);
+  });
+
+  await t.test("--fix mints a distinct key for the account that was sharing one, and says why", async () => {
+    const before = getGatewayKey(second.id);
+    assert.equal(before.gateway_key, sharedKey, "still the shared key before the fix");
+
+    const mints = [];
+    const gateway = {
+      login: async () => "session=1",
+      createApiKey: async (name, options) => {
+        mints.push({ name, options });
+        return { id: "key-reminted-shared", key: "sk-private-6666666666666666666666666", name };
+      },
+    };
+    await remintAccountKey(
+      {
+        userId: before.user_id,
+        email: "shared-b@example.com",
+        label: before.label,
+        keyPrefix: before.gateway_key.slice(0, 12),
+        status: null,
+        reason: "the same key is stored for 2 accounts, so what it spends cannot be attributed to one of them",
+      },
+      { gateway },
+    );
+
+    const after = getGatewayKey(second.id);
+    assert.equal(after.gateway_key, "sk-private-6666666666666666666666666");
+    assert.equal(after.gateway_key_id, "key-reminted-shared");
+    assert.equal(mints.length, 1);
+
+    const audits = listAudit(50, { actionPrefix: "key.rotate", userId: second.id });
+    assert.equal(audits.length, 1, "the rotation is in the audit log");
+    const asText = audits
+      .map((entry) => (typeof entry.meta === "string" ? entry.meta : JSON.stringify(entry.meta)))
+      .join(" ");
+    assert.match(asText, /cannot be attributed/, "the audit says why, not just that");
+    assert.match(asText, /"label":"default"/);
+
+    // Now that each account holds its own key, the same rows come back clean.
+    const settled = await checkAccountKeys({ fetchImpl: fakeGateway({}).fetch, base: "http://gateway.test" });
+    assert.deepEqual(settled.shared, [], "a key that only one account holds is not shared any more");
+    assert.equal(settled.missing.length, 1, "the account with no key is still the one thing left to fix");
   });
 });

@@ -21,7 +21,7 @@ import { hashPassword } from '../src/passwords.js';
 import { GatewayClient } from '../src/gateway.js';
 import { syncUsageFromGateway, backfillUsageFromGateway } from '../src/sync.js';
 import { checkGatewayVersion } from '../src/gatewayVersion.js';
-import { checkAccountKeys, remintAccountKey } from '../src/accountKeys.js';
+import { brokenAccountKeys, checkAccountKeys, remintAccountKey } from '../src/accountKeys.js';
 import { runAcceptance, formatAcceptance, linkedAccountPairs } from '../src/acceptance.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -116,30 +116,43 @@ async function main() {
       const fix = args.includes('--fix');
       const gateway = new GatewayClient({ adminPassword: process.env.GATEWAY_ADMIN_PASSWORD });
       const result = await checkAccountKeys();
+      const broken = brokenAccountKeys(result);
       console.log(`gateway ${result.base} — ${result.checked} live account key(s)`);
       for (const entry of result.rejected) {
         console.log(`  REFUSED   ${entry.email} ${entry.keyPrefix}… HTTP ${entry.status}`);
       }
+      for (const entry of result.missing) {
+        console.log(`  MISSING   ${entry.email} (${entry.label}) has no key stored`);
+      }
+      for (const entry of result.shared) {
+        console.log(`  SHARED    ${entry.email} (${entry.label}) ${entry.keyPrefix}… — ${entry.reason}`);
+      }
       for (const entry of result.unchecked) {
         console.log(`  unchecked ${entry.email} ${entry.keyPrefix}… ${entry.error || 'HTTP ' + entry.status}`);
       }
-      if (result.rejected.length === 0) {
-        console.log(`  ok        every key accepted (${result.ok.length}/${result.checked})`);
+      if (broken.length === 0) {
+        console.log(`  ok        every key is one account's own and accepted (${result.ok.length}/${result.checked})`);
       } else if (fix) {
-        for (const entry of result.rejected) {
+        for (const entry of broken) {
           const minted = await remintAccountKey(entry, { gateway });
-          console.log(`  re-minted ${entry.email} → gateway key ${minted.gatewayKeyId}`);
+          console.log(`  re-minted ${entry.email} (${entry.label}) → gateway key ${minted.gatewayKeyId}`);
         }
       }
-      if (result.rejected.length > 0 && args.includes('--alert')) {
+      if (broken.length > 0 && args.includes('--alert')) {
         // The same shape as the other operational alerts, so one receiver can
         // classify them: see CONTROL_ALERT_WEBHOOK_URL in docs/ops.md.
         const { alert } = await import('../src/alerts.js');
         await alert('gateway.account-keys', {
           title: 'The gateway refused an account key',
           message:
-            `${result.rejected.length} account key(s) refused: ` +
-            result.rejected.map((entry) => `${entry.email} (HTTP ${entry.status})`).join(', '),
+            `${broken.length} account key(s) unusable: ` +
+            broken
+              .map((entry) =>
+                entry.status
+                  ? `${entry.email} (HTTP ${entry.status})`
+                  : `${entry.email} (${entry.reason})`,
+              )
+              .join(', '),
           meta: {
             base: result.base,
             unchecked: result.unchecked.length,
@@ -148,12 +161,18 @@ async function main() {
               status: entry.status,
               keyPrefix: entry.keyPrefix,
             })),
+            missing: result.missing.map((entry) => ({ email: entry.email, label: entry.label })),
+            shared: result.shared.map((entry) => ({
+              email: entry.email,
+              label: entry.label,
+              keyPrefix: entry.keyPrefix,
+            })),
           },
         });
       }
       // Non-zero so a timer or a CI step notices. --fix is the human saying
       // "rotate it", and exits 0 because the finding is then resolved.
-      if (result.rejected.length > 0 && !fix) process.exit(1);
+      if (broken.length > 0 && !fix) process.exit(1);
       break;
     }
     case 'usage-sync': {
