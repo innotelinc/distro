@@ -261,15 +261,56 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   routes answer **503**, never open — they mint and read credentials. Every
   provisioned account is audited (`user.provisioned` / `user.oidc-link`), and an
   export writes an audit row from Genie.
-- **Usage is chat-report-authoritative in remote-gateway mode**: the control
-  plane can sync the gateway's own per-key ledger (`usage_history` in the
-  gateway SQLite volume, mounted read-only) into `usage_cache` every
-  `CONTROL_SYNC_INTERVAL_MS` — but this stack does not mount that volume, since
-  the gateway is remote, so the interval defaults to 0 (off) and quota
-  accounting uses chat-traffic usage reports plus key spend caps. Set
-  `CONTROL_SYNC_INTERVAL_MS` only if a gateway data dir is mounted read-only at
+- **Usage is ledger-authoritative here**: the control plane syncs the gateway's
+  own per-key ledger (`usage_history`) into `usage_cache` every
+  `CONTROL_SYNC_INTERVAL_MS`, replacing that day's totals per ACCOUNT (an
+  account can own several keys -- default, app, legacy shared -- and writing
+  per key would leave only the last one's tokens in the cache). The gateway
+  is remote, so there is no volume to mount: the incus host exports a snapshot
+  with `/usr/local/bin/gateway-usage-sync` (systemd timer
+  `gateway-usage-sync.timer`, every 60 s), which writes
+  `data/gateway-data/storage.sqlite` and mounts it read-only at
   `GATEWAY_DATA_DIR`. Manual run:
   `docker compose exec control-plane node bin/control.mjs usage-sync`.
+
+  Two details that break this silently if lost. The snapshot is produced with
+  `VACUUM INTO`, not a file copy or `backup()`: the live database is in WAL
+  mode, and a read-only open of a WAL copy on a read-only mount fails with
+  "unable to open database file" because SQLite cannot create the `-shm`
+  sidecar. `VACUUM INTO` writes a rollback-journal database (verified before
+  install: journal mode `delete`), which opens read-only with no sidecars.
+
+  A gateway key only reaches the dashboard if it belongs to an account. Keys
+  created in the OmniRoute UI (the platform's own `ontrak-genie`, `atheniq`, …)
+  are not, and the sync counts them as `unmapped key(s)` in its log. They are
+  mapped as Distro service accounts (`<key-name>@innotel.us`, random thrown-away
+  password, unlimited limits) with one `gateway_keys` row per key, so platform
+  traffic is visible per app without touching a subscriber's quota. A new
+  shared key needs the same treatment or its tokens stay invisible.
+  An unmapped key is not a silent condition: the pass logs each one with its
+  token count and fires a `sync.unmapped-keys` webhook (10 min cooldown), because
+  a sync that matches nothing still reports success and the dashboard simply
+  reads as idle. Map the key to an account to clear it.
+
+- **History is backfilled from the same ledger**: the scheduled sync only ever
+  touches today, so days before it was switched on read as zero. `node
+  bin/control.mjs usage-backfill [days]` (default 30, max 365) groups the ledger
+  by `date(timestamp)` per key and model, maps keys to accounts, and REPLACES
+  each covered `(user, day)` in `usage_cache` plus its `usage_models` rows — in
+  one transaction, so a re-run is idempotent. Days the ledger does not cover are
+  left alone, which is what keeps chat-report-only rows (and the acceptance
+  harness's synthetic rows) intact. The command prints per-key totals it could
+  not attribute: those are keys that were rotated or revoked before the mapping
+  existed, and no backfill can place them.
+
+- **App traffic runs on Distro-issued keys**: `distro-app-genie` and
+  `distro-app-openmaic` are minted here (one per app service account, capped at
+  $10/$50 and $75/$350 daily/weekly) and the apps read them from Cerulean Vault
+  (`cerulean/ontrak`, `cerulean/openmaic`). The legacy shared keys
+  (`ontrak-genie`, `atheniq`) stay valid but idle, so a rollback is a Vault
+  version restore plus a restart. Because the cap is on the gateway key, a
+  runaway app is stopped by the gateway with a 429 rather than discovered on the
+  next invoice.
 - **Gateway version pin**: `GATEWAY_EXPECTED_VERSION` (default `3.8.51`) is
   the OmniRoute release the control plane was verified against. It is probed
   at boot and before every usage sync; the `/admin` *Gateway version* card is

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { usageDay, usageDayShift } from './usageDay.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -316,7 +317,7 @@ export function touchGatewayKey(userId, label = 'default') {
 }
 
 export function recordUsage(userId, { date, tokensIn = 0, tokensOut = 0, requests = 0, costUsd = 0, model = null }) {
-  const day = date || new Date().toISOString().slice(0, 10);
+  const day = date || usageDay();
   const values = [Math.max(0, tokensIn), Math.max(0, tokensOut), Math.max(0, requests), Math.max(0, costUsd)];
   const database = getDb();
   database.transaction(() => {
@@ -358,10 +359,10 @@ export function getModelUsageToday(userId) {
   return getDb()
     .prepare(
       `SELECT model, tokens_in, tokens_out, requests, cost_usd
-       FROM usage_models WHERE user_id = ? AND date = date('now')
+       FROM usage_models WHERE user_id = ? AND date = ?
        ORDER BY cost_usd DESC, requests DESC, model`,
     )
-    .all(userId);
+    .all(userId, usageDay());
 }
 
 /** Per-model totals across all users over the last `days` days (inclusive of today). */
@@ -375,18 +376,19 @@ export function modelUsageAll(days = 1) {
               COALESCE(SUM(cost_usd), 0)   AS cost_usd,
               COUNT(DISTINCT user_id)      AS users
        FROM usage_models
-       WHERE date >= date('now', ?)
+       WHERE date >= ?
        GROUP BY model
        ORDER BY cost_usd DESC, requests DESC, model`,
     )
-    .all(`-${Math.max(1, days) - 1} days`);
+    .all(usageDayShift(usageDay(), -(Math.max(1, days) - 1)));
 }
 
 /** M6 sync: the gateway's per-(key, model) rows become today's breakdown for
  *  this user — replaced wholesale, like usage_cache, because the ledger saw
  *  every call under the key. Rows without a model are folded under ''. */
-export function replaceModelUsageFromGateway(userId, rows) {
-  const day = new Date().toISOString().slice(0, 10);
+/** Per-model breakdown for one day; replaces rather than adds, so a re-run is
+ *  idempotent. Same UTC day basis as `replaceUsageForDate`. */
+export function replaceModelUsageForDate(userId, day, rows) {
   const database = getDb();
   database.transaction(() => {
     database.prepare('DELETE FROM usage_models WHERE user_id = ? AND date = ?').run(userId, day);
@@ -412,6 +414,10 @@ export function replaceModelUsageFromGateway(userId, rows) {
       );
     }
   })();
+}
+
+export function replaceModelUsageFromGateway(userId, rows) {
+  replaceModelUsageForDate(userId, usageDay(), rows);
 }
 
 // ── quotas + usage cache ────────────────────────────────────────────────
@@ -454,9 +460,9 @@ export function getUsageToday(userId) {
     getDb()
       .prepare(
         `SELECT * FROM usage_cache
-         WHERE user_id = ? AND date = date('now')`,
+         WHERE user_id = ? AND date = ?`,
       )
-      .get(userId) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
+      .get(userId, usageDay()) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
   );
 }
 
@@ -470,9 +476,9 @@ export function usageFor(userId, days = 7) {
                 COALESCE(SUM(requests), 0)   AS requests,
                 COALESCE(SUM(cost_usd), 0)   AS cost_usd
          FROM usage_cache
-         WHERE user_id = ? AND date >= date('now', ?)`,
+         WHERE user_id = ? AND date >= ?`,
       )
-      .get(userId, `-${days - 1} days`) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
+      .get(userId, usageDayShift(usageDay(), -(days - 1))) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
   );
 }
 
@@ -486,9 +492,9 @@ export function usageAll(days = 7) {
                 COALESCE(SUM(requests), 0)   AS requests,
                 COALESCE(SUM(cost_usd), 0)   AS cost_usd
          FROM usage_cache
-         WHERE date >= date('now', ?)`,
+         WHERE date >= ?`,
       )
-      .get(`-${days - 1} days`) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
+      .get(usageDayShift(usageDay(), -(days - 1))) || { tokens_in: 0, tokens_out: 0, requests: 0, cost_usd: 0 }
   );
 }
 
@@ -512,8 +518,10 @@ export function listAlerts(limit = 100) {
     .all(limit);
 }
 
-export function replaceUsageFromGateway(userId, { tokensIn, tokensOut, requests, costUsd = 0 }) {
-  const day = new Date().toISOString().slice(0, 10);
+/** Replace one user's row for one day. `day` is UTC (YYYY-MM-DD), the same
+ *  basis the ledger groups by — the backfill and the scheduled sync write
+ *  through this, so a backfilled day cannot disagree with a live one. */
+export function replaceUsageForDate(userId, day, { tokensIn, tokensOut, requests, costUsd = 0 }) {
   getDb()
     .prepare(
       `INSERT INTO usage_cache (user_id, date, tokens_in, tokens_out, requests, cost_usd, updated_at)
@@ -533,6 +541,10 @@ export function replaceUsageFromGateway(userId, { tokensIn, tokensOut, requests,
       Math.max(0, requests),
       Math.max(0, Number(costUsd) || 0),
     );
+}
+
+export function replaceUsageFromGateway(userId, agg) {
+  replaceUsageForDate(userId, usageDay(), agg);
   return getUsageToday(userId);
 }
 

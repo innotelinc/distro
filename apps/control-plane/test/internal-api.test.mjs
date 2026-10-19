@@ -13,6 +13,7 @@ import { openDb, createUser, updateUser, upsertQuota, setGatewayKey, getGatewayK
 import { openSession } from "../src/auth.js";
 import { handler } from "../src/http.js";
 import { runAcceptance, linkedAccountPairs } from "../src/acceptance.js";
+import { usageDay } from "../src/usageDay.js";
 
 /**
  * The internal API (`/api/internal/*`), exercised against a real SQLite file and
@@ -375,7 +376,7 @@ test("a database from before the build plane gains builds_per_day and builds", a
     );
     INSERT INTO users (id, email, password_hash) VALUES ('u1', 'old@example.com', 'scrypt$…');
     INSERT INTO quotas (id, user_id, requests_per_day) VALUES ('q1', 'u1', 10);
-    INSERT INTO usage_cache (user_id, date, requests) VALUES ('u1', date('now'), 3);
+    INSERT INTO usage_cache (user_id, date, requests) VALUES ('u1', '${usageDay()}', 3);
   `);
   legacy.close();
 

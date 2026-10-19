@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { openDb } from './db.js';
 import { GatewayClient } from './gateway.js';
 import { handler } from './http.js';
-import { syncUsageFromGateway, syncIsStale } from './sync.js';
+import { syncUsageFromGateway, syncIsStale, unmappedAlert } from './sync.js';
 import { checkGatewayVersion } from './gatewayVersion.js';
 import { alert } from './alerts.js';
 import { seedDistroPlan } from './billing.js';
@@ -63,6 +63,15 @@ async function runUsageSync() {
           `${result.total.requests} req / ${result.total.tokensIn + result.total.tokensOut} tok ` +
           `(~$${result.total.costUsd.toFixed(4)}) today`,
       );
+    }
+    // A pass that matches nothing still "succeeds"; without this the only
+    // symptom of an unmapped key is a dashboard that looks idle.
+    if (result.unmapped?.length) {
+      console.warn(
+        `[control-plane] usage sync: ${result.unmapped.length} unmapped key(s) — ` +
+          result.unmapped.map((u) => `${u.apiKeyId} (${u.tokensIn + u.tokensOut} tok)`).join(', '),
+      );
+      void alert('sync.unmapped-keys', unmappedAlert(result.unmapped));
     }
   } catch (err) {
     console.warn(`[control-plane] usage sync failed: ${err?.message || err}`);

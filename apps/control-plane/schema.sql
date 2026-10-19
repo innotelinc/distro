@@ -250,3 +250,29 @@ CREATE TABLE IF NOT EXISTS service_credentials (
 );
 -- A whole new table (never an ALTER), so its index is safe here.
 CREATE INDEX IF NOT EXISTS idx_service_credentials_surface ON service_credentials(surface);
+
+-- Credits: the unit a metered add-on spends, and the ledger that remembers it.
+--
+-- A credit is a unit of *work* rather than of time — OnTrak Engineer charges one
+-- credit to reverse-engineer one project — and its price is set where money is set
+-- (Magnate, $5), not here. Distro keeps the balance, and a balance is a sum, never
+-- a stored number that can be written over: "who spent this, and when" is the
+-- question a metered service is asked, and only a ledger can answer it.
+--
+-- The unique index is the second half of the design. A spend carries the project
+-- it paid for as `reference`, so retrying the same project charges once, and a
+-- second project charges again. Partial, because a grant need not carry one.
+CREATE TABLE IF NOT EXISTS credit_ledger (
+  id          TEXT PRIMARY KEY,        -- uuid
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  delta       INTEGER NOT NULL,        -- + granted, - spent
+  kind        TEXT NOT NULL,           -- grant | spend | adjust
+  product     TEXT NOT NULL DEFAULT 'engineer',
+  reference   TEXT,                    -- idempotency key: one project, one charge
+  reason      TEXT,
+  actor_email TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_credit_ledger_user ON credit_ledger(user_id, product);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_credit_ledger_reference
+  ON credit_ledger(user_id, product, reference) WHERE reference IS NOT NULL;

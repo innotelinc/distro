@@ -19,7 +19,7 @@ import { issueServiceCredential, SCOPES } from '../src/serviceCredentials.js';
 import { deleteAccount } from '../src/accounts.js';
 import { hashPassword } from '../src/passwords.js';
 import { GatewayClient } from '../src/gateway.js';
-import { syncUsageFromGateway } from '../src/sync.js';
+import { syncUsageFromGateway, backfillUsageFromGateway } from '../src/sync.js';
 import { checkGatewayVersion } from '../src/gatewayVersion.js';
 import { checkAccountKeys, remintAccountKey } from '../src/accountKeys.js';
 import { runAcceptance, formatAcceptance, linkedAccountPairs } from '../src/acceptance.js';
@@ -158,6 +158,14 @@ async function main() {
     }
     case 'usage-sync': {
       const result = await syncUsageFromGateway();
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    }
+    case 'usage-backfill': {
+      // History the scheduled sync never saw. Idempotent: rows for a day the
+      // ledger covers are replaced, not added.
+      const days = Number(args[0] || 30);
+      const result = await backfillUsageFromGateway({ days });
       console.log(JSON.stringify(result, null, 2));
       break;
     }

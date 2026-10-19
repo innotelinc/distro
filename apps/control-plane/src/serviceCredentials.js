@@ -32,7 +32,7 @@ import {
  */
 
 /** Every scope the plane understands, in one place so the CLI and HTTP agree. */
-export const SCOPES = Object.freeze(['identity:resolve', 'audit:write', 'alert:report']);
+export const SCOPES = Object.freeze(['identity:resolve', 'audit:write', 'alert:report', 'entitlement:read', 'credits:read', 'credits:write']);
 
 export function isScope(value) {
   return SCOPES.includes(value);

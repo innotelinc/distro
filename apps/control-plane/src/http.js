@@ -69,11 +69,13 @@ import {
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { magnateConfigured, checkEntitlement, listPlans, gatedQuota } from './billing.js';
+import { magnateConfigured, checkEntitlement, entitlementFor, listPlans, gatedQuota, isServicePlan } from './billing.js';
+import { creditStatus, spendCredits, grantCredits, creditHistory } from './credits.js';
 import { magnateUrlSync } from './discovery.js';
 import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
 import { authentikGroupConfig, syncAuthentikGroup } from './authentik.js';
 import { lastGatewayVersionCheck } from './gatewayVersion.js';
+import { usageDay } from './usageDay.js';
 
 /**
  * How many days of usage an account reads back with its own quota (M8).
@@ -658,6 +660,157 @@ export async function handler(req, res, { gateway }) {
     return send(202, { ok: true, ...result });
   }
 
+  // The subscription question, answered by the platform rather than by each
+  // surface: Genie asks here instead of holding a Magnate URL of its own, so a
+  // plan's meaning lives in one place. `user` is the subscriber's address and
+  // `plan` the slug to check (defaults to MAGNATE_BILLING_SLUG).
+  if (path === '/api/internal/entitlement' && method === 'GET') {
+    if (requireScope('entitlement:read')) return;
+
+    const email = String(url.searchParams.get('user') || '').trim().toLowerCase();
+    const plan = String(url.searchParams.get('plan') || '').trim() || null;
+    if (!email) return send(400, { error: 'user is required' });
+
+    const user = getUserByEmail(email);
+    // An address with no account here is not a subscriber: it is an answer, not an
+    // error, so the caller can say "no subscription" instead of "billing is down".
+    const verdict = await entitlementFor(user, user ? getQuota(user.id) : null, plan);
+    return send(200, { ...verdict, source: verdict.source || 'distro' });
+  }
+
+  // Who a person is, by address.
+  //
+  // A caller that legitimately acts *for* somebody — G0DM0D3 runs a Genie turn as
+  // the signed-in person — needs the subject the account is keyed on, and has only
+  // an address to go on. Read-only by construction: it never creates an account and
+  // never rebinds a subject, because binding is the part that needs the subject and
+  // stays with `/api/internal/identity`. An address nobody has is a 404, which is
+  // an answer rather than an error.
+  if (path === '/api/internal/identity/resolve' && method === 'GET') {
+    if (requireScope('identity:resolve')) return;
+
+    const email = String(url.searchParams.get('email') || '').trim().toLowerCase();
+    if (!email) return send(400, { error: 'email is required' });
+
+    const user = getUserByEmail(email);
+    if (!user) return send(404, { error: 'user_not_found' });
+    if (!user.oidc_sub) {
+      // An account with no subject cannot be acted for by anything that resolves
+      // identity through the provider, and saying so is better than handing out a
+      // subject this deployment made up.
+      return send(409, { error: 'no_oidc_subject' });
+    }
+    const quota = getQuota(user.id);
+    return send(200, {
+      id: user.id,
+      email: user.email,
+      sub: user.oidc_sub,
+      plan: quota ? quota.plan : null,
+      service: isServicePlan(quota),
+    });
+  }
+
+  // Credits: the unit a metered add-on spends (OnTrak Engineer charges one credit
+  // per project). The balance lives here because Distro is already the plane that
+  // knows who an account is; the *price* lives in Magnate, and is reported here so
+  // a panel never has to ask two services to show one number.
+  //
+  // A service account is unlimited: it has no subscription anywhere else in the
+  // plane, and a credit balance is a subscription's currency.
+  if (path === '/api/internal/credits' && method === 'GET') {
+    if (requireScope('credits:read')) return;
+
+    const email = String(url.searchParams.get('user') || '').trim().toLowerCase();
+    const product = String(url.searchParams.get('product') || 'engineer').trim() || 'engineer';
+    if (!email) return send(400, { error: 'user is required' });
+
+    const user = getUserByEmail(email);
+    if (!user) {
+      // Not an account here, so not a customer: an answer, not an error.
+      return send(200, {
+        user: email,
+        product,
+        service: false,
+        allowed: false,
+        unlimited: false,
+        balance: 0,
+        credits_per_project: null,
+        price_per_credit_usd: null,
+        reason: 'user_not_found',
+      });
+    }
+
+    // Named for what it is:  alone is the *credential* this request
+    // arrived with, and reading the two as one thing is how a service account
+    // gets a credit balance it should not have.
+    const serviceAccount = isServicePlan(getQuota(user.id));
+    const status = creditStatus({ userId: user.id, product, service: serviceAccount });
+    return send(200, { user: email, product, ...status });
+  }
+
+  if (path === '/api/internal/credits/spend' && method === 'POST') {
+    if (requireScope('credits:write')) return;
+
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const email = String(body.user || '').trim().toLowerCase();
+    const product = String(body.product || 'engineer').trim() || 'engineer';
+    if (!email) return send(400, { error: 'user is required' });
+
+    const user = getUserByEmail(email);
+    if (!user) return send(404, { error: 'user not found' });
+    if (isServicePlan(getQuota(user.id))) {
+      return send(200, { user: email, product, ok: true, service: true, unlimited: true, spent: 0, balance: null });
+    }
+
+    const credits = body.credits === undefined ? undefined : Number(body.credits);
+    if (credits !== undefined && (!Number.isFinite(credits) || credits <= 0)) {
+      return send(400, { error: 'credits must be a positive number' });
+    }
+    const reference = body.reference ? String(body.reference).trim().slice(0, 200) : null;
+    const reason = body.reason ? String(body.reason).trim().slice(0, 500) : null;
+
+    const verdict = spendCredits({
+      userId: user.id,
+      credits,
+      product,
+      reference,
+      reason,
+      actorEmail: service?.surface ? `service:${service.surface}` : null,
+    });
+    // 200 with a verdict rather than 402: the caller is a service, and "no credits
+    // left" is the answer it needs to render, not an exception to handle.
+    return send(200, { user: email, product, ...verdict });
+  }
+
+  if (path === '/api/internal/credits/grant' && method === 'POST') {
+    if (requireScope('credits:write')) return;
+
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const email = String(body.user || '').trim().toLowerCase();
+    const product = String(body.product || 'engineer').trim() || 'engineer';
+    const credits = Number(body.credits);
+    if (!email) return send(400, { error: 'user is required' });
+    if (!Number.isFinite(credits) || credits <= 0) return send(400, { error: 'credits must be a positive number' });
+
+    const user = getUserByEmail(email);
+    if (!user) return send(404, { error: 'user not found' });
+    try {
+      const result = grantCredits({
+        userId: user.id,
+        credits,
+        product,
+        reference: body.reference ? String(body.reference).trim().slice(0, 200) : null,
+        reason: body.reason ? String(body.reason).trim().slice(0, 500) : null,
+        actorEmail: service?.surface ? `service:${service.surface}` : null,
+      });
+      return send(200, { user: email, product, ...result });
+    } catch (error) {
+      return send(400, { error: error.message });
+    }
+  }
+
   if (path === '/api/internal/quota-check' && method === 'GET') {
     const user = await userFromGatewayKey(req);
     if (!user) return send(401, { error: 'unknown or revoked gateway key' });
@@ -698,6 +851,12 @@ export async function handler(req, res, { gateway }) {
   // ---- authenticated user routes ----
   const me = currentUser(req);
   if (!me) return send(401, { error: 'unauthorized' });
+
+  if (path === '/api/me/credits' && method === 'GET') {
+    const product = String(url.searchParams.get('product') || 'engineer').trim() || 'engineer';
+    const status = creditStatus({ userId: me.id, product, service: isServicePlan(getQuota(me.id)) });
+    return send(200, { product, ...status, history: creditHistory(me.id, { product, limit: 20 }) });
+  }
 
   if (path === '/api/me' && method === 'GET') {
     const key = getGatewayKey(me.id);
@@ -767,8 +926,9 @@ export async function handler(req, res, { gateway }) {
     const quota = getQuota(me.id);
     const decision = decideQuota(quota, today);
     return send(200, {
-      date: new Date().toISOString().slice(0, 10),
+      date: usageDay(),
       ...today,
+      entitlement: await entitlementFor(me, quota),
       models: getModelUsageToday(me.id),
       window: { days: USAGE_WINDOW_DAYS, ...usageFor(me.id, USAGE_WINDOW_DAYS) },
       caps: {
@@ -1028,7 +1188,7 @@ export async function handler(req, res, { gateway }) {
     );
     const week = usageAll(7);
     return send(200, {
-      date: new Date().toISOString().slice(0, 10),
+      date: usageDay(),
       ...totals,
       week: { requests: week.requests, tokensIn: week.tokens_in, tokensOut: week.tokens_out, costUsd: week.cost_usd },
       models: modelUsageAll(1).map((m) => ({

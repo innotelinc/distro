@@ -1,3 +1,5 @@
+const FREE_TIER_CLAMP = /^(1|true|yes)$/i.test(String(process.env.CONTROL_FREE_TIER_LIMITS || ''));
+
 /**
  * Magnate billing integration.
  *
@@ -102,14 +104,15 @@ export async function seedDistroPlan() {
  * When Magnate is unreachable or not configured, returns a fallback:
  *   { entitled: null, source: 'unconfigured'|'unreachable', magnate_url: '' }
  */
-export async function checkEntitlement(usernameOrEmail) {
+export async function checkEntitlement(usernameOrEmail, plan = null) {
   const MAGNATE_URL = magnateUrl();
   if (!MAGNATE_URL) {
     return { entitled: null, source: 'unconfigured', magnate_url: '' };
   }
 
   const params = new URLSearchParams();
-  if (MAGNATE_BILLING_SLUG) params.set('plan', MAGNATE_BILLING_SLUG);
+  const slug = String(plan || '').trim() || MAGNATE_BILLING_SLUG;
+  if (slug) params.set('plan', slug);
   if (usernameOrEmail) params.set('user', usernameOrEmail);
 
   const headers = {};
@@ -170,21 +173,90 @@ export async function listPlans() {
  * Subscribed users get the full limits.
  * When billing is disabled, everyone gets full limits.
  */
-export function gatedQuota(entitlement, baseQuota) {
-  // If billing is not configured, no gating
-  if (!magnateConfigured()) return baseQuota;
+/** The plan name that means "this account is a service, not a subscriber". */
+export const SERVICE_PLAN = 'service';
 
-  // If entitlement check failed or user is not entitled, apply free tier limits
-  if (!entitlement || entitlement.entitled !== true) {
+export function isServicePlan(quota) {
+  return String(quota?.plan || '').trim().toLowerCase() === SERVICE_PLAN;
+}
+
+/**
+ * The limits a turn is judged by.
+ *
+ * A subscription is what carries limits, and a service account is what has none:
+ * `ontrak-genie@`, `atheniq@` and the classroom key are machines — the platform's
+ * own apps — and clamping them to a free tier is how a class gets a 429 at
+ * dinner time. So they short-circuit before Magnate is even consulted.
+ *
+ * For everyone else the verdict is reported, not enforced as starvation: an
+ * account without a subscription keeps the limits Distro holds for it (usually
+ * none) and the *product* decides what an unsubscribed account may do — that is
+ * what `checkEntitlement` is for. The old free-tier clamp (10 requests/day) is
+ * kept behind CONTROL_FREE_TIER_LIMITS for a deployment that wants it, because
+ * removing an enforcement silently is worse than making it opt-in.
+ */
+export function gatedQuota(entitlement, baseQuota) {
+  if (isServicePlan(baseQuota) || entitlement?.service === true) return baseQuota;
+  if (!magnateConfigured()) return baseQuota;
+  if (FREE_TIER_CLAMP) {
+    if (!entitlement || entitlement.entitled !== true) {
+      return {
+        ...baseQuota,
+        requests_per_day: Math.min(baseQuota.requests_per_day ?? 1000, 10),
+        tokens_per_day: Math.min(baseQuota.tokens_per_day ?? 1000000, 50000),
+        spend_cap_usd: Math.min(baseQuota.spend_cap_usd ?? 100, 0.5),
+      };
+    }
+  }
+  return baseQuota;
+}
+
+/**
+ * One answer for "what is this account allowed, and what does it own".
+ *
+ * The endpoint Genie asks instead of asking Magnate itself: it resolves the
+ * account, short-circuits service accounts (no subscription, no limits), and
+ * otherwise reports Magnate's verdict plus the limits that verdict implies.
+ *
+ * `plan` is the account's own label in Distro and says nothing about a *product's*
+ * question, so the plan that was asked about is reported separately as
+ * `plan_asked`. Without it a product asking about `genie` for an account whose
+ * local label is `unlimited` gets `plan: "unlimited"` back and cannot tell whether
+ * its own question was even understood.
+ *
+ * @param {{id: string, email: string}|null} user
+ * @param {{plan?: string}|null} quota
+ * @param {string|null} plan  the plan this question is about, if any
+ */
+export async function entitlementFor(user, quota, plan = null) {
+  const limits = {
+    requests_per_day: quota?.requests_per_day ?? null,
+    tokens_per_day: quota?.tokens_per_day ?? null,
+    spend_cap_usd: quota?.spend_cap_usd ?? null,
+  };
+
+  if (isServicePlan(quota)) {
     return {
-      ...baseQuota,
-      // Free tier: 10 requests/day, 50k tokens/day, $0.50 spend cap
-      requests_per_day: Math.min(baseQuota.requests_per_day ?? 1000, 10),
-      tokens_per_day: Math.min(baseQuota.tokens_per_day ?? 1000000, 50000),
-      spend_cap_usd: Math.min(baseQuota.spend_cap_usd ?? 100, 0.5),
+      entitled: true,
+      service: true,
+      reason: 'service account: no subscription, no limits',
+      plan: SERVICE_PLAN,
+      slug: SERVICE_PLAN,
+      plan_asked: plan,
+      status: 'service',
+      source: 'distro',
+      email: user?.email || null,
+      limits: null,
     };
   }
 
-  // Subscribed user: full limits (or higher if plan specifies)
-  return baseQuota;
+  const answer = await checkEntitlement(user?.email, plan);
+  return {
+    ...answer,
+    service: false,
+    plan: quota?.plan ?? null,
+    plan_asked: plan,
+    email: user?.email || null,
+    limits,
+  };
 }

@@ -35,8 +35,19 @@ services:
       # GATEWAY_API_URL env overrides → Consul (CONTROL_CONSUL_URL).
       - GATEWAY_ADMIN_PASSWORD=${INITIAL_PASSWORD}
       - ADMIN_EMAILS=${CONTROL_ADMIN_EMAILS:-}
+      # Per-key token usage is aggregated from the gateway's own ledger
+      # (usage_history in its storage.sqlite). The gateway runs on the platform
+      # host, so a read-only snapshot is placed here by gateway-usage-sync.
+      - GATEWAY_DATA_DIR=/gateway-data
+      # The sync is off (0) unless this is set: with the volume mounted it is
+      # the thing that makes the gateway ledger authoritative per user.
+      - CONTROL_SYNC_INTERVAL_MS=${CONTROL_SYNC_INTERVAL_MS:-60000}
     volumes:
       - control-data:/data
+      # Cerulean Vault token (path-scoped `distro` policy). VAULT_TOKEN_FILE
+      # in .env names this path; the checkout keeps it at ./data/vault/token.
+      - ./data/vault/token:/app/data/vault/token:ro
+      - ./data/gateway-data:/gateway-data:ro
     extra_hosts:
       # Lets CONTROL_ALERT_WEBHOOK_URL point at a receiver on the host, e.g.
       # http://host.docker.internal:8080/hook
