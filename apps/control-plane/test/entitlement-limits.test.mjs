@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { entitlementFor, gatedQuota, isServicePlan, SERVICE_PLAN } from '../src/billing.js';
+import { entitlementFor, gatedQuota, isCreditProduct, isServicePlan, SERVICE_PLAN } from '../src/billing.js';
 
 const serviceQuota = { plan: SERVICE_PLAN, requests_per_day: null, tokens_per_day: null, spend_cap_usd: null };
 const subscriberQuota = { plan: 'genie', requests_per_day: 500, tokens_per_day: 2_000_000, spend_cap_usd: 25 };
@@ -73,4 +73,54 @@ test('entitlementFor reports a real account\'s limits beside the verdict', async
   // distinct from a refusal — and it still carries the limits.
   assert.equal(answer.entitled, null);
   assert.notEqual(answer.service, true);
+});
+
+test('a product sold in credits is not gated on a subscription', async () => {
+  // The failure this guards: an account whose balance an admin had just topped up
+  // was shown a subscribe page. Engineer and Godmode are bought one credit at a
+  // time, so "do you hold this plan's subscription" has no answer to give — the
+  // balance is the gate, and the credit route already reports it.
+  const answer = await entitlementFor({ id: 'u5', email: 'dhunter@innotel.us' }, freeQuota, 'engineer');
+  assert.equal(answer.entitled, true);
+  assert.equal(answer.per_unit, true);
+  assert.equal(answer.source, 'distro', 'no billing platform was asked');
+  assert.match(answer.reason, /credits/);
+  assert.equal(answer.plan_asked, 'engineer');
+  assert.equal(answer.service, false);
+
+  // The same answer for the other unit-sold product, and no Magnate call either.
+  // The set is deployment configuration: the plane ships knowing Engineer, and a
+  // deployment that sells more than one unit product names them.
+  process.env.CONTROL_CREDIT_PRODUCTS = 'engineer,g0dm0d3';
+  try {
+    const godmode = await entitlementFor({ id: 'u5', email: 'dhunter@innotel.us' }, freeQuota, 'g0dm0d3');
+    assert.equal(godmode.entitled, true);
+    assert.equal(godmode.per_unit, true);
+  } finally {
+    delete process.env.CONTROL_CREDIT_PRODUCTS;
+  }
+});
+
+test('an address with no account here is still a verdict, not an open door', async () => {
+  // `entitled: true` would let somebody the plane has never seen into a console
+  // whose credit route then cannot answer for them. The short-circuit is only for
+  // an account this plane resolved.
+  const answer = await entitlementFor(null, null, 'engineer');
+  // No ledger answer was invented, and the billing platform was the one asked —
+  // whatever it then said (a verdict, or `null` for "could not check").
+  assert.equal(answer.per_unit, undefined);
+  assert.notEqual(answer.source, 'distro');
+});
+
+test('the credit products are configuration, and the default is Engineer', async () => {
+  process.env.CONTROL_CREDIT_PRODUCTS = 'agents, run';
+  try {
+    assert.equal(isCreditProduct('run'), true);
+    assert.equal(isCreditProduct(' agents '), true, 'the list is trimmed');
+    assert.equal(isCreditProduct('engineer'), false, 'an explicit list replaces the default');
+    assert.equal(isCreditProduct(''), false, 'no plan asked is not a credit product');
+  } finally {
+    delete process.env.CONTROL_CREDIT_PRODUCTS;
+  }
+  assert.equal(isCreditProduct('engineer'), true, 'the shipped default');
 });

@@ -181,6 +181,24 @@ export function isServicePlan(quota) {
 }
 
 /**
+ * The products this deployment sells in units rather than by subscription.
+ *
+ * `CONTROL_CREDIT_PRODUCTS` lists the ledger product keys — the same ones the
+ * credit routes take — because a product sold by the credit has no subscription
+ * for an account to hold. The default is the metered add-on the ledger was
+ * written for, so a deployment that says nothing still answers Engineer.
+ */
+export function isCreditProduct(product) {
+  const wanted = String(product || '').trim().toLowerCase();
+  if (wanted === '') return false;
+  return String(process.env.CONTROL_CREDIT_PRODUCTS || 'engineer')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(wanted);
+}
+
+/**
  * The limits a turn is judged by.
  *
  * A subscription is what carries limits, and a service account is what has none:
@@ -247,6 +265,33 @@ export async function entitlementFor(user, quota, plan = null) {
       source: 'distro',
       email: user?.email || null,
       limits: null,
+    };
+  }
+
+  /*
+   * A credit product is not asked about a subscription, because there is none to
+   * hold: it is bought one unit at a time. Asking Magnate anyway is what made the
+   * two Genie consoles show a subscribe page to an account with a balance — the
+   * answer was a true `false` about a question the product does not ask.
+   *
+   * The ledger answers instead: `/api/internal/credits` says whether another run
+   * may start, and an empty balance is rendered as "out of credits" — the page
+   * that can actually be acted on. Only an account this plane knows is answered
+   * here; an address with no account still goes to the billing platform, so a
+   * stranger gets a "no account here" verdict rather than an open door.
+   */
+  if (user && isCreditProduct(plan)) {
+    return {
+      entitled: true,
+      service: false,
+      per_unit: true,
+      reason: 'sold in credits: the balance is the gate',
+      plan: quota?.plan ?? null,
+      plan_asked: plan,
+      status: 'credits',
+      source: 'distro',
+      email: user.email,
+      limits,
     };
   }
 
