@@ -70,7 +70,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { magnateConfigured, checkEntitlement, entitlementFor, listPlans, gatedQuota, isServicePlan } from './billing.js';
-import { creditStatus, spendCredits, grantCredits, creditHistory } from './credits.js';
+import { creditBalance, creditPriceUsd, creditStatus, spendCredits, grantCredits, creditHistory } from './credits.js';
 import { magnateUrlSync } from './discovery.js';
 import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
 import { authentikGroupConfig, syncAuthentikGroup } from './authentik.js';
@@ -468,7 +468,15 @@ export async function handler(req, res, { gateway }) {
     return true;
   }
 
-  /**
+  /** A product key from a request, defaulting to the metered add-on. */
+function creditProduct(value) {
+  const product = String(value || '').trim().toLowerCase();
+  if (product === '') return 'engineer';
+  if (!/^[a-z][a-z0-9_-]{0,31}$/.test(product)) return 'engineer';
+  return product;
+}
+
+/**
    * One gateway key per account, minted on first sight.
    *
    * The key is the account's identity for the internal quota routes, so a
@@ -1168,9 +1176,87 @@ export async function handler(req, res, { gateway }) {
         usage7d: usageFor(u.id, 7),
         hasGatewayKey: !!key,
         gatewayKeyId: key?.gateway_key_id || null,
+        credits: creditBalance(u.id),
       };
     });
     return send(200, { users });
+  }
+
+  /*
+   * Credits, seen by the operator.
+   *
+   * The balance belongs to the plane's ledger, and the only other way to add to it
+   * was a service credential that a platform holds (`POST /api/internal/credits/
+   * grant`) — so an operator who owed somebody credits had to run a script. This is
+   * the same grant, attributed to the admin who made it: the audit row names them,
+   * the ledger row carries the reason, and a mistyped amount is a rejected request
+   * rather than a silent refund somebody has to find later.
+   */
+  if (path === '/api/admin/credits' && method === 'GET') {
+    const email = String(url.searchParams.get('user') || '').trim().toLowerCase();
+    if (!email) return send(400, { error: 'user is required' });
+    const target = getUserByEmail(email);
+    if (!target) return send(404, { error: 'user not found' });
+    const product = creditProduct(url.searchParams.get('product'));
+    return send(200, {
+      user: target.email,
+      product,
+      balance: creditBalance(target.id, product),
+      price_per_credit_usd: creditPriceUsd(),
+      entries: creditHistory(target.id, { product, limit: 20 }).map((row) => ({
+        delta: row.delta,
+        kind: row.kind,
+        reference: row.reference,
+        reason: row.reason,
+        created_at: row.created_at,
+      })),
+    });
+  }
+
+  if (path === '/api/admin/credits/grant' && method === 'POST') {
+    const body = await readBody(req);
+    if (body.__invalid) return send(400, { error: 'invalid JSON' });
+    const email = String(body.user || '').trim().toLowerCase();
+    if (!email) return send(400, { error: 'user is required' });
+    const credits = Number(body.credits);
+    if (!Number.isInteger(credits) || credits <= 0) {
+      return send(400, { error: 'credits must be a positive whole number' });
+    }
+    const target = getUserByEmail(email);
+    if (!target) return send(404, { error: 'user not found' });
+    const product = creditProduct(body.product);
+    // A reason is optional but a blank one is not a reason: the ledger is read by
+    // people, and "admin grant" with no words behind it is how a balance becomes
+    // unexplainable.
+    const reason = String(body.reason || '').trim().slice(0, 200) || `admin grant by ${admin.email}`;
+    const reference = body.reference ? String(body.reference).trim().slice(0, 200) : null;
+    let result;
+    try {
+      result = grantCredits({
+        userId: target.id,
+        credits,
+        product,
+        reference,
+        reason,
+        actorEmail: admin.email,
+      });
+    } catch (error) {
+      return send(400, { error: error.message });
+    }
+    logAudit({
+      action: 'credits.grant',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      targetId: target.id,
+      meta: { credits, product, granted: result.granted, duplicate: result.duplicate, reason, reference },
+    });
+    return send(200, {
+      user: target.email,
+      product,
+      granted: result.granted,
+      duplicate: result.duplicate,
+      balance: result.balance,
+    });
   }
 
   if (path === '/api/admin/stats' && method === 'GET') {

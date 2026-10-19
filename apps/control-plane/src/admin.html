@@ -150,6 +150,8 @@
   ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--line) 92%, #fff 8%); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
   ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--cyan) 40%, var(--line)); background-clip: padding-box; }
   @media (prefers-reduced-motion: reduce) { .card, button, tbody tr, input, select { transition: none; } }
+  .credit-dialog { border:1px solid var(--line, #2a2f3a); border-radius:12px; padding:18px; max-width:760px; width:92vw; background:var(--panel, #11141a); color:inherit; }
+  .credit-dialog::backdrop { background:rgba(0,0,0,.55); }
 </style>
 </head>
 <body>
@@ -227,7 +229,7 @@
       <thead><tr>
         <th>User</th><th>Role</th><th>Status</th><th>Plan</th>
         <th>Req/day</th><th>Tokens/day</th><th>Spend/day $</th>
-        <th>Today (req / tok / $)</th><th>7d (tok / $)</th><th>Key</th><th></th>
+        <th>Today (req / tok / $)</th><th>7d (tok / $)</th><th>Credits</th><th>Key</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -271,6 +273,30 @@
     </form>
     <div class="table-wrap"><table><thead><tr><th>Pool</th><th>Provider</th><th>Root</th><th>Capacity</th><th>Status</th><th></th></tr></thead><tbody id="poolRows"></tbody></table></div>
   </div>
+
+  <dialog id="creditDialog" class="credit-dialog">
+    <div class="title">Credits — <span id="creditWho"></span></div>
+    <p class="muted" style="margin:8px 0 12px">
+      <strong id="creditBalance">—</strong> on this product ·
+      <span id="creditPrice"></span> per credit on Magnate’s price list
+    </p>
+    <form id="creditForm" class="pool-form" style="display:block">
+      <select id="creditProduct">
+        <option value="engineer">engineer</option>
+        <option value="g0dm0d3">g0dm0d3</option>
+      </select>
+      <input id="creditAmount" type="number" min="1" step="1" placeholder="Credits to add" required />
+      <input id="creditReason" placeholder="Why (shown in the ledger)" />
+      <button type="submit">Add credits</button>
+      <button type="button" class="ghost" id="creditClose">Close</button>
+    </form>
+    <div class="table-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>When</th><th>Δ</th><th>Kind</th><th>Reference</th><th>Reason</th></tr></thead>
+        <tbody id="creditEntries"></tbody>
+      </table>
+    </div>
+  </dialog>
 
   <div class="panel" style="margin-top:18px" id="buildAuditPanel">
     <div class="title">Builder audit by user <span id="buildAuditCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
@@ -470,16 +496,19 @@ function renderRows(users) {
       '<td class="muted">' + t.requests + ' / ' + (Number(t.tokens_in) + Number(t.tokens_out)).toLocaleString() + ' / ' + money(t.cost_usd) +
         modelsMini(u.usageModelsToday) + '</td>' +
       '<td class="muted">' + (Number(w.tokens_in) + Number(w.tokens_out)).toLocaleString() + ' / ' + money(w.cost_usd) + '</td>' +
+      '<td>' + (u.credits === undefined ? '—' : Number(u.credits).toLocaleString()) + '</td>' +
       '<td>' + (u.hasGatewayKey ? '<span class="pill ok">active</span>' : '<span class="pill off">none</span>') +
       '<div class="badge">' + esc(u.gatewayKeyId || '') + (u.hasGatewayKey ? ' <button class="ghost b-copy-key" title="Copy gateway key id">copy</button>' : '') + '</div></td>' +
       '<td><div class="row-actions">' +
         '<select class="f-preset" title="Quota presets"><option value="">Preset…</option><option value="free">Free</option><option value="pro">Pro</option><option value="unlimited">Unlimited</option></select>' +
         '<button class="ghost b-save">Save</button>' +
+        '<button class="ghost b-credits" title="Add credits to this account">Credits</button>' +
         '<button class="ghost b-build-audit" title="Show this user\'s builder audit rows">Build audit</button>' +
         '<button class="ghost b-rotate" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Rotate key</button>' +
         '<button class="ghost b-revoke" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Revoke key</button>' +
         '<button class="danger b-toggle">' + (disabled ? 'Enable' : 'Disable') + '</button>' +
       '</div></td>';
+    tr.querySelector('.b-credits').onclick = () => openCreditDialog(u);
     tr.querySelector('.b-save').onclick = async () => {
       const body = {
         quota: {
@@ -790,6 +819,66 @@ $('#buildAuditClear').onclick = () => {
   $('#buildAuditAction').value = 'build.';
   loadBuildAudit().catch((e) => toast('Build audit failed: ' + e.message));
 };
+let creditUser = null;
+
+async function openCreditDialog(user) {
+  creditUser = user;
+  $('#creditWho').textContent = user.email;
+  $('#creditDialog').showModal();
+  await loadCredits();
+}
+
+async function loadCredits() {
+  if (!creditUser) return;
+  const product = $('#creditProduct').value;
+  try {
+    const data = await api('/api/admin/credits?user=' + encodeURIComponent(creditUser.email) + '&product=' + encodeURIComponent(product));
+    $('#creditBalance').textContent = Number(data.balance).toLocaleString() + ' credits';
+    $('#creditPrice').textContent = '$' + Number(data.price_per_credit_usd || 0).toFixed(2);
+    const tb = $('#creditEntries');
+    tb.innerHTML = '';
+    for (const row of data.entries || []) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td class="muted">' + esc(row.created_at) + '</td>' +
+        '<td>' + (row.delta > 0 ? '+' : '') + esc(row.delta) + '</td>' +
+        '<td>' + esc(row.kind) + '</td>' +
+        '<td class="muted">' + esc(row.reference || '') + '</td>' +
+        '<td class="muted">' + esc(row.reason || '') + '</td>';
+      tb.appendChild(tr);
+    }
+    if (!(data.entries || []).length) {
+      tb.innerHTML = '<tr><td colspan="5" class="muted">No ledger entries on this product yet.</td></tr>';
+    }
+  } catch (e) {
+    toast('Credits: ' + e.message);
+  }
+}
+
+$('#creditProduct').addEventListener('change', () => { loadCredits(); });
+$('#creditClose').onclick = () => $('#creditDialog').close();
+$('#creditForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!creditUser) return;
+  const credits = Math.trunc(Number($('#creditAmount').value));
+  if (!Number.isInteger(credits) || credits <= 0) { toast('Credits must be a whole number above zero'); return; }
+  try {
+    const res = await api('/api/admin/credits/grant', {
+      method: 'POST',
+      body: JSON.stringify({
+        user: creditUser.email,
+        product: $('#creditProduct').value,
+        credits,
+        reason: $('#creditReason').value.trim(),
+      }),
+    });
+    toast(res.granted > 0 ? ('Added ' + res.granted + ' credits — balance ' + res.balance) : 'That grant had already been recorded');
+    $('#creditAmount').value = '';
+    $('#creditReason').value = '';
+    await loadCredits();
+    loadAll().catch(() => {});
+  } catch (err) { toast('Grant failed: ' + err.message); }
+});
+
 $('#createPoolBtn').onclick = () => $('#poolForm').classList.toggle('hidden');
 $('#poolForm').addEventListener('submit', async (e) => {
   e.preventDefault();
