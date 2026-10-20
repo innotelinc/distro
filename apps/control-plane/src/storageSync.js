@@ -196,9 +196,15 @@ export async function syncStorage({ env = process.env, fetchImpl = fetch, log = 
     }
     try {
       const reach = await poolStat(pool);
+      // For a share, "exists: false" means one specific thing — nothing is
+      // mounted at that path — and the status should say that, not just print the
+      // path back, because the path is the part the operator already knows.
+      const unmounted = reach.exists === false && String(pool.provider_type) === 'nfs';
       status[pool.id] = {
         ok: reach.exists !== false,
-        detail: reach.detail || (reach.exists ? 'reachable' : 'unreachable'),
+        detail: unmounted
+          ? `not mounted at ${reach.detail}`
+          : reach.detail || (reach.exists ? 'reachable' : 'unreachable'),
         at: new Date().toISOString(),
       };
     } catch (error) {
