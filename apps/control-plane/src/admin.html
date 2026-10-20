@@ -894,10 +894,19 @@ async function loadStorage() {
 
 function renderStorage(data) {
   const note = $('#storageNote');
+  // Why a pool is down, in the order that is most useful: the last sync's own
+  // answer ("not mounted at …") explains the failure, while the live reach is
+  // only the path it failed on. Falling back to the path keeps a pool that has
+  // never had a sync pass from reading as blank.
+  const why = (pool) => {
+    const reach = pool.reach || {};
+    if (reach.exists === false && pool.status && pool.status.detail) return pool.status.detail;
+    return reach.detail || (pool.status && pool.status.detail) || 'unreachable';
+  };
   const down = (data.pools || []).filter((pool) => !(pool.reach && pool.reach.exists));
   note.className = 'note ' + (down.length ? 'warn' : 'ok');
   note.textContent = down.length
-    ? down.map((pool) => pool.name + ': ' + ((pool.reach && pool.reach.detail) || 'unreachable')).join(' · ')
+    ? down.map((pool) => pool.name + ': ' + why(pool)).join(' · ')
     : 'Every pool answered where it lives. Probe one to write and read an object through it.';
 
   // Providers first: the pool form needs them, and a pool with no provider is a
@@ -938,7 +947,7 @@ function renderStorage(data) {
     const row = document.createElement('div');
     row.className = 'list-row' + (reach.exists ? '' : ' bad');
     row.innerHTML = '<div><div class="t">' + esc(pool.name) + '</div><div class="m mono">'
-      + esc(pool.provider_name + ' · ' + pool.provider_type + ' · ' + (reach.detail || 'unknown'))
+      + esc(pool.provider_name + ' · ' + pool.provider_type + ' · ' + why(pool))
       + (reach.fstype ? ' · ' + esc(reach.fstype) : '') + '</div></div>'
       + '<div class="row-actions">'
       + '<button class="ghost tiny p-probe" type="button">Probe</button>'
