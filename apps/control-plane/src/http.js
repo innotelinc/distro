@@ -1,4 +1,7 @@
 import { hashPassword, verifyPassword } from './passwords.js';
+import { checkAccountKeys } from './accountKeys.js';
+import { reconcileAccountKeys } from './keySync.js';
+import { KINDS, poolStat, preparePool, probePool } from './storage.js';
 import {
   createUser,
   userCount,
@@ -1286,6 +1289,60 @@ function creditProduct(value) {
     });
   }
 
+  /*
+   * Key health and repair, from the console.
+   *
+   * `keys-check` has always been able to do this, and `--fix` always required a
+   * person at a shell. The pass now runs on a timer, so these two routes are the
+   * same work asked for *now* — health without touching anything, and a sync that
+   * mints or rotates what cannot spend. Both are admin-only like the rest of this
+   * block, and neither returns a key: the console shows verdicts, never credentials.
+   */
+  if (path === '/api/admin/keys/health' && method === 'GET') {
+    try {
+      const report = await checkAccountKeys({});
+      return send(200, {
+        base: report.base,
+        checked: report.checked,
+        ok: report.ok.length,
+        rejected: report.rejected,
+        missing: report.missing,
+        shared: report.shared,
+        unchecked: report.unchecked,
+      });
+    } catch (err) {
+      return send(502, { error: `cannot ask the gateway about its keys: ${err.message}` });
+    }
+  }
+
+  if (path === '/api/admin/keys/sync' && method === 'POST') {
+    let report;
+    try {
+      report = await reconcileAccountKeys({ gateway, actorEmail: admin.email, via: `console, ${admin.email}` });
+    } catch (err) {
+      return send(502, { error: `key sync failed: ${err.message}` });
+    }
+    logAudit({
+      action: 'key.sync',
+      actorId: admin.id,
+      actorEmail: admin.email,
+      meta: {
+        checked: report.checked,
+        rotated: report.rotated.map((entry) => entry.email),
+        failed: report.failed.map((entry) => entry.email),
+      },
+    });
+    return send(200, {
+      checked: report.checked,
+      ok: report.ok,
+      rotated: report.rotated,
+      failed: report.failed,
+      rejected: report.rejected.length,
+      missing: report.missing.length,
+      shared: report.shared.length,
+    });
+  }
+
   if (path === '/api/admin/identity-groups' && method === 'GET') {
     const groups = listIdentityGroups().map((group) => ({
       ...group,
@@ -1302,12 +1359,63 @@ function creditProduct(value) {
     }
   }
 
+  /*
+   * Cloud storage providers and pools are answered for scripts that still ask,
+   * but the console no longer draws them: nothing in this deployment configures
+   * object storage through an admin form, and a panel nobody uses is a panel
+   * somebody eventually changes by accident.
+   */
   if (path === '/api/admin/storage-providers' && method === 'GET') {
     return send(200, { providers: listCloudStorageProviders(), pools: listStoragePools() });
   }
 
   if (path === '/api/admin/storage-pools' && method === 'GET') {
     return send(200, { pools: listStoragePools() });
+  }
+
+  /*
+   * Storage, as the console needs it: the pools with where each one actually is.
+   *
+   * `stat` is best-effort per pool — an NFS mount that is down answers with the
+   * reason rather than failing the whole page, because the other pools are still
+   * usable and that is the thing an operator needs to see.
+   */
+  if (path === '/api/admin/storage' && method === 'GET') {
+    const pools = [];
+    for (const pool of listStoragePools()) {
+      let reach;
+      try {
+        reach = await poolStat(pool);
+      } catch (err) {
+        reach = { exists: false, detail: err.message };
+      }
+      pools.push({ ...pool, reach });
+    }
+    return send(200, { kinds: KINDS, providers: listCloudStorageProviders(), pools });
+  }
+
+  const poolProbeMatch = path.match(/^\/api\/admin\/storage-pools\/([^/]+)\/(probe|prepare)$/);
+  if (poolProbeMatch && method === 'POST') {
+    const pool = getStoragePool(decodeURIComponent(poolProbeMatch[1]));
+    if (!pool) return send(404, { error: 'storage pool not found' });
+    try {
+      if (poolProbeMatch[2] === 'prepare') {
+        const prepared = await preparePool(pool);
+        logAudit({ action: 'storage-pool.prepare', actorId: admin.id, actorEmail: admin.email, targetId: pool.id, meta: prepared });
+        return send(200, { pool: pool.name, ...prepared });
+      }
+      const result = await probePool(pool);
+      logAudit({
+        action: 'storage-pool.probe',
+        actorId: admin.id,
+        actorEmail: admin.email,
+        targetId: pool.id,
+        meta: { ok: result.ok, location: result.location },
+      });
+      return send(result.ok ? 200 : 502, { pool: pool.name, ...result });
+    } catch (err) {
+      return send(err.status || 502, { error: err.message });
+    }
   }
 
   if (path === '/api/admin/storage-pools' && method === 'POST') {
@@ -1344,8 +1452,12 @@ function creditProduct(value) {
     if (body.__invalid) return send(400, { error: 'invalid JSON' });
     const name = String(body.name || '').trim();
     const providerType = String(body.providerType || '').trim();
-    const allowedTypes = ['s3', 'google-drive', 'dropbox', 'onedrive', 'webdav'];
-    if (!name || !allowedTypes.includes(providerType)) return send(400, { error: 'name and a supported providerType are required' });
+    // The kinds this plane can actually reach. The old list (dropbox, onedrive,
+    // webdav, …) was invented before anything read it: a provider created from it
+    // looked configured and had no adapter behind it.
+    if (!name || !KINDS.includes(providerType)) {
+      return send(400, { error: `name and providerType (${KINDS.join(', ')}) are required` });
+    }
     const provider = createCloudStorageProvider({
       name,
       providerType,
@@ -1367,9 +1479,8 @@ function creditProduct(value) {
     if (method === 'PATCH') {
       const body = await readBody(req);
       if (body.__invalid) return send(400, { error: 'invalid JSON' });
-      const allowedTypes = ['s3', 'google-drive', 'dropbox', 'onedrive', 'webdav'];
-      if (body.providerType !== undefined && !allowedTypes.includes(String(body.providerType))) {
-        return send(400, { error: 'unsupported providerType' });
+      if (body.providerType !== undefined && !KINDS.includes(String(body.providerType))) {
+        return send(400, { error: `providerType must be one of ${KINDS.join(', ')}` });
       }
       const provider = updateCloudStorageProvider(providerId, {
         name: body.name,

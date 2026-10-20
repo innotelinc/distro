@@ -269,6 +269,27 @@ export function listGatewayKeys() {
     .all();
 }
 
+/**
+ * Live accounts that hold no gateway key at all.
+ *
+ * `listGatewayKeys` joins from the key row, so an account whose key was never
+ * minted is invisible to it — and that is a different failure from a key the
+ * gateway refuses: there is nothing to ask about. The key check reports both,
+ * which is why this is a query of its own rather than a filter over the other one.
+ */
+export function listAccountsWithoutKeys() {
+  return getDb()
+    .prepare(
+      `SELECT u.id AS user_id, u.email, '' AS gateway_key, 'default' AS label,
+              NULL AS gateway_key_id, NULL AS last_used_at, u.created_at
+         FROM users u
+         LEFT JOIN gateway_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
+        WHERE u.disabled_at IS NULL AND k.id IS NULL
+        ORDER BY u.email`,
+    )
+    .all();
+}
+
 export function revokeGatewayKey(userId, label = 'default') {
   getDb()
     .prepare(
@@ -760,7 +781,9 @@ export function deleteCloudStorageProvider(id) {
 export function listStoragePools({ includeDisabled = true } = {}) {
   const where = includeDisabled ? '' : 'WHERE sp.enabled = 1 AND p.enabled = 1';
   return getDb().prepare(`
-    SELECT sp.*, p.name AS provider_name, p.provider_type
+    SELECT sp.*, p.name AS provider_name, p.provider_type,
+           p.endpoint AS provider_endpoint, p.bucket AS provider_bucket,
+           p.region AS provider_region, p.credential_ref AS provider_credential_ref
     FROM storage_pools sp JOIN cloud_storage_providers p ON p.id = sp.provider_id
     ${where} ORDER BY sp.name
   `).all();
@@ -768,7 +791,9 @@ export function listStoragePools({ includeDisabled = true } = {}) {
 
 export function getStoragePool(id) {
   return getDb().prepare(`
-    SELECT sp.*, p.name AS provider_name, p.provider_type
+    SELECT sp.*, p.name AS provider_name, p.provider_type,
+           p.endpoint AS provider_endpoint, p.bucket AS provider_bucket,
+           p.region AS provider_region, p.credential_ref AS provider_credential_ref
     FROM storage_pools sp JOIN cloud_storage_providers p ON p.id = sp.provider_id
     WHERE sp.id = ?
   `).get(id);

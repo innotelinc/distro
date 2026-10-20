@@ -3,365 +3,523 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Distro — Admin</title>
+<title>Distro — Control plane</title>
 <style>
+  /* Distro wears Unity. One palette, one glass, one canvas: the same material the
+     OnTrak consoles use, so an operator moving between products is not relearning
+     where the numbers live. The canvas is two soft fields behind everything —
+     glass over a flat colour looks like a translucent slab, not like glass. */
   :root {
-    --bg: #0b0f1a; --panel: #131a2b; --panel2: #0f1626; --line: #22304a;
-    --text: #e6edf7; --muted: #8fa0bd; --cyan: #06b6d4; --indigo: #6366f1;
-    --green: #34d399; --red: #f87171; --amber: #fbbf24;
+    --canvas: #070b14;
+    --surface: rgba(17, 25, 41, 0.62);
+    --surface-2: rgba(11, 17, 29, 0.78);
+    --surface-3: rgba(255, 255, 255, 0.03);
+    --line: rgba(125, 155, 205, 0.16);
+    --line-strong: rgba(125, 155, 205, 0.34);
+    --text: #e9effb;
+    --dim: #a3b3cd;
+    --faint: #7486a6;
+    --brand: #22d3ee;
+    --brand-2: #6366f1;
+    --brand-soft: rgba(34, 211, 238, 0.13);
+    --ok: #34d399;
+    --bad: #f87171;
+    --warn: #fbbf24;
+    --radius: 16px;
+    --radius-sm: 10px;
+    --blur: 18px;
+    --shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.9);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-         background: radial-gradient(1200px 600px at 20% -10%, #16233d 0%, var(--bg) 55%); color: var(--text); min-height: 100vh; }
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 22px; border-bottom: 1px solid var(--line); background: rgba(11,15,26,.7); }
-  header .logo { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--cyan), var(--indigo)); display:grid; place-items:center; font-weight: 800; color:#fff; font-size: 15px; }
-  header h1 { font-size: 16px; margin: 0; }
-  header .spacer { flex: 1; }
-  header .who { color: var(--muted); font-size: 13px; }
-  main { padding: 18px 24px 32px; width: 100%; max-width: 1900px; margin: 0 auto; }
-  .table-wrap { overflow: visible; }
-  table { min-width: 0; }
-  th, td { white-space: nowrap; }
-  td.muted { white-space: normal; }
-  .row-actions { flex-wrap: wrap; }
-  @media (max-width: 1200px) { main { padding-left: 14px; padding-right: 14px; } th, td { padding: 6px 7px; } }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 18px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
-  .card .n { font-size: 22px; font-weight: 700; }
-  .card .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
-  .hidden { display: none !important; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-  .panel > .title { padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 600; color: var(--muted); text-transform: uppercase; font-size: 12px; letter-spacing: .06em; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; background: var(--panel2); }
-  input { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 4px 6px; width: 100%; font-size: 13px; }
-  input:focus { outline: none; border-color: var(--cyan); }
-  .num { width: 74px; }
-  button { background: linear-gradient(135deg, var(--cyan), var(--indigo)); border: 0; color: #fff; font-weight: 600; border-radius: 7px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
-  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
-  button.danger { background: transparent; border: 1px solid rgba(248,113,113,.5); color: var(--red); }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
-  .pill.admin { background: rgba(99,102,241,.2); color: #a5b4fc; }
-  .pill.user { background: rgba(143,160,189,.15); color: var(--muted); }
-  .pill.ok { background: rgba(52,211,153,.15); color: var(--green); }
-  .pill.off { background: rgba(248,113,113,.15); color: var(--red); }
-  .err { color: var(--red); min-height: 20px; margin: 6px 0; }
-  .login-wrap { max-width: 360px; margin: 12vh auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px; }
-  .login-wrap h2 { margin: 0 0 4px; font-size: 18px; }
-  .login-wrap p { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
-  .field { margin-bottom: 10px; }
-  .field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-  .muted { color: var(--muted); font-size: 12px; }
-  .actions { display: flex; gap: 6px; justify-content: flex-end; }
-  .section-actions { padding: 10px 14px 0; display: flex; justify-content: flex-end; }
-  .provider-form { display: grid; grid-template-columns: 1.1fr .9fr 1.4fr 1fr .8fr 1.4fr auto; gap: 8px; padding: 12px 14px; align-items: center; }
-  .pool-form { display: grid; grid-template-columns: 1.1fr 1.2fr 1.5fr 1fr auto; gap: 8px; padding: 12px 14px; align-items: center; }
-  select { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 5px 6px; width: 100%; }
-  @media (max-width: 1050px) { .provider-form { grid-template-columns: repeat(3, 1fr); } }
-  .row-actions { display: flex; gap: 4px; }
-  .badge { color: var(--muted); font-size: 11px; }
-  .filter-bar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  .filter-bar select { width: auto; min-width: 180px; }
-  .filter-bar .count { margin-left: auto; }
-  .pill.build { background: rgba(6,182,212,.15); color: var(--cyan); }
-  .pill.publish { background: rgba(52,211,153,.15); color: var(--green); }
-  .pill.export { background: rgba(251,191,36,.15); color: var(--amber); }
-  .bar { position: relative; height: 6px; background: var(--panel2); border-radius: 3px; min-width: 120px; overflow: hidden; }
-  .bar > span { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, var(--cyan), var(--indigo)); border-radius: 3px; transition: width .4s ease; }
-  .models-mini { color: var(--muted); font-size: 11px; white-space: normal; max-width: 220px; }
-  .models-mini code { color: var(--text); }
-  .toast { position: fixed; bottom: 18px; right: 18px; background: var(--panel); border: 1px solid var(--green); color: var(--green); padding: 10px 14px; border-radius: 8px; display: none; }
-  /* About + pipeline */
-  .about { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; margin-bottom: 18px; }
-  @media (max-width: 900px) { .about { grid-template-columns: 1fr; } }
-  .about p { margin: 6px 0; color: var(--text); font-size: 13px; }
-  .about .muted { line-height: 1.6; }
-  .integrations { list-style: none; margin: 0; padding: 0; }
-  .integrations li { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
-  .integrations li:last-child { border-bottom: 0; }
-  .integrations .name { font-weight: 600; min-width: 128px; }
-  .pipeline { display: flex; align-items: stretch; gap: 0; padding: 16px 14px 6px; flex-wrap: wrap; }
-  .stage { flex: 1 1 150px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; position: relative; min-width: 140px; }
-  .stage + .stage { margin-left: 26px; }
-  .stage + .stage::before { content: "\2192"; position: absolute; left: -22px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 16px; }
-  .stage .n { font-size: 22px; font-weight: 700; }
-  .stage .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-  .stage .sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
-  .stage.hot { border-color: var(--indigo); box-shadow: 0 0 0 1px var(--indigo) inset; }
-  .stage.bad { border-color: rgba(248,113,113,.6); }
-  .pipeline-foot { padding: 8px 14px 12px; }
-  .latest { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
-  .latest .where { color: var(--muted); }
-
-  /*
-   * Refresh layer.
-   *
-   * Same console, same markup and script — only surfaces, spacing and the states
-   * a pointer produces. Appended rather than edited so the rules above keep
-   * meaning exactly what they meant, and so nothing the script binds to can move.
-   */
-  :root {
-    --bg: #070b14; --panel: #0f1626; --panel2: #0b1220; --line: #1e2a42;
-    --text: #e8eefb; --muted: #8b9cbb; --cyan: #22d3ee; --indigo: #818cf8;
-    --green: #34d399; --red: #fb7185; --amber: #fbbf24;
-    --radius: 12px; --radius-sm: 9px;
-    --shadow: 0 1px 2px rgba(0,0,0,.45), 0 14px 34px -22px rgba(0,0,0,.85);
+  html, body { height: 100%; }
+  body {
+    margin: 0; color: var(--text); background: var(--canvas); min-height: 100vh;
+    font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  body { background: radial-gradient(1100px 620px at 12% -12%, #16233d 0%, transparent 62%), var(--bg); }
+  /* The liquid canvas: the product's own tone plus the family brand, fixed behind
+     the scroll so a long table does not drag a colour band with it. */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(900px 600px at 8% -14%, rgba(34, 211, 238, 0.18), transparent 68%),
+      radial-gradient(800px 620px at 104% 116%, rgba(99, 102, 241, 0.2), transparent 70%),
+      var(--canvas);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    body::before { background: var(--canvas); }
+    .glass { backdrop-filter: none; -webkit-backdrop-filter: none; background: #111a2b; }
+  }
+  .glass {
+    background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012)), var(--surface);
+    border: 1px solid var(--line);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(140%);
+    backdrop-filter: blur(var(--blur)) saturate(140%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06), var(--shadow);
+    border-radius: var(--radius);
+  }
+  .hidden { display: none !important; }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
+  h1 { font-size: 19px; font-weight: 650; }
+  h2 { font-size: 14px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+  .muted { color: var(--faint); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
 
-  header { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(12px);
-           background: color-mix(in srgb, var(--bg) 80%, transparent); }
-  header .logo { box-shadow: 0 8px 20px -9px rgba(99,102,241,.95); }
-  main { padding: 22px 24px 48px; }
+  /* ── the shell ─────────────────────────────────────────────────────────── */
+  .topbar {
+    position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 14px;
+    margin: 14px 14px 0; padding: 12px 18px; border-radius: var(--radius);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+    font-weight: 800; color: #061019; background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    box-shadow: 0 0 24px rgba(34,211,238,.35);
+  }
+  .brand .name { font-weight: 650; letter-spacing: -0.01em; }
+  .brand .name span { color: var(--faint); font-weight: 500; }
+  .topbar .spacer { flex: 1; }
+  .who { color: var(--dim); font-size: 13px; }
+  .stamp { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; border: 1px solid var(--line); color: var(--dim);
+    background: var(--surface-3); white-space: nowrap;
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .pill.ok { color: var(--ok); border-color: rgba(52,211,153,.35); }
+  .pill.ok .dot { background: var(--ok); }
+  .pill.bad { color: var(--bad); border-color: rgba(248,113,113,.4); }
+  .pill.bad .dot { background: var(--bad); }
+  .pill.warn { color: var(--warn); border-color: rgba(251,191,36,.35); }
+  .pill.warn .dot { background: var(--warn); }
+  .pill.admin { color: #a5b4fc; border-color: rgba(99,102,241,.4); background: rgba(99,102,241,.14); }
+  .pill.user { color: var(--dim); }
 
-  .cards { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 20px; }
-  .card { border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow);
-          background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, #fff 3%), var(--panel));
-          transition: transform .12s ease, border-color .12s ease; }
-  .card:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--indigo) 55%, var(--line)); }
-  .card .n { font-size: 24px; letter-spacing: -.02em; }
-  .card .l { margin-top: 2px; }
+  .shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 14px; padding: 14px; align-items: start; }
+  .rail { position: sticky; top: 84px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+  .rail button {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border-radius: var(--radius-sm);
+    background: transparent; border: 1px solid transparent; color: var(--dim); font: inherit; font-weight: 550;
+    cursor: pointer; text-align: left;
+  }
+  .rail button:hover { background: var(--surface-3); color: var(--text); }
+  .rail button[aria-current="true"] {
+    background: var(--brand-soft); color: var(--text); border-color: rgba(34,211,238,.28);
+  }
+  .rail button .glyph { width: 16px; text-align: center; opacity: .85; }
+  main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  section.view { display: flex; flex-direction: column; gap: 14px; }
+  .panel { padding: 16px 18px; }
+  .panel-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .panel-head .spacer { flex: 1; }
 
-  .panel { border-radius: var(--radius); box-shadow: var(--shadow); }
-  .panel > .title { padding: 12px 16px; color: var(--text); }
+  /* ── numbers ───────────────────────────────────────────────────────────── */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .tile { padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface-3); }
+  .tile .n { font-size: 26px; font-weight: 680; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .tile .l { color: var(--faint); font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; margin-top: 2px; }
+  .tile .h { color: var(--faint); font-size: 12px; margin-top: 6px; }
+  .tile.brand .n { color: var(--brand); }
+  .tile.bad .n { color: var(--bad); }
 
-  tbody tr { transition: background .1s ease; }
-  tbody tr:hover td { background: color-mix(in srgb, var(--panel2) 72%, var(--indigo) 6%); }
-  th, td { padding: 9px 11px; border-bottom-color: color-mix(in srgb, var(--line) 75%, transparent); }
+  /* ── tables ────────────────────────────────────────────────────────────── */
+  .table-wrap { overflow: auto; border-radius: var(--radius-sm); border: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 900px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th {
+    position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--faint);
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 650;
+    backdrop-filter: blur(8px);
+  }
+  tbody tr:hover { background: rgba(255,255,255,.025); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.tight { white-space: nowrap; }
+  .sub { color: var(--faint); font-size: 12px; }
 
-  input, select { border-radius: var(--radius-sm); padding: 6px 8px; transition: border-color .12s ease, box-shadow .12s ease; }
-  input:focus, select:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cyan) 22%, transparent); }
-  input::placeholder { color: color-mix(in srgb, var(--muted) 82%, transparent); }
-
-  button { border-radius: var(--radius-sm); padding: 7px 13px; transition: filter .12s ease, transform .06s ease, border-color .12s ease; }
+  /* ── controls ──────────────────────────────────────────────────────────── */
+  input, select, textarea {
+    font: inherit; color: var(--text); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; width: 100%;
+  }
+  input::placeholder { color: var(--faint); }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: rgba(34,211,238,.6); box-shadow: 0 0 0 3px rgba(34,211,238,.12);
+  }
+  .w-narrow { width: 76px; }
+  .w-plan { width: 88px; }
+  .w-search { max-width: 300px; }
+  button {
+    font: inherit; font-weight: 600; font-size: 13px; color: #04121a; cursor: pointer;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2)); border: 1px solid transparent;
+    border-radius: 9px; padding: 7px 14px; transition: filter .15s ease, transform .05s ease;
+  }
   button:hover:not(:disabled) { filter: brightness(1.08); }
   button:active:not(:disabled) { transform: translateY(1px); }
-  button.ghost:hover:not(:disabled) { border-color: color-mix(in srgb, var(--cyan) 60%, var(--line)); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: transparent; border-color: var(--line-strong); color: var(--text); }
+  button.ghost:hover:not(:disabled) { background: var(--surface-3); border-color: var(--brand); }
+  button.danger { background: transparent; border-color: rgba(248,113,113,.45); color: var(--bad); }
+  button.tiny { padding: 4px 9px; font-size: 12px; border-radius: 7px; }
+  .row-actions { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .toolbar .spacer { flex: 1; }
 
-  .pill { padding: 2px 9px; }
-  .login-wrap { border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(8px);
-                background: color-mix(in srgb, var(--panel) 92%, transparent); }
-  .stage { border-radius: var(--radius); }
-  .toast { border-radius: var(--radius-sm); box-shadow: var(--shadow); }
+  /* ── views ─────────────────────────────────────────────────────────────── */
+  .split { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; }
+  @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .list-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center;
+    padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-3);
+  }
+  .list-row.bad { border-color: rgba(248,113,113,.35); }
+  .list-row .t { font-weight: 600; }
+  .list-row .m { color: var(--faint); font-size: 12px; }
+  .empty { color: var(--faint); padding: 18px; text-align: center; font-size: 13px; }
+  .note {
+    border: 1px solid var(--line); border-left: 3px solid var(--brand); border-radius: var(--radius-sm);
+    padding: 10px 12px; color: var(--dim); font-size: 12.5px; background: var(--surface-3);
+  }
+  .note.bad { border-left-color: var(--bad); }
+  .note.ok { border-left-color: var(--ok); }
+  .note.warn { border-left-color: var(--warn); }
+  .tabs { display: flex; gap: 6px; }
+  .tabs button {
+    background: transparent; border: 1px solid var(--line); color: var(--dim); border-radius: 999px;
+    padding: 5px 13px; font-size: 12.5px;
+  }
+  .tabs button[aria-selected="true"] { background: var(--brand-soft); color: var(--text); border-color: rgba(34,211,238,.35); }
+  .bar { position: relative; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; min-width: 90px; }
+  .bar > span { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: linear-gradient(90deg, var(--brand), var(--brand-2)); }
 
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--line) 92%, #fff 8%); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
-  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--cyan) 40%, var(--line)); background-clip: padding-box; }
-  @media (prefers-reduced-motion: reduce) { .card, button, tbody tr, input, select { transition: none; } }
-  .credit-dialog { border:1px solid var(--line, #2a2f3a); border-radius:12px; padding:18px; max-width:760px; width:92vw; background:var(--panel, #11141a); color:inherit; }
-  .credit-dialog::backdrop { background:rgba(0,0,0,.55); }
+  /* ── login ─────────────────────────────────────────────────────────────── */
+  .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login-card { width: 100%; max-width: 380px; padding: 26px; }
+  .login-card .mark {
+    width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 800;
+    color: #04121a; background: linear-gradient(135deg, var(--brand), var(--brand-2)); margin-bottom: 14px;
+  }
+  .login-card h2 { color: var(--text); text-transform: none; letter-spacing: -0.01em; font-size: 20px; }
+  .login-card p { color: var(--faint); margin: 4px 0 18px; font-size: 13px; }
+  .login-card label { display: block; font-size: 12px; color: var(--faint); margin: 10px 0 4px; }
+  .login-card button { width: 100%; margin-top: 12px; }
+  .err { color: var(--bad); min-height: 18px; font-size: 12.5px; margin-top: 10px; }
+
+  /* ── dialog ────────────────────────────────────────────────────────────── */
+  .dialog-backdrop {
+    position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px;
+    background: rgba(3, 6, 12, 0.6); backdrop-filter: blur(6px);
+  }
+  .dialog { width: 100%; max-width: 520px; padding: 20px; }
+  .dialog h1 { margin-bottom: 2px; }
+  .dialog .sub { margin-bottom: 14px; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 12px; color: var(--faint); margin-bottom: 4px; }
+  .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .ledger { max-height: 170px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+  .ledger div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; font-size: 12.5px; border-bottom: 1px solid var(--line); }
+  .ledger div:last-child { border-bottom: 0; }
+  .ledger .plus { color: var(--ok); }
+  .toast {
+    position: fixed; bottom: 20px; right: 20px; z-index: 60; padding: 10px 14px; border-radius: 10px;
+    background: var(--surface-2); border: 1px solid var(--ok); color: var(--text); font-size: 13px;
+    box-shadow: var(--shadow); display: none; max-width: 380px;
+  }
+  .toast.bad { border-color: var(--bad); }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { position: static; flex-direction: row; overflow-x: auto; }
+    .topbar { margin: 8px 8px 0; flex-wrap: wrap; }
+    .shell { padding: 8px; }
+    .stamp { display: none; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">D</div>
-  <h1>Distro Admin</h1>
-  <div class="spacer"></div>
-  <div class="who" id="who"></div>
-  <span class="who" id="lastUpdated"></span>
-  <button class="ghost hidden" id="refreshBtn">Refresh</button>
-  <button class="ghost hidden" id="logoutBtn">Sign out</button>
-</header>
 
-<div class="login-wrap" id="loginWrap">
-  <h2>Admin sign in</h2>
-  <p>Manage accounts, quotas and gateway keys. Only instance admins can sign in.</p>
-  <button id="oidcBtn" class="hidden" style="width:100%">Continue with Authentik</button>
-  <!-- Hidden by default: identity is Cerulean Authentik, and the form is only
-       revealed at runtime when the control plane reports BREAKGLASS_LOGIN. -->
-  <div id="localLoginBlock" class="hidden">
-    <div style="display:flex;align-items:center;gap:10px;margin:12px 0;color:var(--muted);font-size:12px">
-      <span style="flex:1;height:1px;background:var(--line)"></span>or<span style="flex:1;height:1px;background:var(--line)"></span>
+<!-- ── sign-in ──────────────────────────────────────────────────────────────
+     Identity is Cerulean Authentik. The password form is break-glass only, so it
+     ships hidden and is revealed at runtime when the plane says it is allowed. -->
+<div id="loginWrap" class="login-wrap">
+  <div class="login-card glass">
+    <div class="mark">D</div>
+    <h2>Distro</h2>
+    <p>Control plane — accounts, keys and spend.</p>
+    <button id="oidcBtn" class="hidden" type="button">Continue with Authentik</button>
+    <div id="localLoginBlock" class="hidden">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@innotel.us" />
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="break-glass password" />
+      <button id="loginBtn" type="button">Sign in</button>
     </div>
-    <div class="field"><label>Email</label><input id="email" type="email" autocomplete="username" placeholder="admin@example.com" /></div>
-    <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••" /></div>
-    <button id="loginBtn" style="width:100%">Sign in</button>
+    <div class="err" id="loginErr"></div>
   </div>
-  <div class="err" id="loginErr"></div>
 </div>
 
-<main id="app" class="hidden">
-  <div class="cards">
-    <div class="card"><div class="n" id="cUsers">–</div><div class="l">Users</div></div>
-    <div class="card"><div class="n" id="cActive">–</div><div class="l">Active</div></div>
-    <div class="card"><div class="n" id="cReq">–</div><div class="l">Requests today</div></div>
-    <div class="card"><div class="n" id="cTok">–</div><div class="l">Tokens today</div></div>
-    <div class="card"><div class="n" id="cCost">–</div><div class="l">Est. spend today</div></div>
-    <div class="card"><div class="n" id="cCost7">–</div><div class="l">Est. spend 7d</div></div>
-    <div class="card"><div class="n" id="cAlert">–</div><div class="l">Alert webhook</div></div>
-    <div class="card" id="cGatewayCard" title=""><div class="n" id="cGateway">–</div><div class="l">Gateway version <span id="cGatewayPin" class="badge"></span></div></div>
-  </div>
-
-  <div class="about">
-    <div class="panel" style="padding:14px 16px">
-      <div class="title" style="padding:0 0 8px">What Distro is</div>
-      <p><strong>Distro — BuilderOps</strong> is the platform's control plane for the shared AI gateway
-      (OmniRoute): it owns <em>who</em> may call the gateway, <em>how much</em> they may spend, and
-      <em>what it cost</em> — users, per-day quotas (requests / tokens / USD), gateway API keys, and a
-      usage + spend ledger.</p>
-      <p class="muted">It is the operations and billing surface of the estate: identity comes from Cerulean
-      Authentik, metering from the gateway, and prices from a curated rate table — all rendered here so an
-      operator never needs a shell.</p>
-      <p class="muted">The relationship with <strong>Genie</strong> is one loop: Genie is where an app is built,
-      and every model call that build makes is spent on a Distro-issued per-user gateway key — so quota is gated
-      <em>before</em> each turn and usage recorded after it. Distro owns no builder surface of its own; the
-      console here is the operator's view of the accounts, the keys and the spend behind that one front door.</p>
+<!-- ── console ────────────────────────────────────────────────────────────── -->
+<div id="app" class="hidden">
+  <header class="topbar glass">
+    <div class="brand">
+      <span class="mark">D</span>
+      <span class="name">Distro <span>/ control plane</span></span>
     </div>
-    <div class="panel" style="padding:14px 16px">
-      <div class="title" style="padding:0 0 8px">Integrations</div>
-      <ul class="integrations">
-        <li><span class="name">Cerulean Authentik</span><span>SSO (OIDC + PKCE) — identity and admin groups</span></li>
-        <li><span class="name">OmniRoute</span><span>issues/revokes per-user gateway keys; enforces quotas &amp; spend caps</span></li>
-        <li><span class="name">Magnate</span><span>subscriptions &amp; plans via the entitlements API (Stripe lives in Magnate, never here)</span></li>
-        <li><span class="name">Genie</span><span>the estate's one builder surface — consumes identity, quota and audit per turn</span></li>
-        <li><span class="name">Cerulean Vault</span><span>secrets (magnate token, gateway admin secret) as vault:// refs</span></li>
-      </ul>
-    </div>
-  </div>
+    <span class="pill" id="gatewayPill"><span class="dot"></span>gateway …</span>
+    <div class="spacer"></div>
+    <span class="stamp" id="lastUpdated"></span>
+    <span class="who" id="who"></span>
+    <button class="ghost tiny" id="refreshBtn" type="button">Refresh</button>
+    <button class="ghost tiny" id="logoutBtn" type="button">Sign out</button>
+  </header>
 
-  <div class="panel">
-    <div class="title">Users — limits are per day (empty = unlimited); spend cap is USD/day (gateway-enforced)
-      <input id="userFilter" placeholder="Filter by email, id, role or plan…" style="float:right;width:260px;text-transform:none;letter-spacing:0;font-weight:400" /></div>
-    <div class="table-wrap">
-    <table>
-      <thead><tr>
-        <th>User</th><th>Role</th><th>Status</th><th>Plan</th>
-        <th>Req/day</th><th>Tokens/day</th><th>Spend/day $</th>
-        <th>Today (req / tok / $)</th><th>7d (tok / $)</th><th>Credits</th><th>Key</th><th></th>
-      </tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-    </div>
-  </div>
+  <div class="shell">
+    <nav class="rail glass" aria-label="Sections">
+      <button type="button" id="navOverview" aria-current="true"><span class="glyph">◧</span> Overview</button>
+      <button type="button" id="navAccounts"><span class="glyph">◉</span> Accounts</button>
+      <button type="button" id="navKeys"><span class="glyph">⚿</span> Keys</button>
+      <button type="button" id="navStorage"><span class="glyph">▤</span> Storage</button>
+      <button type="button" id="navActivity"><span class="glyph">≡</span> Activity</button>
+    </nav>
 
-  <div class="panel" style="margin-top:18px">
-    <div class="title">Model usage — today, all users <span id="modelsCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
-    <div class="table-wrap">
-    <table>
-      <thead><tr><th>Model</th><th>Requests</th><th>Tokens (in / out)</th><th>Est. spend</th><th>Users</th><th>Share of spend</th></tr></thead>
-      <tbody id="modelRows"></tbody>
-    </table>
-    </div>
-  </div>
+    <main>
+      <!-- overview -->
+      <section class="view" id="viewOverview">
+        <div class="tiles">
+          <div class="tile"><div class="n" id="cUsers">—</div><div class="l">Accounts</div><div class="h" id="cActiveHint"></div></div>
+          <div class="tile"><div class="n" id="cActive">—</div><div class="l">Active</div></div>
+          <div class="tile"><div class="n" id="cReq">—</div><div class="l">Requests today</div></div>
+          <div class="tile"><div class="n" id="cTok">—</div><div class="l">Tokens today</div></div>
+          <div class="tile brand"><div class="n" id="cCost">—</div><div class="l">Spend today</div></div>
+          <div class="tile"><div class="n" id="cCost7">—</div><div class="l">Spend, 7 days</div></div>
+        </div>
 
-  <div class="panel" style="margin-top:18px">
-    <div class="title">Authentik group mapping <span id="identityCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
-    <div class="section-actions"><button class="ghost" id="syncIdentityBtn">Sync group users</button></div>
-    <div class="table-wrap"><table><thead><tr><th>Group</th><th>Members</th><th>Mapped users</th><th>Last sync</th></tr></thead><tbody id="identityRows"></tbody></table></div>
-  </div>
+        <div class="split">
+          <div class="panel glass">
+            <div class="panel-head">
+              <h2>Gateway</h2>
+              <div class="spacer"></div>
+              <span class="pill" id="gatewayState"><span class="dot"></span>…</span>
+            </div>
+            <div id="gatewayDetail" class="list"></div>
+          </div>
 
-  <div class="panel" style="margin-top:18px">
-    <div class="title">Shares — cloud storage providers <button class="ghost" id="createPoolBtn" style="float:right">＋ Create storage pool</button></div>
-    <form id="providerForm" class="provider-form">
-      <input id="providerName" placeholder="Display name" required />
-      <select id="providerType"><option value="s3">S3-compatible</option><option value="google-drive">Google Drive</option><option value="dropbox">Dropbox</option><option value="onedrive">OneDrive</option><option value="webdav">WebDAV</option></select>
-      <input id="providerEndpoint" placeholder="Endpoint (optional)" />
-      <input id="providerBucket" placeholder="Bucket / root (optional)" />
-      <input id="providerRegion" placeholder="Region (optional)" />
-      <input id="providerCredential" placeholder="Vault credential ref (optional)" />
-      <button type="submit">Add provider</button>
+          <div class="panel glass">
+            <div class="panel-head"><h2>Alerting</h2></div>
+            <div id="alertCfg" class="list"></div>
+          </div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-head"><h2>Models today</h2><div class="spacer"></div><span class="sub" id="modelsStamp"></span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Model</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Spend</th><th>Accounts</th></tr></thead>
+              <tbody id="modelsBody"></tbody>
+            </table>
+          </div>
+          <div class="empty hidden" id="modelsEmpty">No model traffic yet today.</div>
+        </div>
+      </section>
+
+      <!-- accounts -->
+      <section class="view hidden" id="viewAccounts">
+        <div class="panel glass">
+          <div class="panel-head">
+            <h2>Accounts</h2>
+            <div class="spacer"></div>
+            <input id="userFilter" class="w-search" type="search" placeholder="Filter by email, id, role or plan" aria-label="Filter accounts" />
+            <span class="sub" id="userCount"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Account</th><th>Role</th><th>State</th><th>Plan</th>
+                  <th>Req / day</th><th>Tokens / day</th><th>Spend cap</th>
+                  <th>Today</th><th>7 days</th><th>Credits</th><th>Gateway key</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+          <div class="empty hidden" id="usersEmpty">No accounts match that filter.</div>
+        </div>
+      </section>
+
+      <!-- keys -->
+      <section class="view hidden" id="viewKeys">
+        <div class="panel glass">
+          <div class="panel-head">
+            <h2>Gateway keys</h2>
+            <div class="spacer"></div>
+            <button class="ghost tiny" id="keysCheckBtn" type="button">Check</button>
+            <button class="tiny" id="keysSyncBtn" type="button">Sync now</button>
+          </div>
+          <p class="sub" style="margin:0 0 12px">
+            Every account spends through a key of its own. A pass runs at boot and on a timer: an account with no key
+            is minted one, and a key the gateway rejects — or that several accounts share, so its spend cannot be
+            attributed — is rotated. Check shows the verdicts without touching anything.
+          </p>
+          <div id="keysSummary" class="tiles"></div>
+          <div id="keysNote"></div>
+          <div id="keysList" class="list" style="margin-top:12px"></div>
+          <div id="keysFailed" class="list" style="margin-top:12px"></div>
+        </div>
+      </section>
+
+      <!-- storage -->
+      <section class="view hidden" id="viewStorage">
+        <div class="panel glass">
+          <div class="panel-head">
+            <h2>Pools</h2>
+            <div class="spacer"></div>
+            <span class="sub" id="storageStamp"></span>
+          </div>
+          <p class="sub" style="margin:0 0 12px">
+            A provider is a connection; a pool is a place inside it. <b>local</b> is a folder on this host,
+            <b>nfs</b> is a mounted share (checked against the mount table, so a dead share says so), and
+            <b>gcs</b> is a Google Cloud Storage bucket reached with a service account. Probe writes, reads back
+            and removes one object — the only honest answer to "is it wired".
+          </p>
+          <div id="storageNote"></div>
+          <div id="storagePools" class="list" style="margin-top:12px"></div>
+        </div>
+
+        <div class="split">
+          <div class="panel glass">
+            <div class="panel-head"><h2>Add a provider</h2></div>
+            <form id="providerForm">
+              <div class="field"><label for="storageName">Name</label><input id="storageName" placeholder="onyx" /></div>
+              <div class="field"><label for="storageKind">Kind</label>
+                <select id="storageKind">
+                  <option value="local">local — a folder on this host</option>
+                  <option value="nfs">nfs — a mounted share</option>
+                  <option value="gcs">gcs — Google Cloud Storage</option>
+                </select>
+              </div>
+              <div class="field"><label for="storageEndpoint">Endpoint (NFS source, or a note)</label><input id="storageEndpoint" placeholder="192.168.1.60:/mnt/onyx/main-pool/distro" /></div>
+              <div class="field"><label for="storageBucket">Bucket (gcs)</label><input id="storageBucket" placeholder="innotel-pools" /></div>
+              <div class="field"><label for="storageCred">Service-account file (gcs)</label><input id="storageCred" placeholder="/app/data/gcs.json" /></div>
+              <div class="dialog-actions"><button id="storageAdd" type="submit">Add provider</button></div>
+            </form>
+          </div>
+
+          <div class="panel glass">
+            <div class="panel-head"><h2>Add a pool</h2></div>
+            <form id="poolForm">
+              <div class="field"><label for="poolName">Name</label><input id="poolName" placeholder="onyx" /></div>
+              <div class="field"><label for="poolProvider">Provider</label><select id="poolProvider"></select></div>
+              <div class="field"><label for="poolRoot">Root inside the provider</label><input id="poolRoot" placeholder="onyx" /></div>
+              <div class="field"><label for="poolCapacity">Capacity label</label><input id="poolCapacity" placeholder="onyx" /></div>
+              <div class="dialog-actions"><button id="poolAdd" type="submit">Add pool</button></div>
+            </form>
+          </div>
+        </div>
+        <div class="panel glass">
+          <div class="panel-head"><h2>Providers</h2></div>
+          <div id="storageProviders" class="list"></div>
+        </div>
+      </section>
+
+      <!-- activity -->
+      <section class="view hidden" id="viewActivity">
+        <div class="panel glass">
+          <div class="panel-head">
+            <h2 id="activityTitle">Audit</h2>
+            <div class="tabs">
+              <button type="button" id="tabAudit" aria-selected="true">Audit</button>
+              <button type="button" id="tabAlerts" aria-selected="false">Alerts</button>
+            </div>
+            <div class="spacer"></div>
+            <input id="auditFilter" class="w-search" type="search" placeholder="Action prefix (e.g. key.)" aria-label="Filter by action prefix" />
+            <input id="auditUser" class="w-search" type="search" placeholder="Account id" aria-label="Filter by account" />
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>When</th><th>Action</th><th>Who</th><th>Target</th><th>Detail</th></tr></thead>
+              <tbody id="activityRows"></tbody>
+            </table>
+          </div>
+          <div class="empty hidden" id="activityEmpty">Nothing recorded yet.</div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ── credits ────────────────────────────────────────────────────────────── -->
+<div id="creditDialog" class="dialog-backdrop hidden">
+  <div class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="creditWho">
+    <h1>Credits</h1>
+    <div class="sub" id="creditWho"></div>
+    <div id="creditBalance" class="note ok" style="margin-bottom:12px"></div>
+    <form id="creditForm">
+      <div class="field">
+        <label for="creditProduct">Product</label>
+        <input id="creditProduct" value="engineer" />
+      </div>
+      <div class="field">
+        <label for="creditAmount">Credits to add</label>
+        <input id="creditAmount" type="number" min="1" step="1" placeholder="5" />
+      </div>
+      <div class="field">
+        <label for="creditReason">Reason (read by people, not by the ledger)</label>
+        <input id="creditReason" placeholder="goodwill after the outage" />
+      </div>
+      <div class="err" id="creditErr"></div>
+      <div class="dialog-actions">
+        <button class="ghost" id="creditClose" type="button">Close</button>
+        <button id="creditGrant" type="submit">Add credits</button>
+      </div>
     </form>
-    <div class="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Credential</th><th>Status</th><th></th></tr></thead><tbody id="providerRows"></tbody></table></div>
-    <form id="poolForm" class="pool-form hidden">
-      <input id="poolName" placeholder="Pool name" required />
-      <select id="poolProvider" required><option value="">Select provider…</option></select>
-      <input id="poolRoot" placeholder="Root path / prefix (optional)" />
-      <input id="poolCapacity" placeholder="Capacity label (optional)" />
-      <button type="submit">Create pool</button>
-    </form>
-    <div class="table-wrap"><table><thead><tr><th>Pool</th><th>Provider</th><th>Root</th><th>Capacity</th><th>Status</th><th></th></tr></thead><tbody id="poolRows"></tbody></table></div>
+    <h2 style="margin-top:16px">Ledger</h2>
+    <div class="ledger" id="creditHistory"></div>
   </div>
+</div>
 
-  <dialog id="creditDialog" class="credit-dialog">
-    <div class="title">Credits — <span id="creditWho"></span></div>
-    <p class="muted" style="margin:8px 0 12px">
-      <strong id="creditBalance">—</strong> on this product ·
-      <span id="creditPrice"></span> per credit on Magnate’s price list
-    </p>
-    <form id="creditForm" class="pool-form" style="display:block">
-      <select id="creditProduct">
-        <option value="engineer">engineer</option>
-        <option value="g0dm0d3">g0dm0d3</option>
-      </select>
-      <input id="creditAmount" type="number" min="1" step="1" placeholder="Credits to add" required />
-      <input id="creditReason" placeholder="Why (shown in the ledger)" />
-      <button type="submit">Add credits</button>
-      <button type="button" class="ghost" id="creditClose">Close</button>
-    </form>
-    <div class="table-wrap" style="margin-top:12px">
-      <table>
-        <thead><tr><th>When</th><th>Δ</th><th>Kind</th><th>Reference</th><th>Reason</th></tr></thead>
-        <tbody id="creditEntries"></tbody>
-      </table>
-    </div>
-  </dialog>
-
-  <div class="panel" style="margin-top:18px" id="buildAuditPanel">
-    <div class="title">Builder audit by user <span id="buildAuditCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
-    <div class="filter-bar">
-      <select id="buildAuditUser"><option value="">All users</option></select>
-      <select id="buildAuditAction">
-        <option value="build.">build.* (retired build plane — historical rows)</option>
-        <option value="build.start">build.start</option>
-        <option value="build.preview">build.preview</option>
-        <option value="build.publish">build.publish</option>
-        <option value="build.export">build.export</option>
-      </select>
-      <button class="ghost" id="buildAuditClear">Clear</button>
-      <span class="muted count" id="buildAuditCount"></span>
-    </div>
-    <div class="table-wrap">
-    <table>
-      <thead><tr><th>When</th><th>User</th><th>Action</th><th>App / target</th><th>Details</th></tr></thead>
-      <tbody id="buildAuditRows"></tbody>
-    </table>
-    </div>
-  </div>
-
-  <div class="panel" style="margin-top:18px">
-    <div class="title">Audit log — latest actions</div>
-    <div class="table-wrap">
-    <table>
-      <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Details</th></tr></thead>
-      <tbody id="auditRows"></tbody>
-    </table>
-    </div>
-  </div>
-
-  <div class="panel" style="margin-top:18px">
-    <div class="title">Webhook alerts <span id="alertCfg" style="float:right;text-transform:none;letter-spacing:0"></span></div>
-    <div class="table-wrap">
-    <table>
-      <thead><tr><th>When</th><th>Event</th><th>Status</th><th>Title</th><th>Details</th></tr></thead>
-      <tbody id="alertRows"></tbody>
-    </table>
-    </div>
-  </div>
-</main>
 <div class="toast" id="toast"></div>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const TOKEN_KEY = 'distro_admin_token';
+const USER_KEY = 'distro_admin_user';
 const API = '';
-let identitySyncAttempted = false;
-let allUsers = [];
-let autoRefreshTimer = null;
+const state = {
+  view: 'overview',
+  activity: 'audit',
+  users: [],
+  stats: null,
+  keys: null,
+  creditUser: null,
+};
+let refreshTimer = null;
+let identitySynced = false;
 
-function toast(msg) {
-  const t = $('#toast');
-  t.textContent = msg;
-  t.style.display = 'block';
-  setTimeout(() => { t.style.display = 'none'; }, 2200);
+/* ── plumbing ───────────────────────────────────────────────────────────── */
+
+function toast(message, kind) {
+  const el = $('#toast');
+  el.textContent = message;
+  el.className = 'toast' + (kind === 'bad' ? ' bad' : '');
+  el.style.display = 'block';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.display = 'none'; }, kind === 'bad' ? 6000 : 3200);
 }
 
 async function api(path, opts = {}) {
   const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(API + path, {
     ...opts,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      ...(opts.headers || {}),
+    },
   });
   const text = await res.text();
   let data = null;
@@ -370,538 +528,630 @@ async function api(path, opts = {}) {
   return data;
 }
 
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-function money(v) {
-  const n = Number(v) || 0;
+const esc = (value) => String(value == null ? '' : value)
+  .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const money = (value) => {
+  const n = Number(value) || 0;
+  if (n === 0) return '$0';
   return n >= 100 ? '$' + n.toFixed(0) : '$' + n.toFixed(4);
-}
-function numOrEmpty(v) {
-  return v == null || v === '' ? '' : v;
-}
+};
+const num = (value) => Number(value || 0).toLocaleString();
+const blank = (value) => (value == null || value === '' ? '' : value);
+const tokens = (u) => Number(u?.tokens_in || 0) + Number(u?.tokens_out || 0);
+const when = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.valueOf())) return String(iso);
+  const mins = Math.round((Date.now() - d.valueOf()) / 60000);
+  if (Math.abs(mins) < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  if (mins < 1440) return Math.round(mins / 60) + 'h ago';
+  return d.toLocaleString();
+};
 
 function currentUser() {
-  try { return JSON.parse(localStorage.getItem('distro_admin_user') || 'null'); } catch { return null; }
+  try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch { return null; }
 }
 
 function showApp(user) {
   $('#loginWrap').classList.add('hidden');
   $('#app').classList.remove('hidden');
-  $('#logoutBtn').classList.remove('hidden');
-  $('#refreshBtn').classList.remove('hidden');
   $('#who').textContent = (user && user.email) || '';
+  setView('overview');
   loadAll();
-  // Spend and quota burn move on their own; a console left open should not go
-  // stale silently. One minute keeps the numbers honest without hammering the
-  // API or re-rendering under an operator mid-edit (a save re-renders anyway).
-  if (!autoRefreshTimer) autoRefreshTimer = setInterval(() => loadAll(), 60000);
+  if (!refreshTimer) refreshTimer = setInterval(() => { if (!document.hidden) loadAll(); }, 60000);
 }
 
 function showLogin() {
   $('#app').classList.add('hidden');
-  $('#logoutBtn').classList.add('hidden');
-  $('#refreshBtn').classList.add('hidden');
   $('#loginWrap').classList.remove('hidden');
   $('#who').textContent = '';
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
 }
+
+/* ── navigation ─────────────────────────────────────────────────────────── */
+
+function setView(name) {
+  state.view = name;
+  const views = { overview: '#viewOverview', accounts: '#viewAccounts', keys: '#viewKeys', storage: '#viewStorage', activity: '#viewActivity' };
+  const navs = { overview: '#navOverview', accounts: '#navAccounts', keys: '#navKeys', storage: '#navStorage', activity: '#navActivity' };
+  for (const [key, sel] of Object.entries(views)) $(sel).classList.toggle('hidden', key !== name);
+  for (const [key, sel] of Object.entries(navs)) $(sel).setAttribute('aria-current', key === name ? 'true' : 'false');
+  if (name === 'keys') loadKeys();
+  if (name === 'storage') loadStorage();
+  if (name === 'activity') loadActivity();
+}
+
+/* ── loading ────────────────────────────────────────────────────────────── */
 
 async function loadAll() {
   try {
-    const stats = await api('/api/admin/stats');
-    $('#cUsers').textContent = stats.users;
-    $('#cActive').textContent = stats.active;
-    $('#cReq').textContent = stats.requests;
-    $('#cTok').textContent = (stats.tokensIn + stats.tokensOut).toLocaleString();
-    $('#cCost').textContent = money(stats.costUsd);
-    $('#cCost7').textContent = money(stats.week ? stats.week.costUsd : stats.costUsd);
-    const alerting = stats.alerting || {};
-    const aEl = $('#cAlert');
-    aEl.textContent = alerting.enabled ? 'on' : 'off';
-    aEl.style.color = alerting.enabled ? 'var(--green)' : 'var(--red)';
-    const cfgEl = $('#alertCfg');
-    cfgEl.innerHTML = alerting.enabled
-      ? '<span class="pill ok">' + esc(alerting.webhookHost || 'configured') + '</span> cooldown ' + Math.round((alerting.cooldownMs || 600000) / 60000) + ' min'
-      : '<span class="pill off">not configured</span> — set CONTROL_ALERT_WEBHOOK_URL';
-    renderGatewayVersion(stats.gateway || {});
-    renderModels(stats.models || [], stats.costUsd);
-    const { users } = await api('/api/admin/users');
-    allUsers = users;
-    renderRows(filterUsers(users));
-    stampUpdated();
-    try {
-      const { entries } = await api('/api/admin/audit?limit=100');
-      renderAudit(entries);
-    } catch { /* audit is non-critical */ }
-    populateBuildAuditUsers(users);
-    try { await loadBuildAudit(); } catch { /* the builder audit is non-critical */ }
-    try {
-      const { entries } = await api('/api/admin/alerts?limit=50');
-      renderAlerts(entries);
-    } catch { /* alerts are non-critical */ }
-    if (!identitySyncAttempted) {
-      identitySyncAttempted = true;
-      try { await api('/api/admin/identity-groups/sync', { method: 'POST' }); } catch { /* optional integration */ }
+    await Promise.all([loadStats(), loadUsers()]);
+    if (state.view === 'keys') await loadKeys();
+    if (state.view === 'storage') await loadStorage();
+    if (state.view === 'activity') await loadActivity();
+    if (!identitySynced) {
+      identitySynced = true;
+      // Groups are reconciled once a session; the console does not need them to
+      // render anything, so a deployment without Authentik sync is not an error.
+      api('/api/admin/identity-groups/sync', { method: 'POST' }).catch(() => {});
     }
-    try { renderIdentity(await api('/api/admin/identity-groups')); } catch { /* optional */ }
-    try { renderProviders(await api('/api/admin/storage-providers')); } catch { /* optional */ }
-  } catch (e) {
-    toast('Load failed: ' + e.message);
-    if (/unauthorized|403/i.test(e.message)) { localStorage.removeItem(TOKEN_KEY); showLogin(); }
+    $('#lastUpdated').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } catch (error) {
+    toast('Load failed: ' + error.message, 'bad');
+    if (/unauthorized|403/i.test(error.message)) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      showLogin();
+    }
   }
 }
 
-function stampUpdated() {
-  const el = $('#lastUpdated');
-  if (el) el.textContent = 'updated ' + new Date().toLocaleTimeString();
+async function loadStats() {
+  const stats = await api('/api/admin/stats');
+  state.stats = stats;
+  $('#cUsers').textContent = num(stats.users);
+  $('#cActive').textContent = num(stats.active);
+  $('#cActiveHint').textContent = stats.users === stats.active ? 'all enabled' : (stats.users - stats.active) + ' disabled';
+  $('#cReq').textContent = num(stats.requests);
+  $('#cTok').textContent = num(Number(stats.tokensIn || 0) + Number(stats.tokensOut || 0));
+  $('#cCost').textContent = money(stats.costUsd);
+  $('#cCost7').textContent = money(stats.week ? stats.week.costUsd : stats.costUsd);
+  $('#modelsStamp').textContent = stats.date || '';
+
+  const gw = stats.gateway || {};
+  const pill = $('#gatewayPill');
+  const compatible = gw.compatible === true;
+  const unknown = gw.compatible == null;
+  pill.className = 'pill ' + (compatible ? 'ok' : unknown ? 'warn' : 'bad');
+  pill.innerHTML = '<span class="dot"></span>' + esc(gw.running ? 'gateway ' + gw.running : 'gateway unknown');
+  const statePill = $('#gatewayState');
+  statePill.className = 'pill ' + (compatible ? 'ok' : unknown ? 'warn' : 'bad');
+  statePill.innerHTML = '<span class="dot"></span>' + (compatible ? 'compatible' : unknown ? 'not checked' : 'mismatch');
+  const detail = $('#gatewayDetail');
+  detail.replaceChildren();
+  const rows = [
+    ['Running', gw.running || 'unknown'],
+    ['Expected pin', gw.expected || 'none'],
+    ['Checked', gw.checked_at ? when(gw.checked_at) : 'never'],
+    ['Build', gw.buildSha ? gw.buildSha.slice(0, 12) : '—'],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement('div');
+    row.className = 'list-row';
+    row.innerHTML = '<div class="t">' + esc(label) + '</div><div class="mono">' + esc(value) + '</div>';
+    detail.append(row);
+  }
+
+  const alerting = stats.alerting || {};
+  const cfg = $('#alertCfg');
+  cfg.replaceChildren();
+  const alertRow = document.createElement('div');
+  alertRow.className = 'list-row' + (alerting.enabled ? '' : ' bad');
+  alertRow.innerHTML = alerting.enabled
+    ? '<div><div class="t">Webhook</div><div class="m">' + esc(alerting.webhookHost || 'configured') + '</div></div>'
+      + '<span class="pill ok"><span class="dot"></span>on</span>'
+    : '<div><div class="t">Not configured</div><div class="m">set CONTROL_ALERT_WEBHOOK_URL to be told when a sync fails</div></div>'
+      + '<span class="pill bad"><span class="dot"></span>off</span>';
+  cfg.append(alertRow);
+  const cooldown = document.createElement('div');
+  cooldown.className = 'list-row';
+  cooldown.innerHTML = '<div class="t">Cooldown</div><div class="mono">'
+    + Math.round((alerting.cooldownMs || 600000) / 60000) + ' min</div>';
+  cfg.append(cooldown);
+
+  renderModels(stats.models || []);
 }
 
-// Client-side filtering over the row set already loaded: an operator looking
-// for one account should not have to eyeball every row, and the list is small
-// enough that re-rendering it per keystroke costs nothing.
+function renderModels(models) {
+  const body = $('#modelsBody');
+  body.replaceChildren();
+  $('#modelsEmpty').classList.toggle('hidden', models.length > 0);
+  const top = Math.max(1, ...models.map((m) => Number(m.costUsd) || 0));
+  for (const model of models) {
+    const tr = document.createElement('tr');
+    const pct = Math.round(((Number(model.costUsd) || 0) / top) * 100);
+    tr.innerHTML =
+      '<td class="mono">' + esc(model.model || 'unknown') + '</td>'
+      + '<td class="num">' + num(model.requests) + '</td>'
+      + '<td class="num">' + num(model.tokensIn) + '</td>'
+      + '<td class="num">' + num(model.tokensOut) + '</td>'
+      + '<td class="num">' + money(model.costUsd) + '<div class="bar" style="margin-top:4px"><span style="width:' + Math.max(3, pct) + '%"></span></div></td>'
+      + '<td class="num">' + num(model.users) + '</td>';
+    body.append(tr);
+  }
+}
+
+async function loadUsers() {
+  const { users } = await api('/api/admin/users');
+  state.users = users;
+  renderRows(filterUsers(users));
+}
+
 function filterUsers(users) {
-  const el = $('#userFilter');
-  const q = el ? el.value.trim().toLowerCase() : '';
+  const q = ($('#userFilter').value || '').trim().toLowerCase();
+  $('#userCount').textContent = users.length + (users.length === 1 ? ' account' : ' accounts');
   if (!q) return users;
-  return users.filter((u) =>
-    [u.email, u.id, u.role, (u.quota || {}).plan].filter(Boolean).join(' ').toLowerCase().includes(q));
-}
-
-function copyText(text, label) {
-  if (!text) { toast('Nothing to copy'); return; }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => toast('Copied ' + label), () => toast('Copy failed — select it manually'));
-  } else {
-    toast('Copy failed — select it manually');
-  }
+  return users.filter((u) => [u.email, u.id, u.role, (u.quota || {}).plan]
+    .filter(Boolean).join(' ').toLowerCase().includes(q));
 }
 
 function renderRows(users) {
-  const tb = $('#rows');
-  tb.innerHTML = '';
-  for (const u of users) {
-    const q = u.quota || {};
-    const t = u.usageToday || { requests: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 };
-    const w = u.usage7d || { requests: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 };
+  const body = $('#rows');
+  body.replaceChildren();
+  $('#usersEmpty').classList.toggle('hidden', users.length > 0);
+  for (const user of users) {
+    const quota = user.quota || {};
+    const today = user.usageToday || {};
+    const week = user.usage7d || {};
+    const disabled = !!user.disabled_at;
     const tr = document.createElement('tr');
-    const disabled = !!u.disabled_at;
     tr.innerHTML =
-      '<td><div>' + esc(u.email) + '</div><div class="badge">' + esc(u.id) + ' <button class="ghost b-copy-id" title="Copy user id">copy</button></div></td>' +
-      '<td><span class="pill ' + (u.role === 'admin' ? 'admin' : 'user') + '">' + esc(u.role) + '</span></td>' +
-      '<td><span class="pill ' + (disabled ? 'off' : 'ok') + '">' + (disabled ? 'disabled' : 'active') + '</span></td>' +
-      '<td><input class="f-plan" value="' + esc(q.plan || 'free') + '" style="width:70px" /></td>' +
-      '<td><input class="num f-rpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.requests_per_day) + '" /></td>' +
-      '<td><input class="num f-tpd" type="number" min="0" placeholder="∞" value="' + numOrEmpty(q.tokens_per_day) + '" /></td>' +
-      '<td><input class="num f-cap" type="number" min="0" step="0.01" placeholder="∞" value="' + numOrEmpty(q.spend_cap_usd) + '" /></td>' +
-      '<td class="muted">' + t.requests + ' / ' + (Number(t.tokens_in) + Number(t.tokens_out)).toLocaleString() + ' / ' + money(t.cost_usd) +
-        modelsMini(u.usageModelsToday) + '</td>' +
-      '<td class="muted">' + (Number(w.tokens_in) + Number(w.tokens_out)).toLocaleString() + ' / ' + money(w.cost_usd) + '</td>' +
-      '<td>' + (u.credits === undefined ? '—' : Number(u.credits).toLocaleString()) + '</td>' +
-      '<td>' + (u.hasGatewayKey ? '<span class="pill ok">active</span>' : '<span class="pill off">none</span>') +
-      '<div class="badge">' + esc(u.gatewayKeyId || '') + (u.hasGatewayKey ? ' <button class="ghost b-copy-key" title="Copy gateway key id">copy</button>' : '') + '</div></td>' +
-      '<td><div class="row-actions">' +
-        '<select class="f-preset" title="Quota presets"><option value="">Preset…</option><option value="free">Free</option><option value="pro">Pro</option><option value="unlimited">Unlimited</option></select>' +
-        '<button class="ghost b-save">Save</button>' +
-        '<button class="ghost b-credits" title="Add credits to this account">Credits</button>' +
-        '<button class="ghost b-build-audit" title="Show this user\'s builder audit rows">Build audit</button>' +
-        '<button class="ghost b-rotate" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Rotate key</button>' +
-        '<button class="ghost b-revoke" ' + (u.hasGatewayKey ? '' : 'disabled') + '>Revoke key</button>' +
-        '<button class="danger b-toggle">' + (disabled ? 'Enable' : 'Disable') + '</button>' +
-      '</div></td>';
-    tr.querySelector('.b-credits').onclick = () => openCreditDialog(u);
-    tr.querySelector('.b-save').onclick = async () => {
-      const body = {
-        quota: {
-          plan: tr.querySelector('.f-plan').value.trim() || 'free',
-          requests_per_day: tr.querySelector('.f-rpd').value === '' ? null : Math.max(0, parseInt(tr.querySelector('.f-rpd').value, 10) || 0),
-          tokens_per_day: tr.querySelector('.f-tpd').value === '' ? null : Math.max(0, parseInt(tr.querySelector('.f-tpd').value, 10) || 0),
-          spend_cap_usd: tr.querySelector('.f-cap').value === '' ? null : Math.max(0, parseFloat(tr.querySelector('.f-cap').value) || 0),
-        },
+      '<td><div>' + esc(user.email) + '</div><div class="sub mono">' + esc(user.id) + '</div></td>'
+      + '<td><span class="pill ' + (user.role === 'admin' ? 'admin' : 'user') + '">' + esc(user.role) + '</span></td>'
+      + '<td><span class="pill ' + (disabled ? 'bad' : 'ok') + '"><span class="dot"></span>' + (disabled ? 'disabled' : 'active') + '</span></td>'
+      + '<td><input class="w-plan f-plan" value="' + esc(quota.plan || 'free') + '" aria-label="Plan" /></td>'
+      + '<td><input class="w-narrow f-rpd" type="number" min="0" placeholder="∞" value="' + blank(quota.requests_per_day) + '" aria-label="Requests per day" /></td>'
+      + '<td><input class="w-narrow f-tpd" type="number" min="0" placeholder="∞" value="' + blank(quota.tokens_per_day) + '" aria-label="Tokens per day" /></td>'
+      + '<td><input class="w-narrow f-cap" type="number" min="0" step="0.01" placeholder="∞" value="' + blank(quota.spend_cap_usd) + '" aria-label="Daily spend cap" /></td>'
+      + '<td class="num">' + num(today.requests) + ' req · ' + num(tokens(today)) + ' tok<div class="sub">' + money(today.cost_usd) + '</div></td>'
+      + '<td class="num">' + num(tokens(week)) + ' tok<div class="sub">' + money(week.cost_usd) + '</div></td>'
+      + '<td class="num">' + (user.credits == null ? '—' : num(user.credits)) + '</td>'
+      + '<td>' + (user.hasGatewayKey
+        ? '<span class="pill ok"><span class="dot"></span>key</span><div class="sub mono">' + esc((user.gatewayKeyId || '').slice(0, 14)) + '</div>'
+        : '<span class="pill bad"><span class="dot"></span>none</span>') + '</td>'
+      + '<td><div class="row-actions">'
+      + '<select class="f-preset tiny" aria-label="Quota preset"><option value="">Preset…</option><option value="free">Free</option><option value="pro">Pro</option><option value="unlimited">Unlimited</option></select>'
+      + '<button class="ghost tiny b-save" type="button">Save</button>'
+      + '<button class="ghost tiny b-credits" type="button">Credits</button>'
+      + '<button class="ghost tiny b-rotate" type="button"' + (user.hasGatewayKey ? '' : ' disabled') + '>Rotate</button>'
+      + '<button class="ghost tiny b-revoke" type="button"' + (user.hasGatewayKey ? '' : ' disabled') + '>Revoke</button>'
+      + '<button class="danger tiny b-toggle" type="button">' + (disabled ? 'Enable' : 'Disable') + '</button>'
+      + '</div></td>';
+
+    tr.querySelector('.b-save').addEventListener('click', async () => {
+      const read = (sel, kind) => {
+        const value = tr.querySelector(sel).value;
+        if (value === '') return null;
+        return kind === 'float' ? Math.max(0, parseFloat(value) || 0) : Math.max(0, parseInt(value, 10) || 0);
       };
-      try { await api('/api/admin/users/' + encodeURIComponent(u.id), { method: 'PATCH', body: JSON.stringify(body) }); toast('Saved ' + u.email); loadAll(); }
-      catch (e) { toast('Save failed: ' + e.message); }
-    };
-    tr.querySelector('.b-build-audit').onclick = () => {
-      $('#buildAuditUser').value = u.id;
-      loadBuildAudit().catch((e) => toast('Build audit failed: ' + e.message));
-      $('#buildAuditPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
-    tr.querySelector('.b-toggle').onclick = async () => {
       try {
-        await api('/api/admin/users/' + encodeURIComponent(u.id), { method: 'PATCH', body: JSON.stringify({ disabled: !disabled }) });
-        toast((disabled ? 'Enabled ' : 'Disabled ') + u.email);
+        await api('/api/admin/users/' + encodeURIComponent(user.id), {
+          method: 'PATCH',
+          body: JSON.stringify({
+            quota: {
+              plan: tr.querySelector('.f-plan').value.trim() || 'free',
+              requests_per_day: read('.f-rpd', 'int'),
+              tokens_per_day: read('.f-tpd', 'int'),
+              spend_cap_usd: read('.f-cap', 'float'),
+            },
+          }),
+        });
+        toast('Saved ' + user.email);
         loadAll();
-      } catch (e) { toast('Failed: ' + e.message); }
-    };
-    tr.querySelector('.b-rotate').onclick = async () => {
-      if (!confirm('Rotate the gateway key for ' + u.email + '? Their old key stops working immediately.')) return;
+      } catch (error) { toast('Save failed: ' + error.message, 'bad'); }
+    });
+    tr.querySelector('.b-credits').addEventListener('click', () => openCredits(user));
+    tr.querySelector('.b-rotate').addEventListener('click', async () => {
+      if (!confirm('Rotate the gateway key for ' + user.email + '? Their old key stops working immediately.')) return;
       try {
-        await api('/api/admin/users/' + encodeURIComponent(u.id) + '/rotate-key', { method: 'POST' });
-        toast('Key rotated for ' + u.email + ' — they must sign out/in to pick it up');
+        await api('/api/admin/users/' + encodeURIComponent(user.id) + '/rotate-key', { method: 'POST' });
+        toast('Key rotated for ' + user.email);
         loadAll();
-      } catch (e) { toast('Rotate failed: ' + e.message); }
-    };
-    tr.querySelector('.b-revoke').onclick = async () => {
-      if (!confirm('Revoke the gateway key for ' + u.email + '?')) return;
-      try { await api('/api/admin/users/' + encodeURIComponent(u.id) + '/revoke-key', { method: 'POST' }); toast('Key revoked for ' + u.email); loadAll(); }
-      catch (e) { toast('Failed: ' + e.message); }
-    };
-    tr.querySelector('.b-copy-id').onclick = () => copyText(u.id, 'user id');
-    const copyKeyBtn = tr.querySelector('.b-copy-key');
-    if (copyKeyBtn) copyKeyBtn.onclick = () => copyText(u.gatewayKeyId, 'gateway key id');
-    // Presets fill the three limit inputs so a common shape does not have to be
-    // retyped per account; they deliberately do not save — the operator still
-    // sees the values and presses Save, so a preset can never be a blind write.
-    tr.querySelector('.f-preset').onchange = (ev) => {
-      const preset = ev.target.value;
+      } catch (error) { toast('Rotate failed: ' + error.message, 'bad'); }
+    });
+    tr.querySelector('.b-revoke').addEventListener('click', async () => {
+      if (!confirm('Revoke the gateway key for ' + user.email + '?')) return;
+      try {
+        await api('/api/admin/users/' + encodeURIComponent(user.id) + '/revoke-key', { method: 'POST' });
+        toast('Key revoked for ' + user.email);
+        loadAll();
+      } catch (error) { toast('Revoke failed: ' + error.message, 'bad'); }
+    });
+    tr.querySelector('.b-toggle').addEventListener('click', async () => {
+      try {
+        await api('/api/admin/users/' + encodeURIComponent(user.id), {
+          method: 'PATCH',
+          body: JSON.stringify({ disabled: !disabled }),
+        });
+        toast((disabled ? 'Enabled ' : 'Disabled ') + user.email);
+        loadAll();
+      } catch (error) { toast('Failed: ' + error.message, 'bad'); }
+    });
+    // Presets fill the limits so a common shape is not retyped per account. They
+    // deliberately do not save: the operator still presses Save, so a preset can
+    // never be a blind write.
+    tr.querySelector('.f-preset').addEventListener('change', (event) => {
+      const preset = event.target.value;
       if (!preset) return;
-      const put = (sel, val) => { const el = tr.querySelector(sel); if (el) el.value = val; };
+      const put = (sel, value) => { tr.querySelector(sel).value = value; };
       if (preset === 'free') { put('.f-plan', 'free'); put('.f-rpd', '100'); put('.f-tpd', '100000'); put('.f-cap', '2'); }
-      else if (preset === 'pro') { put('.f-plan', 'pro'); put('.f-rpd', '1000'); put('.f-tpd', '2000000'); put('.f-cap', '25'); }
-      else if (preset === 'unlimited') { put('.f-plan', 'unlimited'); put('.f-rpd', ''); put('.f-tpd', ''); put('.f-cap', ''); }
-      ev.target.value = '';
-      toast('Preset applied — press Save to store it');
-    };
-    tb.appendChild(tr);
+      if (preset === 'pro') { put('.f-plan', 'pro'); put('.f-rpd', '2000'); put('.f-tpd', '4000000'); put('.f-cap', '25'); }
+      if (preset === 'unlimited') { put('.f-plan', 'unlimited'); put('.f-rpd', ''); put('.f-tpd', ''); put('.f-cap', ''); }
+    });
+    body.append(tr);
   }
 }
 
-function renderIdentity(view) {
-  const cfg = $('#identityCfg');
-  const tb = $('#identityRows');
-  cfg.innerHTML = view.config && view.config.configured
-    ? '<span class="pill ok">' + esc(view.config.groupName) + '</span>'
-    : '<span class="pill off">not configured</span> — set AUTHENTIK_API_URL, AUTHENTIK_API_TOKEN and AUTHENTIK_GROUP_NAME';
-  tb.innerHTML = '';
-  if (!view.groups || !view.groups.length) {
-    tb.innerHTML = '<tr><td colspan="4" class="muted">No local mapping yet. Sync creates the Authentik group when it is missing.</td></tr>';
-    return;
+/* ── keys ───────────────────────────────────────────────────────────────── */
+
+function keyTiles(report) {
+  const summary = $('#keysSummary');
+  summary.replaceChildren();
+  const tiles = [
+    ['Checked', report.checked, ''],
+    ['Healthy', report.ok, 'ok'],
+    ['Refused', (report.rejected || []).length, 'bad'],
+    ['Missing', (report.missing || []).length, 'bad'],
+    ['Shared', (report.shared || []).length, 'warn'],
+    ['Unasked', (report.unchecked || []).length, 'warn'],
+  ];
+  for (const [label, value, kind] of tiles) {
+    const tile = document.createElement('div');
+    tile.className = 'tile' + (kind === 'bad' && value > 0 ? ' bad' : '');
+    tile.innerHTML = '<div class="n">' + num(value) + '</div><div class="l">' + esc(label) + '</div>';
+    summary.append(tile);
   }
-  for (const group of view.groups) {
+}
+
+function keyRows(host, entries, tone) {
+  host.replaceChildren();
+  for (const entry of entries) {
+    const row = document.createElement('div');
+    row.className = 'list-row' + (tone === 'bad' ? ' bad' : '');
+    row.innerHTML =
+      '<div><div class="t">' + esc(entry.email) + '</div><div class="m">' + esc(entry.reason || '') + '</div>'
+      + (entry.error ? '<div class="m">' + esc(entry.error) + '</div>' : '') + '</div>'
+      + '<span class="pill ' + (tone === 'bad' ? 'bad' : 'warn') + '"><span class="dot"></span>' + esc(entry.label || 'default') + '</span>';
+    host.append(row);
+  }
+}
+
+async function loadKeys() {
+  try {
+    state.keys = await api('/api/admin/keys/health');
+    const report = state.keys;
+    keyTiles(report);
+    const problems = [...(report.rejected || []), ...(report.missing || []), ...(report.shared || [])];
+    const note = $('#keysNote');
+    note.className = 'note' + (problems.length ? ' warn' : ' ok');
+    note.textContent = problems.length
+      ? problems.length + ' account' + (problems.length === 1 ? '' : 's') + ' cannot spend with the key it holds. The automatic pass rotates them; Sync now does it immediately.'
+      : 'Every account holds a key the gateway accepts.';
+    keyRows($('#keysList'), problems, 'warn');
+    keyRows($('#keysFailed'), report.failed || [], 'bad');
+  } catch (error) {
+    $('#keysSummary').replaceChildren();
+    const note = $('#keysNote');
+    note.className = 'note bad';
+    note.textContent = 'Could not read key health: ' + error.message;
+  }
+}
+
+async function syncKeys() {
+  const button = $('#keysSyncBtn');
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = 'syncing…';
+  try {
+    const report = await api('/api/admin/keys/sync', { method: 'POST' });
+    const rotated = (report.rotated || []).length;
+    toast(rotated
+      ? 'Rotated ' + rotated + ' key' + (rotated === 1 ? '' : 's')
+      : 'Nothing to rotate',
+      report.failed && report.failed.length ? 'bad' : 'ok');
+    loadKeys();
+    loadAll();
+  } catch (error) {
+    toast('Sync failed: ' + error.message, 'bad');
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
+/* ── storage ────────────────────────────────────────────────────────────── */
+
+async function loadStorage() {
+  try {
+    const data = await api('/api/admin/storage');
+    state.storage = data;
+    renderStorage(data);
+    $('#storageStamp').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } catch (error) {
+    const note = $('#storageNote');
+    note.className = 'note bad';
+    note.textContent = 'Could not read storage: ' + error.message;
+  }
+}
+
+function renderStorage(data) {
+  const note = $('#storageNote');
+  const down = (data.pools || []).filter((pool) => !(pool.reach && pool.reach.exists));
+  note.className = 'note ' + (down.length ? 'warn' : 'ok');
+  note.textContent = down.length
+    ? down.map((pool) => pool.name + ': ' + ((pool.reach && pool.reach.detail) || 'unreachable')).join(' · ')
+    : 'Every pool answered where it lives. Probe one to write and read an object through it.';
+
+  // Providers first: the pool form needs them, and a pool with no provider is a
+  // row an operator cannot create.
+  const providers = $('#storageProviders');
+  providers.replaceChildren();
+  if (!(data.providers || []).length) {
+    providers.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: 'No providers yet.' }));
+  }
+  for (const provider of data.providers || []) {
+    const row = document.createElement('div');
+    row.className = 'list-row';
+    row.innerHTML = '<div><div class="t">' + esc(provider.name) + '</div><div class="m mono">'
+      + esc([provider.provider_type, provider.endpoint, provider.bucket, provider.region].filter(Boolean).join(' · '))
+      + '</div></div><span class="pill ' + (provider.enabled ? 'ok' : 'bad') + '"><span class="dot"></span>'
+      + (provider.enabled ? 'enabled' : 'disabled') + '</span>';
+    providers.append(row);
+  }
+
+  const select = $('#poolProvider');
+  const chosen = select.value;
+  select.replaceChildren();
+  for (const provider of data.providers || []) {
+    const option = document.createElement('option');
+    option.value = provider.id;
+    option.textContent = provider.name + ' (' + provider.provider_type + ')';
+    select.append(option);
+  }
+  if (chosen) select.value = chosen;
+
+  const pools = $('#storagePools');
+  pools.replaceChildren();
+  if (!(data.pools || []).length) {
+    pools.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: 'No pools yet.' }));
+  }
+  for (const pool of data.pools || []) {
+    const reach = pool.reach || {};
+    const row = document.createElement('div');
+    row.className = 'list-row' + (reach.exists ? '' : ' bad');
+    row.innerHTML = '<div><div class="t">' + esc(pool.name) + '</div><div class="m mono">'
+      + esc(pool.provider_name + ' · ' + pool.provider_type + ' · ' + (reach.detail || 'unknown'))
+      + (reach.fstype ? ' · ' + esc(reach.fstype) : '') + '</div></div>'
+      + '<div class="row-actions">'
+      + '<button class="ghost tiny p-probe" type="button">Probe</button>'
+      + '<button class="ghost tiny p-prepare" type="button">Prepare</button>'
+      + '<button class="danger tiny p-delete" type="button">Delete</button>'
+      + '</div>';
+    row.querySelector('.p-probe').addEventListener('click', () => poolProbe(pool));
+    row.querySelector('.p-prepare').addEventListener('click', () => poolPrepare(pool));
+    row.querySelector('.p-delete').addEventListener('click', () => poolDelete(pool));
+    pools.append(row);
+  }
+}
+
+async function poolProbe(pool) {
+  try {
+    const result = await api('/api/admin/storage-pools/' + encodeURIComponent(pool.id) + '/probe', { method: 'POST' });
+    toast(pool.name + ': ' + result.detail + ' (' + result.bytes + ' bytes)');
+    loadStorage();
+  } catch (error) {
+    toast(pool.name + ': ' + error.message, 'bad');
+  }
+}
+
+async function poolPrepare(pool) {
+  try {
+    const result = await api('/api/admin/storage-pools/' + encodeURIComponent(pool.id) + '/prepare', { method: 'POST' });
+    toast(pool.name + ': ' + result.detail);
+    loadStorage();
+  } catch (error) {
+    toast(pool.name + ': ' + error.message, 'bad');
+  }
+}
+
+async function poolDelete(pool) {
+  if (!confirm('Delete the pool ' + pool.name + '? The objects already written are left where they are.')) return;
+  try {
+    await api('/api/admin/storage-pools/' + encodeURIComponent(pool.id), { method: 'DELETE' });
+    toast('Deleted ' + pool.name);
+    loadStorage();
+  } catch (error) {
+    toast('Delete failed: ' + error.message, 'bad');
+  }
+}
+
+async function addProvider(event) {
+  event.preventDefault();
+  const name = $('#storageName').value.trim();
+  const providerType = $('#storageKind').value;
+  if (!name) { toast('A provider needs a name.', 'bad'); return; }
+  try {
+    await api('/api/admin/storage-providers', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        providerType,
+        endpoint: $('#storageEndpoint').value.trim() || undefined,
+        bucket: $('#storageBucket').value.trim() || undefined,
+        credentialRef: $('#storageCred').value.trim() || undefined,
+      }),
+    });
+    toast('Added ' + name);
+    $('#providerForm').reset();
+    loadStorage();
+  } catch (error) {
+    toast('Add provider failed: ' + error.message, 'bad');
+  }
+}
+
+async function addPool(event) {
+  event.preventDefault();
+  const name = $('#poolName').value.trim();
+  const providerId = $('#poolProvider').value;
+  if (!name || !providerId) { toast('A pool needs a name and a provider.', 'bad'); return; }
+  try {
+    await api('/api/admin/storage-pools', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        providerId,
+        rootPath: $('#poolRoot').value.trim() || undefined,
+        capacityLabel: $('#poolCapacity').value.trim() || undefined,
+      }),
+    });
+    toast('Added pool ' + name);
+    $('#poolForm').reset();
+    loadStorage();
+  } catch (error) {
+    toast('Add pool failed: ' + error.message, 'bad');
+  }
+}
+
+/* ── activity ───────────────────────────────────────────────────────────── */
+
+function setActivity(kind) {
+  state.activity = kind;
+  $('#tabAudit').setAttribute('aria-selected', kind === 'audit' ? 'true' : 'false');
+  $('#tabAlerts').setAttribute('aria-selected', kind === 'alerts' ? 'true' : 'false');
+  $('#activityTitle').textContent = kind === 'audit' ? 'Audit' : 'Alerts';
+  loadActivity();
+}
+
+async function loadActivity() {
+  const body = $('#activityRows');
+  try {
+    if (state.activity === 'alerts') {
+      const { entries } = await api('/api/admin/alerts?limit=50');
+      body.replaceChildren();
+      $('#activityEmpty').classList.toggle('hidden', entries.length > 0);
+      for (const entry of entries) {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td class="tight">' + esc(when(entry.created_at)) + '</td>'
+          + '<td class="mono">' + esc(entry.action || entry.kind || '') + '</td>'
+          + '<td class="muted">alert</td>'
+          + '<td>—</td>'
+          + '<td class="muted">' + esc(entry.title || entry.message || '') + '</td>';
+        body.append(tr);
+      }
+      return;
+    }
+    const params = new URLSearchParams({ limit: '150' });
+    const action = ($('#auditFilter').value || '').trim();
+    const user = ($('#auditUser').value || '').trim();
+    if (action) params.set('action', action);
+    if (user) params.set('user', user);
+    const { entries } = await api('/api/admin/audit?' + params.toString());
+    body.replaceChildren();
+    $('#activityEmpty').classList.toggle('hidden', entries.length > 0);
+    for (const entry of entries) {
+      const meta = entry.meta ? String(entry.meta).slice(0, 220) : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="tight">' + esc(when(entry.created_at)) + '</td>'
+        + '<td class="mono">' + esc(entry.action || '') + '</td>'
+        + '<td class="muted">' + esc(entry.actor_email || '—') + '</td>'
+        + '<td class="mono muted">' + esc(entry.target_email || entry.target_id || '—') + '</td>'
+        + '<td class="muted mono">' + esc(meta) + '</td>';
+      body.append(tr);
+    }
+  } catch (error) {
+    body.replaceChildren();
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td>' + esc(group.name) + '</td><td>' + esc(group.member_count) + '</td><td>' + esc((group.members || []).length) + '</td><td class="badge">' + esc(group.updated_at || '') + '</td>';
-    tb.appendChild(tr);
+    tr.innerHTML = '<td colspan="5" class="muted">' + esc(error.message) + '</td>';
+    body.append(tr);
   }
 }
 
-async function syncIdentity() {
-  const btn = $('#syncIdentityBtn');
-  btn.disabled = true;
-  try { await api('/api/admin/identity-groups/sync', { method: 'POST' }); toast('Authentik group synced'); loadAll(); }
-  catch (e) { toast('Identity sync failed: ' + e.message); }
-  finally { btn.disabled = false; }
-}
+/* ── credits ────────────────────────────────────────────────────────────── */
 
-function renderProviders(view) {
-  const tb = $('#providerRows');
-  const poolSelect = $('#poolProvider');
-  poolSelect.innerHTML = '<option value="">Select provider…</option>' + (view.providers || []).map((p) => '<option value="' + esc(p.id) + '">' + esc(p.name) + ' (' + esc(p.provider_type) + ')</option>').join('');
-  renderPools(view.pools || []);
-  tb.innerHTML = '';
-  if (!view.providers || !view.providers.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="muted">No cloud storage providers configured.</td></tr>';
-    return;
-  }
-  for (const p of view.providers) {
-    const tr = document.createElement('tr');
-    const location = [p.endpoint, p.bucket, p.region].filter(Boolean).join(' · ') || 'managed connection';
-    tr.innerHTML = '<td>' + esc(p.name) + '</td><td><span class="pill admin">' + esc(p.provider_type) + '</span></td><td class="muted">' + esc(location) + '</td><td class="muted">' + esc(p.credential_ref || 'not set') + '</td><td><span class="pill ' + (p.enabled ? 'ok' : 'off') + '">' + (p.enabled ? 'enabled' : 'disabled') + '</span></td><td><button class="danger b-delete-provider">Delete</button></td>';
-    tr.querySelector('.b-delete-provider').onclick = async () => {
-      if (!confirm('Delete ' + p.name + '?')) return;
-      try { await api('/api/admin/storage-providers/' + encodeURIComponent(p.id), { method: 'DELETE' }); toast('Provider deleted'); loadAll(); }
-      catch (e) { toast('Delete failed: ' + e.message); }
-    };
-    tb.appendChild(tr);
-  }
-}
-
-function renderPools(pools) {
-  const tb = $('#poolRows');
-  tb.innerHTML = '';
-  if (!pools.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="muted">No storage pools configured. Create one above.</td></tr>';
-    return;
-  }
-  for (const pool of pools) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = '<td>' + esc(pool.name) + '</td><td>' + esc(pool.provider_name) + ' <span class="badge">' + esc(pool.provider_type) + '</span></td><td class="muted">' + esc(pool.root_path || '/') + '</td><td class="muted">' + esc(pool.capacity_label || '—') + '</td><td><span class="pill ' + (pool.enabled ? 'ok' : 'off') + '">' + (pool.enabled ? 'enabled' : 'disabled') + '</span></td><td><button class="danger b-delete-pool">Delete</button></td>';
-    tr.querySelector('.b-delete-pool').onclick = async () => {
-      if (!confirm('Delete storage pool ' + pool.name + '?')) return;
-      try { await api('/api/admin/storage-pools/' + encodeURIComponent(pool.id), { method: 'DELETE' }); toast('Storage pool deleted'); loadAll(); }
-      catch (e) { toast('Delete failed: ' + e.message); }
-    };
-    tb.appendChild(tr);
-  }
-}
-
-// M6 — the gateway-version pin, as the last check saw it. `compatible` is
-// true/false/null: null means the gateway could not be asked or did not say,
-// which is "unchecked", not a fault.
-function renderGatewayVersion(g) {
-  const el = $('#cGateway');
-  const pin = $('#cGatewayPin');
-  const card = $('#cGatewayCard');
-  pin.textContent = g.expected ? 'pin ' + g.expected : 'no pin';
-  if (!g.expected) {
-    el.textContent = 'unpinned';
-    el.style.color = 'var(--muted)';
-    card.title = 'GATEWAY_EXPECTED_VERSION is empty — version check disabled';
-    return;
-  }
-  el.textContent = g.running || (g.error ? 'unreachable' : 'unknown');
-  el.style.color = g.compatible === true ? 'var(--green)' : g.compatible === false ? 'var(--red)' : 'var(--amber)';
-  card.title =
-    (g.compatible === true ? 'Matches the verified release.' : g.compatible === false ? 'MISMATCH — re-verify docs/gateway-api-inventory.md and move the pin.' : 'Unchecked: ' + (g.error || 'the health route answered without a version.')) +
-    (g.buildSha ? '\nbuild ' + g.buildSha : '') +
-    (g.checkedAt ? '\nchecked ' + g.checkedAt : '\nnot checked yet (probed at boot and before each usage sync)');
-}
-
-// Per-model spend today across all users (usage_models), with share-of-spend bars.
-function renderModels(models, totalCost) {
-  const tb = $('#modelRows');
-  const cfg = $('#modelsCfg');
-  tb.innerHTML = '';
-  const spend = models.reduce((s, m) => s + (Number(m.costUsd) || 0), 0);
-  cfg.innerHTML = models.length
-    ? '<span class="pill ok">' + models.length + ' model' + (models.length === 1 ? '' : 's') + '</span> ' + esc(money(spend)) + ' attributed' +
-      (Number(totalCost) > spend + 1e-9 ? ' · <span class="badge">' + esc(money(Number(totalCost) - spend)) + ' unattributed (reports without a model)</span>' : '')
-    : '<span class="pill user">no rows yet</span>';
-  if (!models.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="muted">No per-model rows today. Chat usage reports that name a <code>model</code> and the gateway-ledger sync both fill this.</td></tr>';
-    return;
-  }
-  for (const m of models) {
-    const share = spend > 0 ? (Number(m.costUsd) || 0) / spend : 0;
-    const tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td><code>' + esc(m.model || '(unknown)') + '</code></td>' +
-      '<td>' + esc(Number(m.requests).toLocaleString()) + '</td>' +
-      '<td class="muted">' + esc(Number(m.tokensIn).toLocaleString()) + ' / ' + esc(Number(m.tokensOut).toLocaleString()) + '</td>' +
-      '<td>' + esc(money(m.costUsd)) + '</td>' +
-      '<td class="muted">' + esc(m.users) + '</td>' +
-      '<td><div style="display:flex;align-items:center;gap:8px"><div class="bar"><span style="width:' + Math.round(share * 100) + '%"></span></div><span class="badge">' + Math.round(share * 100) + '%</span></div></td>';
-    tb.appendChild(tr);
-  }
-}
-
-// Top two models under a user's "Today" cell; the rest is a count.
-function modelsMini(models) {
-  if (!models || !models.length) return '';
-  const top = models.slice(0, 2).map((m) => '<code>' + esc(m.model || '?') + '</code> ' + esc(m.requests)).join(' · ');
-  const more = models.length > 2 ? ' · +' + (models.length - 2) : '';
-  const title = models.map((m) => (m.model || '(unknown)') + ': ' + m.requests + ' req, ' + money(m.cost_usd)).join('\n');
-  return '<div class="models-mini" title="' + esc(title) + '">' + top + more + '</div>';
-}
-
-// Builder audit: the `build.*` rows the retired build plane wrote through
-// /api/internal/audit (start, preview, publish, export), narrowed to one
-// account. The plane is gone, so these are history rather than a live feed —
-// kept because an audit row is evidence, and the server still filters
-// (?action= prefix, ?user= id) so the view stays honest when the general log is
-// dominated by sign-ins.
-function populateBuildAuditUsers(users) {
-  const sel = $('#buildAuditUser');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">All users</option>' +
-    (users || []).map((u) => '<option value="' + esc(u.id) + '">' + esc(u.email) + '</option>').join('');
-  if ([...sel.options].some((o) => o.value === current)) sel.value = current;
-}
-
-async function loadBuildAudit() {
-  const userId = $('#buildAuditUser').value;
-  const action = $('#buildAuditAction').value || 'build.';
-  const qs = new URLSearchParams({ limit: '200', action });
-  if (userId) qs.set('user', userId);
-  const { entries } = await api('/api/admin/audit?' + qs.toString());
-  renderBuildAudit(entries, { userId });
-}
-
-function buildPill(action) {
-  const leaf = String(action || '').split('.').pop();
-  const cls = leaf === 'publish' ? 'publish' : leaf === 'export' ? 'export' : 'build';
-  return '<span class="pill ' + cls + '"><code>' + esc(action) + '</code></span>';
-}
-
-function renderBuildAudit(entries, { userId } = {}) {
-  const tb = $('#buildAuditRows');
-  const cfg = $('#buildAuditCfg');
-  const count = $('#buildAuditCount');
-  tb.innerHTML = '';
-  const who = userId ? ($('#buildAuditUser').selectedOptions[0] || {}).textContent : '';
-  cfg.innerHTML = who ? '<span class="pill admin">' + esc(who) + '</span>' : '<span class="pill user">all users</span>';
-  count.textContent = entries && entries.length ? entries.length + ' row' + (entries.length === 1 ? '' : 's') : '';
-  if (!entries || !entries.length) {
-    tb.innerHTML = '<tr><td colspan="5" class="muted">' +
-      (who ? 'No builder rows for ' + esc(who) + ' yet.' : 'No builder rows yet. The build plane that wrote <code>build.*</code> rows is retired; the rows already written are kept here as history.') +
-      '</td></tr>';
-    return;
-  }
-  for (const e of entries) {
-    const tr = document.createElement('tr');
-    const m = e.meta && typeof e.meta === 'object' ? e.meta : {};
-    const url = m.publishedUrl || m.previewUrl || m.url;
-    const target = m.slug || m.title || e.target_id || '';
-    const rest = Object.fromEntries(Object.entries(m).filter(([k]) => !['slug', 'title', 'publishedUrl', 'previewUrl', 'url'].includes(k)));
-    // Only http(s) becomes a link: the URL is caller-supplied metadata.
-    const link = url && /^https?:\/\//i.test(String(url))
-      ? ' <a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a>'
-      : url ? ' ' + esc(url) : '';
-    tr.innerHTML =
-      '<td class="badge">' + esc(e.created_at) + '</td>' +
-      '<td>' + esc(e.actor_email || e.target_email || e.actor_id || 'unresolved') + (e.actor_id ? '<div class="badge">' + esc(e.actor_id) + '</div>' : '') + '</td>' +
-      '<td>' + buildPill(e.action) + '</td>' +
-      '<td>' + esc(target) + (e.target_id && target !== e.target_id ? '<div class="badge">' + esc(e.target_id) + '</div>' : '') + '</td>' +
-      '<td class="muted">' + esc(Object.keys(rest).length ? JSON.stringify(rest) : '') + link + '</td>';
-    tb.appendChild(tr);
-  }
-}
-
-function renderAlerts(entries) {
-  const tb = $('#alertRows');
-  tb.innerHTML = '';
-  if (!entries || !entries.length) {
-    tb.innerHTML = '<tr><td colspan="5" class="muted">No alerts fired yet — set CONTROL_ALERT_WEBHOOK_URL and try <code>node bin/control.mjs test-alert</code> inside the container</td></tr>';
-    return;
-  }
-  for (const a of entries) {
-    const tr = document.createElement('tr');
-    const statusCls = a.status === 'sent' ? 'ok' : a.status === 'failed' ? 'off' : '';
-    const meta =
-      a.meta && typeof a.meta === 'object' && Object.keys(a.meta).length
-        ? JSON.stringify(a.meta)
-        : '';
-    tr.innerHTML =
-      '<td class="badge">' + esc(a.created_at) + '</td>' +
-      '<td><code>' + esc(a.key) + '</code></td>' +
-      '<td><span class="pill ' + statusCls + '">' + esc(a.status) + (a.reason ? ': ' + esc(a.reason) : '') + '</span></td>' +
-      '<td>' + esc(a.title || '') + '</td>' +
-      '<td class="muted">' + esc((a.message || '') + (meta ? ' ' + meta : '')) + '</td>';
-    tb.appendChild(tr);
-  }
-}
-
-function renderAudit(entries) {
-  const tb = $('#auditRows');
-  tb.innerHTML = '';
-  if (!entries || !entries.length) {
-    tb.innerHTML = '<tr><td colspan="5" class="muted">No events yet</td></tr>';
-    return;
-  }
-  for (const e of entries) {
-    const tr = document.createElement('tr');
-    const meta =
-      e.meta && typeof e.meta === 'object' && Object.keys(e.meta).length
-        ? JSON.stringify(e.meta)
-        : '';
-    tr.innerHTML =
-      '<td class="badge">' + esc(e.created_at) + '</td>' +
-      '<td>' + esc(e.actor_email || e.actor_id || 'system') + '</td>' +
-      '<td><code>' + esc(e.action) + '</code></td>' +
-      '<td>' + esc(e.target_email || e.target_id || '') + '</td>' +
-      '<td class="muted">' + esc(meta) + '</td>';
-    tb.appendChild(tr);
-  }
-}
-
-// login
-//
-// Posture: identity is Cerulean Authentik, so the console renders the SSO
-// button and hides the password form unless the operator turned the local
-// fallback back on (BREAKGLASS_LOGIN=1 — see src/oidc.js).
-$('#loginBtn').onclick = doLogin;
-$('#refreshBtn').onclick = () => loadAll();
-$('#userFilter').addEventListener('input', () => renderRows(filterUsers(allUsers)));
-$('#syncIdentityBtn').onclick = syncIdentity;
-$('#buildAuditUser').onchange = () => loadBuildAudit().catch((e) => toast('Build audit failed: ' + e.message));
-$('#buildAuditAction').onchange = () => loadBuildAudit().catch((e) => toast('Build audit failed: ' + e.message));
-$('#buildAuditClear').onclick = () => {
-  $('#buildAuditUser').value = '';
-  $('#buildAuditAction').value = 'build.';
-  loadBuildAudit().catch((e) => toast('Build audit failed: ' + e.message));
-};
-let creditUser = null;
-
-async function openCreditDialog(user) {
-  creditUser = user;
+async function openCredits(user) {
+  state.creditUser = user;
   $('#creditWho').textContent = user.email;
-  $('#creditDialog').showModal();
+  $('#creditDialog').classList.remove('hidden');
+  $('#creditErr').textContent = '';
+  $('#creditAmount').value = '';
+  $('#creditReason').value = '';
   await loadCredits();
 }
 
 async function loadCredits() {
-  if (!creditUser) return;
-  const product = $('#creditProduct').value;
+  const user = state.creditUser;
+  if (!user) return;
+  const product = ($('#creditProduct').value || 'engineer').trim();
   try {
-    const data = await api('/api/admin/credits?user=' + encodeURIComponent(creditUser.email) + '&product=' + encodeURIComponent(product));
-    $('#creditBalance').textContent = Number(data.balance).toLocaleString() + ' credits';
-    $('#creditPrice').textContent = '$' + Number(data.price_per_credit_usd || 0).toFixed(2);
-    const tb = $('#creditEntries');
-    tb.innerHTML = '';
-    for (const row of data.entries || []) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = '<td class="muted">' + esc(row.created_at) + '</td>' +
-        '<td>' + (row.delta > 0 ? '+' : '') + esc(row.delta) + '</td>' +
-        '<td>' + esc(row.kind) + '</td>' +
-        '<td class="muted">' + esc(row.reference || '') + '</td>' +
-        '<td class="muted">' + esc(row.reason || '') + '</td>';
-      tb.appendChild(tr);
+    const data = await api('/api/admin/credits?user=' + encodeURIComponent(user.email) + '&product=' + encodeURIComponent(product));
+    $('#creditBalance').textContent = data.balance + ' credits · ' + money(data.price_per_credit_usd) + ' per credit';
+    const ledger = $('#creditHistory');
+    ledger.replaceChildren();
+    if (!data.entries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'muted';
+      empty.style.padding = '10px';
+      empty.textContent = 'No ledger entries yet.';
+      ledger.append(empty);
     }
-    if (!(data.entries || []).length) {
-      tb.innerHTML = '<tr><td colspan="5" class="muted">No ledger entries on this product yet.</td></tr>';
+    for (const entry of data.entries) {
+      const row = document.createElement('div');
+      row.innerHTML = '<span class="' + (entry.delta > 0 ? 'plus' : '') + '">' + (entry.delta > 0 ? '+' : '') + entry.delta + '</span>'
+        + '<span class="muted">' + esc(entry.kind) + ' · ' + esc(entry.reason || entry.reference || '') + ' · ' + esc(when(entry.created_at)) + '</span>';
+      ledger.append(row);
     }
-  } catch (e) {
-    toast('Credits: ' + e.message);
+  } catch (error) {
+    $('#creditErr').textContent = error.message;
   }
 }
 
-$('#creditProduct').addEventListener('change', () => { loadCredits(); });
-$('#creditClose').onclick = () => $('#creditDialog').close();
-$('#creditForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  if (!creditUser) return;
-  const credits = Math.trunc(Number($('#creditAmount').value));
-  if (!Number.isInteger(credits) || credits <= 0) { toast('Credits must be a whole number above zero'); return; }
+async function grantCredits(event) {
+  event.preventDefault();
+  const user = state.creditUser;
+  if (!user) return;
+  const credits = parseInt($('#creditAmount').value, 10);
+  if (!Number.isInteger(credits) || credits <= 0) {
+    $('#creditErr').textContent = 'Enter a whole number of credits.';
+    return;
+  }
+  const button = $('#creditGrant');
+  button.disabled = true;
+  $('#creditErr').textContent = '';
   try {
-    const res = await api('/api/admin/credits/grant', {
+    const answer = await api('/api/admin/credits/grant', {
       method: 'POST',
       body: JSON.stringify({
-        user: creditUser.email,
-        product: $('#creditProduct').value,
+        user: user.email,
+        product: ($('#creditProduct').value || 'engineer').trim(),
         credits,
         reason: $('#creditReason').value.trim(),
       }),
     });
-    toast(res.granted > 0 ? ('Added ' + res.granted + ' credits — balance ' + res.balance) : 'That grant had already been recorded');
+    toast((answer.duplicate ? 'Already granted — ' : 'Granted ' + credits + ' — ') + answer.balance + ' credits');
     $('#creditAmount').value = '';
-    $('#creditReason').value = '';
     await loadCredits();
-    loadAll().catch(() => {});
-  } catch (err) { toast('Grant failed: ' + err.message); }
-});
+    loadAll();
+  } catch (error) {
+    $('#creditErr').textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
 
-$('#createPoolBtn').onclick = () => $('#poolForm').classList.toggle('hidden');
-$('#poolForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    await api('/api/admin/storage-pools', { method: 'POST', body: JSON.stringify({
-      name: $('#poolName').value.trim(), providerId: $('#poolProvider').value,
-      rootPath: $('#poolRoot').value.trim(), capacityLabel: $('#poolCapacity').value.trim(),
-    }) });
-    e.target.reset(); e.target.classList.add('hidden'); toast('Storage pool created'); loadAll();
-  } catch (err) { toast('Create pool failed: ' + err.message); }
-});
-$('#providerForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    await api('/api/admin/storage-providers', { method: 'POST', body: JSON.stringify({
-      name: $('#providerName').value.trim(), providerType: $('#providerType').value,
-      endpoint: $('#providerEndpoint').value.trim(), bucket: $('#providerBucket').value.trim(),
-      region: $('#providerRegion').value.trim(), credentialRef: $('#providerCredential').value.trim(),
-    }) });
-    e.target.reset(); toast('Cloud storage provider added'); loadAll();
-  } catch (err) { toast('Add provider failed: ' + err.message); }
-});
-$('#password').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+/* ── sign-in ────────────────────────────────────────────────────────────── */
 
 async function bootLogin() {
   let cfg = { enabled: false, localLogin: false, misconfigured: false };
@@ -918,8 +1168,8 @@ async function bootLogin() {
   if (cfg.localLogin) $('#localLoginBlock').classList.remove('hidden');
   if (cfg.misconfigured) {
     $('#loginErr').textContent =
-      'Authentik SSO is not configured on this control plane and password sign-in is disabled. ' +
-      'Set the OIDC_* variables (or BREAKGLASS_LOGIN=1 for recovery).';
+      'Authentik SSO is not configured on this control plane and password sign-in is disabled. '
+      + 'Set the OIDC_* variables (or BREAKGLASS_LOGIN=1 for recovery).';
   }
 }
 
@@ -934,22 +1184,22 @@ function openOidc() {
   }
 }
 
-window.addEventListener('message', (e) => {
-  const d = e.data;
-  if (!d || d.source !== 'distro-oidc' || !d.token) return;
+window.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || data.source !== 'distro-oidc' || !data.token) return;
   if (oidcPopup && !oidcPopup.closed) oidcPopup.close();
-  if (d.user && d.user.role !== 'admin') {
+  if (data.user && data.user.role !== 'admin') {
     $('#loginErr').textContent = 'this account is not an admin';
     return;
   }
-  localStorage.setItem(TOKEN_KEY, d.token);
-  localStorage.setItem('distro_admin_user', JSON.stringify(d.user));
-  showApp(d.user);
+  localStorage.setItem(TOKEN_KEY, data.token);
+  localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+  showApp(data.user);
 });
 
 async function doLogin() {
-  const btn = $('#loginBtn');
-  btn.disabled = true;
+  const button = $('#loginBtn');
+  button.disabled = true;
   $('#loginErr').textContent = '';
   try {
     const data = await api('/api/auth/login', {
@@ -958,26 +1208,57 @@ async function doLogin() {
     });
     if (data.user && data.user.role !== 'admin') throw new Error('this account is not an admin');
     localStorage.setItem(TOKEN_KEY, data.token);
-    localStorage.setItem('distro_admin_user', JSON.stringify(data.user));
+    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
     showApp(data.user);
-  } catch (e) {
-    $('#loginErr').textContent = e.message || 'sign-in failed';
-  } finally { btn.disabled = false; }
+  } catch (error) {
+    $('#loginErr').textContent = error.message || 'sign-in failed';
+  } finally {
+    button.disabled = false;
+  }
 }
-$('#logoutBtn').onclick = () => {
-  try { api('/api/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem('distro_admin_user');
-  showLogin();
-};
 
-// boot
+/* ── wiring ─────────────────────────────────────────────────────────────── */
+
+$('#navOverview').addEventListener('click', () => setView('overview'));
+$('#navAccounts').addEventListener('click', () => setView('accounts'));
+$('#navKeys').addEventListener('click', () => setView('keys'));
+$('#navStorage').addEventListener('click', () => setView('storage'));
+$('#storageAdd').addEventListener('click', addProvider);
+$('#providerForm').addEventListener('submit', addProvider);
+$('#poolAdd').addEventListener('click', addPool);
+$('#poolForm').addEventListener('submit', addPool);
+$('#navActivity').addEventListener('click', () => setView('activity'));
+$('#refreshBtn').addEventListener('click', () => loadAll());
+$('#keysCheckBtn').addEventListener('click', () => loadKeys());
+$('#keysSyncBtn').addEventListener('click', syncKeys);
+$('#tabAudit').addEventListener('click', () => setActivity('audit'));
+$('#tabAlerts').addEventListener('click', () => setActivity('alerts'));
+$('#creditClose').addEventListener('click', () => $('#creditDialog').classList.add('hidden'));
+$('#creditForm').addEventListener('submit', grantCredits);
+$('#creditProduct').addEventListener('change', () => loadCredits());
+$('#userFilter').addEventListener('input', () => renderRows(filterUsers(state.users)));
+$('#auditFilter').addEventListener('change', () => loadActivity());
+$('#auditUser').addEventListener('change', () => loadActivity());
+$('#loginBtn').addEventListener('click', doLogin);
+$('#password').addEventListener('keydown', (event) => { if (event.key === 'Enter') doLogin(); });
+$('#logoutBtn').addEventListener('click', () => {
+  api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  showLogin();
+  bootLogin();
+});
+
 (function boot() {
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) { showLogin(); bootLogin(); return; }
-  api('/api/admin/users')
+  api('/api/admin/stats')
     .then(() => showApp(currentUser()))
-    .catch(() => { localStorage.removeItem(TOKEN_KEY); showLogin(); bootLogin(); });
+    .catch(() => {
+      localStorage.removeItem(TOKEN_KEY);
+      showLogin();
+      bootLogin();
+    });
 })();
 </script>
 </body>

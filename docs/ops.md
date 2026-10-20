@@ -340,9 +340,16 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   `--fix` rotates the refused keys through the gateway (audited as
   `key.rotate`, with the superseded key prefix in the row) and `--alert`
   fires `gateway.account-keys` at `CONTROL_ALERT_WEBHOOK_URL`. The deployment
-  runs it daily as `distro-keys-check.timer` (06:23, report-only — it does not
-  rotate anything, because re-minting is a person's call), shipped as
-  `systemd/distro-keys-check.{service,timer}`. Install them with
+  runs it daily as `distro-keys-check.timer` (06:23, report-only), shipped as
+  `systemd/distro-keys-check.{service,timer}`.
+- **Keys repair themselves**: the control plane runs the same check and the same
+  re-mint on a timer — `CONTROL_KEY_SYNC_MS` (default 15 minutes), plus once
+  shortly after boot — and from `/admin` → **Keys** → **Sync now**. An account
+  with no key row at all is minted one; a key the gateway refuses, or that
+  several accounts share so its spend cannot be attributed, is rotated. Each
+  rotation keeps its `key.rotate` audit row and the pass reports one
+  `key.autosync` row. Set `CONTROL_KEY_SYNC_MS=0` to leave repair to people
+  again; **Check** in the console stays a read-only report either way. Install them with
   `install -m 0644 systemd/distro-keys-check.* /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now distro-keys-check.timer`.
   Any scheduler works, e.g.
   `23 6 * * * cd /opt/distro && ./scripts/check-account-keys.sh --alert >> /var/log/distro-keys-check.log 2>&1`

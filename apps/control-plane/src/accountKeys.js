@@ -27,7 +27,7 @@
 // was never minted, and asking the gateway with an empty bearer is not a question
 // worth putting to it. Both are found here and both are what `--fix` rotates.
 
-import { getQuota, listGatewayKeys, logAudit, setGatewayKey } from './db.js';
+import { getQuota, listAccountsWithoutKeys, listGatewayKeys, logAudit, setGatewayKey } from './db.js';
 import { resolveGatewayUrls } from './discovery.js';
 
 /** The statuses that mean the credential itself was rejected. */
@@ -60,7 +60,9 @@ export async function gatewayApiBase() {
  */
 export async function checkAccountKeys({ fetchImpl = fetch, base, timeoutMs = TIMEOUT_MS } = {}) {
   const resolvedBase = base || (await gatewayApiBase());
-  const rows = listGatewayKeys();
+  // Both kinds of "cannot spend": a stored key (which may be refused or shared)
+  // and an account with no key row at all, which the join above cannot see.
+  const rows = [...listGatewayKeys(), ...listAccountsWithoutKeys()];
   const ok = [];
   const rejected = [];
   const unchecked = [];
@@ -145,7 +147,7 @@ export function brokenAccountKeys(result) {
  * prune — but nothing here references it again, and the mint is recorded as the
  * rotation it is. Returns the new key's id, never the key itself.
  */
-export async function remintAccountKey(entry, { gateway }) {
+export async function remintAccountKey(entry, { gateway, via = 'control.mjs keys-check --fix' }) {
   const quota = getQuota(entry.userId);
   await gateway.login();
   const key = await gateway.createApiKey(`genie-user-${entry.userId.slice(0, 8)}`, {
@@ -169,7 +171,7 @@ export async function remintAccountKey(entry, { gateway }) {
       label: entry.label || 'default',
       previousKeyPrefix: entry.keyPrefix,
       previousStatus: entry.status ?? null,
-      via: 'control.mjs keys-check --fix',
+      via,
     },
   });
   return { gatewayKeyId: key.id };

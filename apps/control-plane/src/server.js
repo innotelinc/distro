@@ -11,6 +11,8 @@ import { syncUsageFromGateway, syncIsStale, unmappedAlert } from './sync.js';
 import { checkGatewayVersion } from './gatewayVersion.js';
 import { alert } from './alerts.js';
 import { seedDistroPlan } from './billing.js';
+import { reconcileAccountKeys } from './keySync.js';
+import { seedStoragePools } from './storageSeed.js';
 import { resolveGatewayUrls, resolveMagnateUrl } from './discovery.js';
 import { atlasConfigured } from './export.js';
 
@@ -28,6 +30,42 @@ openDb();
 // quota accounting working; set CONTROL_SYNC_INTERVAL_MS explicitly only for a
 // deployment that mounts the gateway's data directory itself.
 const SYNC_INTERVAL_MS = Number(process.env.CONTROL_SYNC_INTERVAL_MS ?? 0);
+
+/*
+ * Keys repair themselves (M-key sync).
+ *
+ * The one failure this plane cannot report honestly without it: a key the gateway
+ * has forgotten keeps looking configured here, so every turn is refused while the
+ * dashboard says the account is fine. `keys-check --fix` fixed it for whoever
+ * happened to run it. This runs the same pass every `CONTROL_KEY_SYNC_MS`
+ * (default 15 min) and once shortly after boot, so an account that cannot spend
+ * is an account for at most one interval. Set it to 0 to make the pass manual.
+ */
+const KEY_SYNC_MS = Number(process.env.CONTROL_KEY_SYNC_MS ?? 15 * 60 * 1000);
+let lastKeySyncAt = null;
+
+async function runKeySync() {
+  try {
+    const report = await reconcileAccountKeys({ gateway });
+    lastKeySyncAt = new Date().toISOString();
+    if (report.rotated.length > 0) {
+      console.log(
+        `[control-plane] key sync: rotated ${report.rotated.length} of ${report.checked} key(s) — ` +
+          report.rotated.map((entry) => entry.email).join(', '),
+      );
+    }
+    if (report.failed.length > 0) {
+      console.warn(
+        `[control-plane] key sync: ${report.failed.length} account(s) could not be repaired — ` +
+          report.failed.map((entry) => `${entry.email}: ${entry.error}`).join('; '),
+      );
+    }
+  } catch (err) {
+    // A gateway that is briefly down is weather, not an outage of this plane: the
+    // next pass asks again, and the console's Sync now is the manual override.
+    console.warn(`[control-plane] key sync skipped: ${err?.message || err}`);
+  }
+}
 
 // When the sync goes quiet (M8): a timer that stopped, a process that wedged,
 // or a sync that has never once succeeded. `CONTROL_SYNC_STALE_MS` overrides;
@@ -139,6 +177,12 @@ server.listen(PORT, HOST, async () => {
   // this reports whether the store is reachable and its credential usable.
   console.log(`[control-plane] secret store: Cerulean Vault ${await vaultStatus()}`);
   console.log(`[control-plane] gateway dashboard: ${urls.dashboardUrl} (via ${urls.source})`);
+  try {
+    await seedStoragePools();
+  } catch (err) {
+    console.warn(`[storage] could not prepare the onyx pool: ${err?.message || err}`);
+  }
+
   const version = await checkGatewayVersion(gateway);
   console.log(
     `[control-plane] gateway version: ${version.running || 'unknown'}` +
@@ -162,6 +206,16 @@ server.listen(PORT, HOST, async () => {
   if (atlasConfigured()) {
     console.log(`[atlas] Atlas configured at ${process.env.ATLAS_URL} (git remote: ${process.env.ATLAS_GIT_REMOTE})`);
   }
+
+  if (KEY_SYNC_MS > 0) {
+    // Delayed rather than immediate: boot is when the gateway is least likely to
+    // be waiting for us, and a rotation during startup would race the console's
+    // first render.
+    setTimeout(runKeySync, 20_000).unref();
+    setInterval(runKeySync, KEY_SYNC_MS).unref();
+    console.log(`[control-plane] key sync every ${Math.round(KEY_SYNC_MS / 1000)}s`);
+  }
+  console.log(`[control-plane] last key sync: ${lastKeySyncAt || 'not yet'}`);
 
   if (SYNC_INTERVAL_MS > 0) {
     runUsageSync(); // immediate first pass
