@@ -81,6 +81,18 @@ jobs:
             apps/control-plane/schema.sql apps/control-plane/src apps/control-plane/package.json
           ls -lh distro-stack.tar.gz
 
+      - name: Ensure the GitHub Release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # A tag push does not create a Release. The artifact step used to
+          # assume somebody had made one by hand, so the first tag after a
+          # quiet period published images and then failed here. Create it from
+          # the tag when it is missing; keep an existing release's notes.
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "Distro $TAG" --generate-notes
+
       - name: Upload to the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
