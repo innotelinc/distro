@@ -353,6 +353,17 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   `install -m 0644 systemd/distro-keys-check.* /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now distro-keys-check.timer`.
   Any scheduler works, e.g.
   `23 6 * * * cd /opt/distro && ./scripts/check-account-keys.sh --alert >> /var/log/distro-keys-check.log 2>&1`
+- **Storage reconciles itself**: onyx owns the disks and publishes its shares at
+  `/api/v1/shares`; the plane owns the catalog. Every
+  `CONTROL_STORAGE_SYNC_MS` (default 5 minutes, plus once after boot) the plane
+  writes the object store as the `onyx` provider/pool, one pool per share under
+  an `onyx-nfs` provider, and one `status` line per pool saying whether it could
+  be reached. A new share appears on the next pass; a share that disappeared
+  disables its pool rather than deleting the row, so re-attaching the disk
+  restores it. A duplicate provider (`Onyx` beside `onyx`) is merged and its
+  pools repointed. `/admin` → **Pools** → **Sync now** runs the same pass;
+  `CONTROL_STORAGE_SYNC_MS=0` leaves it manual. `ONYX_API_URL` (default
+  `http://192.168.1.60:2081`) names the onyx API.
 - **The tenancy loop is walked, not assumed**: `make acceptance`
   (`./scripts/acceptance-check.sh`, `control.mjs acceptance`) runs the loop a turn
   takes against *this* deployment — a subject resolves to an account (provisioned

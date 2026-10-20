@@ -812,6 +812,21 @@ export function deleteStoragePool(id) {
   getDb().prepare('DELETE FROM storage_pools WHERE id = ?').run(id);
 }
 
+/**
+ * Two narrow setters, because the reconciliation pass owns exactly these two
+ * facts about a pool (which provider it hangs from, and whether the share still
+ * exists) and nothing else about the row.
+ */
+export function setStoragePoolEnabled(id, enabled) {
+  getDb().prepare('UPDATE storage_pools SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
+  return getStoragePool(id);
+}
+
+export function setStoragePoolProvider(id, providerId) {
+  getDb().prepare('UPDATE storage_pools SET provider_id = ? WHERE id = ?').run(providerId, id);
+  return getStoragePool(id);
+}
+
 // ── scoped service credentials (M7) ───────────────────────────────────────
 //
 // The credential a sibling surface presents on the service routes. The row is

@@ -13,6 +13,7 @@ import { alert } from './alerts.js';
 import { seedDistroPlan } from './billing.js';
 import { reconcileAccountKeys } from './keySync.js';
 import { seedStoragePools } from './storageSeed.js';
+import { storageSyncInterval, syncStorage } from './storageSync.js';
 import { resolveGatewayUrls, resolveMagnateUrl } from './discovery.js';
 import { atlasConfigured } from './export.js';
 
@@ -43,6 +44,16 @@ const SYNC_INTERVAL_MS = Number(process.env.CONTROL_SYNC_INTERVAL_MS ?? 0);
  */
 const KEY_SYNC_MS = Number(process.env.CONTROL_KEY_SYNC_MS ?? 15 * 60 * 1000);
 let lastKeySyncAt = null;
+
+/*
+ * Storage reconciles itself too.
+ *
+ * Onyx is where the disks are and this plane is where the catalog is; asking it
+ * which shares exist every five minutes is what keeps a new share from being a
+ * row somebody has to remember to add. `CONTROL_STORAGE_SYNC_MS=0` leaves the
+ * pass manual (the console's Sync button still runs it).
+ */
+const STORAGE_SYNC_MS = storageSyncInterval();
 
 async function runKeySync() {
   try {
@@ -181,6 +192,22 @@ server.listen(PORT, HOST, async () => {
     await seedStoragePools();
   } catch (err) {
     console.warn(`[storage] could not prepare the onyx pool: ${err?.message || err}`);
+  }
+
+  // One pass at boot, then on the interval. Delayed enough that the seed above
+  // has written its rows and the console has rendered once, and never fatal: an
+  // onyx that is still starting is a status line, not a reason to exit.
+  const runStorageSync = async () => {
+    try {
+      await syncStorage();
+    } catch (err) {
+      console.warn(`[storage] sync failed: ${err?.message || err}`);
+    }
+  };
+  if (STORAGE_SYNC_MS > 0) {
+    setTimeout(runStorageSync, 15_000).unref();
+    setInterval(runStorageSync, STORAGE_SYNC_MS).unref();
+    console.log(`[control-plane] storage sync every ${Math.round(STORAGE_SYNC_MS / 1000)}s`);
   }
 
   const version = await checkGatewayVersion(gateway);

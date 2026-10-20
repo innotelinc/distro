@@ -379,6 +379,7 @@
             <h2>Pools</h2>
             <div class="spacer"></div>
             <span class="sub" id="storageStamp"></span>
+            <button class="ghost tiny" id="storageSync" type="button">Sync now</button>
           </div>
           <p class="sub" style="margin:0 0 12px">
             A provider is a connection; a pool is a place inside it. <b>local</b> is a folder on this host,
@@ -877,7 +878,13 @@ async function loadStorage() {
     const data = await api('/api/admin/storage');
     state.storage = data;
     renderStorage(data);
-    $('#storageStamp').textContent = 'updated ' + new Date().toLocaleTimeString();
+    // The last reconciliation pass, not this request: `updated` would be true the
+    // moment the page asked, and would hide the thing worth knowing — whether
+    // onyx answered the pass that keeps this list honest.
+    const sync = data.sync || {};
+    $('#storageStamp').textContent = sync.at
+      ? 'synced ' + new Date(sync.at).toLocaleTimeString() + (sync.ok === false ? ' · onyx unreachable' : '')
+      : 'not synced yet';
   } catch (error) {
     const note = $('#storageNote');
     note.className = 'note bad';
@@ -1225,6 +1232,20 @@ $('#navKeys').addEventListener('click', () => setView('keys'));
 $('#navStorage').addEventListener('click', () => setView('storage'));
 $('#storageAdd').addEventListener('click', addProvider);
 $('#providerForm').addEventListener('submit', addProvider);
+$('#storageSync').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const result = await api('/api/admin/storage/sync', { method: 'POST' });
+    const added = (result.added?.providers?.length || 0) + (result.added?.pools?.length || 0);
+    toast(result.ok ? 'Synced — ' + added + ' new row' + (added === 1 ? '' : 's') : 'Synced, but onyx did not answer: ' + result.error, result.ok ? 'ok' : 'warn');
+    loadStorage();
+  } catch (error) {
+    toast('Sync failed: ' + error.message, 'bad');
+  } finally {
+    button.disabled = false;
+  }
+});
 $('#poolAdd').addEventListener('click', addPool);
 $('#poolForm').addEventListener('submit', addPool);
 $('#navActivity').addEventListener('click', () => setView('activity'));

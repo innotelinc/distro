@@ -2,6 +2,7 @@ import { hashPassword, verifyPassword } from './passwords.js';
 import { checkAccountKeys } from './accountKeys.js';
 import { reconcileAccountKeys } from './keySync.js';
 import { KINDS, poolStat, preparePool, probePool } from './storage.js';
+import { lastStorageSync, syncStorage } from './storageSync.js';
 import {
   createUser,
   userCount,
@@ -1381,6 +1382,7 @@ function creditProduct(value) {
    * usable and that is the thing an operator needs to see.
    */
   if (path === '/api/admin/storage' && method === 'GET') {
+    const sync = lastStorageSync();
     const pools = [];
     for (const pool of listStoragePools()) {
       let reach;
@@ -1389,9 +1391,25 @@ function creditProduct(value) {
       } catch (err) {
         reach = { exists: false, detail: err.message };
       }
-      pools.push({ ...pool, reach });
+      // `status` is the last reconciliation pass's answer, `reach` is this
+      // request's. They are both shown because they answer different questions:
+      // status says whether the store was there when we asked it last, reach says
+      // whether it is there now.
+      pools.push({ ...pool, reach, status: sync.status[pool.id] || null });
     }
-    return send(200, { kinds: KINDS, providers: listCloudStorageProviders(), pools });
+    return send(200, { kinds: KINDS, providers: listCloudStorageProviders(), pools, sync });
+  }
+
+  // The pass on demand. The timer runs it anyway; an operator who just created a
+  // share should not have to wait five minutes to see it appear.
+  if (path === '/api/admin/storage/sync' && method === 'POST') {
+    try {
+      const result = await syncStorage();
+      logAudit({ action: 'storage.sync', actorId: admin.id, actorEmail: admin.email, meta: { added: result.added } });
+      return send(200, result);
+    } catch (err) {
+      return send(502, { error: `storage sync failed: ${err.message}` });
+    }
   }
 
   const poolProbeMatch = path.match(/^\/api\/admin\/storage-pools\/([^/]+)\/(probe|prepare)$/);
