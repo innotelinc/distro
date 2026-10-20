@@ -1,0 +1,9 @@
+# Onyx shares for the Distro pools, mounted here because the control-plane
+# container cannot mount NFS itself. NFSv3: ganesha 4.3 on onyx returns EIO on
+# NFSv4 READDIR. `x-systemd.before=docker.service` so the bind in
+# /opt/distro/docker-compose.yml finds a live mount at container start instead of
+# an empty directory; `nofail` so a powered-off onyx does not stop this host from
+# booting (the storage page then honestly reports the pools as not mounted).
+192.168.1.60:/mnt/onyx/main-pool    /srv/onyx-pool/main-pool    nfs   vers=3,soft,timeo=100,retrans=5,_netdev,nofail,x-systemd.before=docker.service,x-systemd.mount-timeout=20s 0 0
+/srv/onyx-pool/main-pool            /srv/onyx-pool/sdc          none  bind,nofail,x-systemd.requires-mounts-for=/srv/onyx-pool/main-pool,x-systemd.before=docker.service 0 0
+192.168.1.60:/mnt/onyx/onyx-data    /srv/onyx-pool/onyx-data    nfs   vers=3,soft,timeo=100,retrans=5,_netdev,nofail,x-systemd.before=docker.service,x-systemd.mount-timeout=20s 0 0

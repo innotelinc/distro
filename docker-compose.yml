@@ -48,17 +48,20 @@ services:
       # in .env names this path; the checkout keeps it at ./data/vault/token.
       - ./data/vault/token:/app/data/vault/token:ro
       - ./data/gateway-data:/gateway-data:ro
-      # The onyx pool's directory. It is a folder in this volume for now: this
-      # deployment cannot mount NFS (the mount syscall is refused inside the
-      # container), and a bind mount of an unmounted path would shadow the pool
-      # with an empty directory. Onyx exports the same tree over NFSv4 for a host
-      # that can mount it:
+      # The onyx shares, mounted on this host and carried in here. The mounts
+      # themselves live in /etc/fstab (NFSv3: ganesha's NFSv4 READDIR returns
+      # EIO on this build), one directory per pool:
       #
-      #   - /srv/onyx-pool:/data/pools/onyx:rslave
+      #   /srv/onyx-pool/main-pool   192.168.1.60:/mnt/onyx/main-pool
+      #   /srv/onyx-pool/sdc         a bind of main-pool -- onyx records both the
+      #                              operator's share and the device reconciler's
+      #                              row, and both name the same export
+      #   /srv/onyx-pool/onyx-data   192.168.1.60:/mnt/onyx/onyx-data
       #
-      # After that mount exists, set the `onyx` provider's kind to `nfs` in the
-      # console: the adapter checks the mount table and will not write to the disk
-      # underneath a share that is down.
+      # `rslave` so a remount on the host reaches the container. The pools are
+      # folders under it, and the storage adapter still checks the mount table:
+      # an unmounted pool says so instead of writing to the directory underneath.
+      - /srv/onyx-pool:/data/pools:rslave
     extra_hosts:
       # Lets CONTROL_ALERT_WEBHOOK_URL point at a receiver on the host, e.g.
       # http://host.docker.internal:8080/hook

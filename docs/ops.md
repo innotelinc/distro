@@ -364,6 +364,19 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   pools repointed. `/admin` → **Pools** → **Sync now** runs the same pass;
   `CONTROL_STORAGE_SYNC_MS=0` leaves it manual. `ONYX_API_URL` (default
   `http://192.168.1.60:2081`) names the onyx API.
+- **The shares are exported and mounted, not assumed**: `deploy/onyx-nfs/`
+  carries the two hand-made configs the pools rest on — `ganesha.conf` for onyx
+  (both sibling exports; NFSv3, because v4 `READDIR` answers `EIO` on this build)
+  and `fstab.onyx` for the host that runs the control plane (three entries,
+  `soft`, `nofail`, `x-systemd.before=docker.service`). systemd generates the
+  three `.mount` units from those lines, so there is nothing to install beside
+  them, and compose carries `/srv/onyx-pool` into the container with `rslave`.
+  `sdc` is a bind of `main-pool` on purpose: onyx's device reconciler keeps a
+  `device:<kname>` share for the mounted disk with `INSERT OR IGNORE` on every
+  pass, so deleting that share only lasts until the next one — it cannot be
+  pruned — and both pools read the same bytes. Install and check commands are in
+  `deploy/onyx-nfs/README.md`; a pool whose share is down says "not mounted
+  at …" rather than writing into the directory underneath it.
 - **The tenancy loop is walked, not assumed**: `make acceptance`
   (`./scripts/acceptance-check.sh`, `control.mjs acceptance`) runs the loop a turn
   takes against *this* deployment — a subject resolves to an account (provisioned
