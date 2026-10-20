@@ -113,6 +113,7 @@ Point the builder surface at it (Genie):
 | [docs/testing.md](docs/testing.md) | verification walkthrough: accounts, 429s, service API, admin console |
 | [docs/atlas-integration.md](docs/atlas-integration.md) | git-export config consumed by the builder surface |
 | [apps/control-plane](apps/control-plane/README.md) | control plane: schema, gateway API inventory, milestone roadmap |
+| [CHANGELOG.md](CHANGELOG.md) | release notes, starting at v0.4.0 |
 
 ## Repo layout
 
@@ -129,11 +130,16 @@ docs/                stack · architecture · ops · upstream · multi-tenant ·
 
 ## Status
 
-Shipped and verified on the live stack: multi-tenant control plane with
-per-user gateway keys, quota enforcement, spend tracking, alert webhooks,
-backups, and an admin console; Authentik SSO; Magnate entitlement checks;
-the token-gated service API Genie consumes (identity → quota → turn →
-usage/audit).
+**v0.4.0** — shipped and verified on the live stack: multi-tenant control plane
+with per-user gateway keys, quota enforcement, spend tracking, alert webhooks,
+backups, and an admin console; Authentik SSO; Magnate entitlement checks; the
+token-gated service API Genie consumes (identity → quota → turn → usage/audit).
+
+The 0.4.0 console is a full rebuild on the family **Unity** theme: a collapsible
+left rail (icon strip, remembered per browser), an overview with a 14-day spend
+trend and a "needs attention" queue, per-account drawers (quota, key, credits,
+usage), a command palette (Ctrl/Cmd+K), account/audit CSV export, and a Settings
+surface for gateway, alerting, billing and Authentik membership.
 
 Roadmap beyond this (documented in the control-plane roadmap): billing hooks
 if paid tiers ever come in scope.

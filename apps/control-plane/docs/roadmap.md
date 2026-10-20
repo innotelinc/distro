@@ -1,14 +1,18 @@
 # Control-plane roadmap
 
-> Progress: **M0–M6 are DONE** (service + gateway client + identity +
-> per-user keys + quotas + usage sync + admin console + Magnate billing +
-> hardening). **0.3.0 (M7) is IN PROGRESS, and M8 (1.0) is underway** — the
-> Shares identity/storage slice is shipped and the build plane has been retired;
-> and the browser-held key was retired and the server-side bridge made *scoped*
-> on 2026-10-02 (see M7), so M7 has no open items. **M8 is complete**: the
-> restore drill, the account-facing usage view, the failure alerts, the threat
-> model for the plane, and the version/upgrade posture have all shipped — which is
-> the 1.0 claim, *an operator can run this for other people*, met.
+> Progress: **M0–M9 are DONE** — the service, gateway client, identity,
+> per-user keys, quotas, usage sync, Magnate billing, hardening, the Genie loop,
+> the 1.0 operational claim (restore drill, account-facing usage, failure alerts,
+> threat model, upgrade posture) and, at **v0.4.0**, the operator console rebuilt
+> on the family Unity theme.
+>
+> **Release train.** The package version and the milestone number answer
+> different questions, and it is worth keeping them apart rather than pretzelling
+> the history: milestones count the tenancy work (M0–M9); the 1.0 in M8 is the
+> *operational* claim ("an operator can run this for other people"), met; the
+> package version tracks the shipped console, and 0.4.0 is the first release of
+> the rebuilt one. Tags: `v0.1.0`–`v0.1.2` are the pre-console releases;
+> `v0.4.0` is M9.
 >
 > **Target: 1.0** — the tenancy layer under the ecosystem's one builder
 > surface, Genie: every model call attributable, capped and revocable per
@@ -95,7 +99,7 @@ Estimated sizes are relative; revisit against the pinned gateway version.
       usage — today* panel (share-of-spend bars) and top-models under each
       user's Today cell in `/admin`.
 
-## M7 — 0.3.0: the Genie loop and the console (in progress)
+## M7 — 0.3.0: the Genie loop and the console ✅
 
 - [x] Widen the admin console to use the available desktop viewport and keep
       the users, audit, alerts, identity, and Shares sections visible in one
@@ -287,6 +291,49 @@ feature for its own sake.
       migration), so an older image on a newer file tolerates it — and a backup is
       still the first step, because the schema is additive and the *data* is not.
 
+## M9 — 0.4.0: the operator console, rebuilt ✅
+
+The console was the one surface an operator lived in all day and the one that
+had grown by accretion: a wide edit-in-place table, five fixed sections, and a
+private palette that had already drifted from the family theme. 0.4.0 is a
+rebuild, not a repaint — and the only honest test of it is a person using it.
+
+- [x] **Adopt Unity properly.** `unity-theme.css` and `unity-theme.js` are
+      byte-identical copies of the platform's canonical files, served at
+      `/admin/unity-theme.*` rather than pasted into `admin.html`. The console
+      opens in the `operations` scheme, and light / dark / system plus the three
+      palettes are the shared switch, not a local imitation.
+- [x] **One collapsible left rail.** Expanded (252 px) or an icon strip (76 px),
+      toggled from the rail or the masthead, remembered per browser, `Ctrl/Cmd+B`
+      from the keyboard; on a narrow viewport it is an overlay drawer that closes
+      when a section is chosen. There is no second, nested collapse control to
+      keep in sync with it — the rail is the navigation.
+- [x] **Overview that answers the first three questions.** The 14-day spend trend
+      is read from the same `usage_cache` rows the quota gate uses
+      (`GET /api/admin/usage`), the *needs attention* queue collects gateway
+      drift, alerting off, keyless accounts, accounts at a cap and the newest
+      alert, and top accounts / today's models sit beside it.
+- [x] **Per-account drawer.** Usage, quota with presets, models today, key
+      rotate/revoke, credits (balance, ledger, grant) and enable/disable/delete
+      in one place. Auto-refresh no longer overwrites an edit in progress,
+      because editing moved out of the table.
+- [x] **Settings, the missing surface.** Gateway pin, alerting, Magnate billing,
+      the Authentik group with **Sync group users**, release version and the
+      accounting zone — the endpoints that had no console home now have one.
+- [x] **Command palette and exports.** `Ctrl/Cmd+K` jumps to a section or an
+      account; the account list and the audit/alert history export as CSV.
+- [x] **Close the lockout.** `PATCH {disabled:true}` on the last active admin was
+      the same lockout as demoting them, through a different field. Refused now,
+      with `test/last-admin.test.mjs` pinning it; alert history reads are capped
+      like audit reads, and the sign-in popup only accepts a same-origin session
+      message.
+- [x] **Verified in a browser, not only in `node --test`.** At 1440×960 and
+      390×844: sign-in, overview chart (14 bars), attention queue, rail collapse
+      and reflow, account search/filter, drawer quota save, palette open, theme
+      switch, settings render, and no horizontal overflow on any view. The
+      inline-script compile and element-binding checks stay in
+      `test/admin-page.test.mjs`.
+
 ## M0 — Service skeleton + gateway client ✅
 
 - [x] Stand up `apps/control-plane` as a small Node service (plain Node HTTP,
@@ -385,6 +432,25 @@ test accounts) untouched.
       quota gating (`gatedQuota`). Env: `MAGNATE_URL` /
       `MAGNATE_ENTITLEMENTS_TOKEN` / `MAGNATE_BILLING_SLUG`; runbook:
       docs/ops.md § "Magnate billing integration".
+
+## After 0.4.0 — open, named, not promised
+
+Nothing here is a milestone yet; they are the honest next edges, in the order
+they would hurt.
+
+- **Billing hooks / paid tiers**, if they ever come in scope. The entitlement
+  check and the free-tier gate already exist; what is missing is the lifecycle
+  around a paid plan.
+- **Provider-specific storage workers.** The plane registers safe metadata and
+  Vault references; ONYX (or a dedicated worker) is the thing that should move
+  bytes. Until then a pool is a catalog row plus a probe, which the console now
+  says out loud.
+- **A tamper-evident audit log.** `audit_log` is append-only by convention, not
+  hash-chained like Sentinel's evidence log; `docs/threat-model.md` states that
+  limit, and closing it is a real change to the table rather than a UI one.
+- **Per-session revocation.** Disabling an account ends all its sessions at
+  once; revoking one browser without touching the others is not an operation
+  the console offers.
 
 ## Open questions — resolved
 

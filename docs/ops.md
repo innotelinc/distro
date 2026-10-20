@@ -41,7 +41,7 @@ Every release publishes Docker images to the GitHub Container Registry:
 |---|---|
 | Control plane | `ghcr.io/innotelinc/distro/control-plane` |
 
-Tags: `:latest` (tracks `main`) and `:<semver>` (e.g. `:0.1.0`).  To use them
+Tags: `:latest` (tracks `main`) and `:<semver>` (e.g. `:0.4.0`).  To use them
 instead of building locally:
 
 **1. Log in to GHCR** (required for private repos; optional but recommended
@@ -60,7 +60,7 @@ gh auth token | docker login ghcr.io -u <github-username> --password-stdin
 ```yaml
 services:
   control-plane:
-    image: ghcr.io/innotelinc/distro/control-plane:0.1.0   # or :latest
+    image: ghcr.io/innotelinc/distro/control-plane:0.4.0   # or :latest
     # drop the build: block
 ```
 

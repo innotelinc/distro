@@ -26,9 +26,13 @@ const html = readFileSync(
 );
 
 function inlineScript() {
-  const match = html.match(/<script>([\s\S]*?)<\/script>/);
-  assert.ok(match, "src/admin.html has no inline <script> block");
-  return match[1];
+  // The page has two inline blocks: the one-line theme default in the head
+  // (which must run before first paint) and the console itself. The console is
+  // the long one; picking by size rather than by position keeps the head
+  // snippet from being mistaken for the application.
+  const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  assert.ok(blocks.length > 0, "src/admin.html has no inline <script> block");
+  return blocks.sort((a, b) => b.length - a.length)[0];
 }
 
 const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));

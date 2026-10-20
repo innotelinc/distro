@@ -519,10 +519,68 @@ export function usageAll(days = 7) {
   );
 }
 
-/** M4: make the gateway's own per-key aggregates authoritative for today.
- *  Every chat turn also flows through the gateway with the user's key, so
- *  this REPLACES (not adds to) the day's totals — chat-usage reports merely
- *  fill the gap between syncs. */
+/**
+ * Daily totals across every account, oldest first, for the operator's trend view.
+ *
+ * The window is the accounting zone's calendar days and is *filled*: a day with
+ * no traffic is a zero row, not a missing one. A chart that silently closes the
+ * gap draws a quiet Sunday as a straight line between two busy Saturdays, which
+ * is the one thing a spend trend must never do. The caller gets exactly `days`
+ * rows, ending today.
+ */
+export function usageSeries(days = 14) {
+  const span = Math.max(1, Math.min(90, Number(days) || 14));
+  const to = usageDay();
+  const from = usageDayShift(to, -(span - 1));
+  const rows = getDb()
+    .prepare(
+      `SELECT date,
+              COALESCE(SUM(tokens_in), 0)  AS tokens_in,
+              COALESCE(SUM(tokens_out), 0) AS tokens_out,
+              COALESCE(SUM(requests), 0)   AS requests,
+              COALESCE(SUM(cost_usd), 0)   AS cost_usd
+         FROM usage_cache
+        WHERE date >= ? AND date <= ?
+        GROUP BY date`,
+    )
+    .all(from, to);
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  const series = [];
+  for (let i = 0; i < span; i += 1) {
+    const date = usageDayShift(from, i);
+    const row = byDate.get(date);
+    series.push({
+      date,
+      requests: row ? row.requests : 0,
+      tokens_in: row ? row.tokens_in : 0,
+      tokens_out: row ? row.tokens_out : 0,
+      cost_usd: row ? row.cost_usd : 0,
+    });
+  }
+  return { from, to, series };
+}
+
+/** The accounts that spent the most over the last `days` days. */
+export function topSpenders(days = 7, limit = 5) {
+  const span = Math.max(1, Math.min(90, Number(days) || 7));
+  const take = Math.max(1, Math.min(50, Number(limit) || 5));
+  return getDb()
+    .prepare(
+      `SELECT u.id, u.email,
+              COALESCE(SUM(c.requests), 0)   AS requests,
+              COALESCE(SUM(c.tokens_in), 0)  AS tokens_in,
+              COALESCE(SUM(c.tokens_out), 0) AS tokens_out,
+              COALESCE(SUM(c.cost_usd), 0)   AS cost_usd
+         FROM usage_cache c
+         JOIN users u ON u.id = c.user_id
+        WHERE c.date >= ?
+        GROUP BY u.id
+        ORDER BY cost_usd DESC, requests DESC, u.email
+        LIMIT ?`,
+    )
+    .all(usageDayShift(usageDay(), -(span - 1)), take);
+}
+
 // ── alert history ─────────────────────────────────────────────────────────
 export function logAlert({ key, status, title = null, message = null, meta = null, reason = null }) {
   return getDb()
@@ -534,9 +592,13 @@ export function logAlert({ key, status, title = null, message = null, meta = nul
 }
 
 export function listAlerts(limit = 100) {
+  // A query string is not a trust boundary: every read of the history is capped,
+  // the same way listAudit is, so `?limit=100000` cannot pull the whole log into
+  // memory through the console's own route.
+  const take = Math.max(1, Math.min(1000, Number(limit) || 100));
   return getDb()
     .prepare('SELECT * FROM alert_log ORDER BY created_at DESC, id DESC LIMIT ?')
-    .all(limit);
+    .all(take);
 }
 
 /** Replace one user's row for one day. `day` is UTC (YYYY-MM-DD), the same
@@ -564,6 +626,10 @@ export function replaceUsageForDate(userId, day, { tokensIn, tokensOut, requests
     );
 }
 
+/** M4: the gateway's own per-key aggregates are authoritative for today. Every
+ *  chat turn also flows through the gateway with the user's key, so this
+ *  REPLACES (not adds to) the day's totals — chat-usage reports merely fill the
+ *  gap between syncs. */
 export function replaceUsageFromGateway(userId, agg) {
   replaceUsageForDate(userId, usageDay(), agg);
   return getUsageToday(userId);

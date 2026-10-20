@@ -18,6 +18,8 @@ import {
   getUsageToday,
   usageFor,
   usageAll,
+  usageSeries,
+  topSpenders,
   getModelUsageToday,
   modelUsageAll,
   userIsDisabled,
@@ -79,7 +81,7 @@ import { magnateUrlSync } from './discovery.js';
 import { atlasConfigured, getAtlasConfig, validateRemote } from './export.js';
 import { authentikGroupConfig, syncAuthentikGroup } from './authentik.js';
 import { lastGatewayVersionCheck } from './gatewayVersion.js';
-import { usageDay } from './usageDay.js';
+import { usageDay, USAGE_TIME_ZONE } from './usageDay.js';
 
 /**
  * How many days of usage an account reads back with its own quota (M8).
@@ -146,6 +148,16 @@ function rateLimited(bucket, req) {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+// The console shows the release it is; the release pipeline tags the image with
+// the same string, so "which version is live" is answered without a shell.
+const SERVICE_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')).version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -240,6 +252,24 @@ export async function handler(req, res, { gateway }) {
     return res.end(html);
   }
 
+  // The canonical Unity theme, served beside the console instead of pasted into
+  // it. The two files are byte-identical copies of `theme/` in the platform
+  // stack (checked there by its drift guard); serving them keeps the console a
+  // static page with no build step, and keeps the palette one file rather than
+  // a second copy inside admin.html that would drift the first time a token
+  // moved. `no-cache` because a deploy must not leave a browser on the previous
+  // palette; the files are tiny and fetched once per page load.
+  if (method === 'GET' && (path === '/admin/unity-theme.css' || path === '/admin/unity-theme.js')) {
+    const file = path.endsWith('.css') ? 'unity-theme.css' : 'unity-theme.js';
+    const body = readFileSync(join(here, file));
+    res.writeHead(200, {
+      'Content-Type': file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8',
+      'Content-Length': body.length,
+      'Cache-Control': 'no-cache',
+    });
+    return res.end(body);
+  }
+
   // CORS: the Distro web UI (option A) calls the control plane from the
   // browser to log in and fetch the user's gateway key. Set
   // CONTROL_CORS_ORIGIN to the Distro origin to lock cross-origin calls to
@@ -267,7 +297,7 @@ export async function handler(req, res, { gateway }) {
 
   // ---- health ----
   if (path === '/health' && method === 'GET') {
-    return send(200, { ok: true, service: 'distro-control-plane' });
+    return send(200, { ok: true, service: 'distro-control-plane', version: SERVICE_VERSION });
   }
 
   // ---- auth ----
@@ -1263,6 +1293,38 @@ function creditProduct(value) {
     });
   }
 
+  /*
+   * The operator's trend, separate from `/stats` because it is two questions the
+   * dashboard asks on a different cadence: a 14-day series and the accounts that
+   * spent the most in it. Both are read from `usage_cache` — the same daily rows
+   * the quota gate uses — so the chart and the numbers beside it cannot count a
+   * day twice or miss one.
+   */
+  if (path === '/api/admin/usage' && method === 'GET') {
+    const days = Number(url.searchParams.get('days')) || 14;
+    const { from, to, series } = usageSeries(days);
+    return send(200, {
+      days: series.length,
+      from,
+      to,
+      series: series.map((row) => ({
+        date: row.date,
+        requests: row.requests,
+        tokensIn: row.tokens_in,
+        tokensOut: row.tokens_out,
+        costUsd: row.cost_usd,
+      })),
+      top: topSpenders(Math.min(days, 30), 5).map((row) => ({
+        id: row.id,
+        email: row.email,
+        requests: row.requests,
+        tokensIn: row.tokens_in,
+        tokensOut: row.tokens_out,
+        costUsd: row.cost_usd,
+      })),
+    });
+  }
+
   if (path === '/api/admin/stats' && method === 'GET') {
     const users = listUsers();
     const totals = users.reduce(
@@ -1279,6 +1341,8 @@ function creditProduct(value) {
     const week = usageAll(7);
     return send(200, {
       date: usageDay(),
+      version: SERVICE_VERSION,
+      usageTimeZone: USAGE_TIME_ZONE,
       ...totals,
       week: { requests: week.requests, tokensIn: week.tokens_in, tokensOut: week.tokens_out, costUsd: week.cost_usd },
       models: modelUsageAll(1).map((m) => ({
@@ -1548,6 +1612,17 @@ function creditProduct(value) {
     if (!target) return send(404, { error: 'user not found' });
     const body = await readBody(req);
     const fields = {};
+    // Disabling an account ends its sessions immediately (getUserBySession
+    // filters `disabled_at`), which is the point — and the reason the last active
+    // admin must not be able to do it to themselves. Demoting the last admin was
+    // already refused; without this branch, `PATCH {disabled:true}` was the same
+    // lockout through a different field, and the only way back was a shell.
+    if (body.disabled === true && target.role === 'admin') {
+      const admins = listUsers().filter((u) => u.role === 'admin' && !u.disabled_at);
+      if (admins.length === 1 && admins[0].id === target.id) {
+        return send(400, { error: 'cannot disable the last active admin' });
+      }
+    }
     if (body.disabled !== undefined) {
       fields.disabled_at = body.disabled ? new Date().toISOString() : null;
     }

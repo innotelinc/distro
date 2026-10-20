@@ -1,6 +1,6 @@
 {
   "name": "distro-control-plane",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Distro multi-tenant control plane: accounts, per-user gateway keys, quotas (M0/M1/M2).",

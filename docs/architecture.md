@@ -63,10 +63,12 @@ surface:
    rows (`POST /api/internal/audit`) for publish/export — the actions that
    touch a public name or a repo.
 
-The admin console at `/admin` remains the operator's view: per-user limits,
-enable/disable (disable revokes the key immediately), revoke/rotate, roles,
-audit log, and the historical `build.*` audit rows the retired build plane
-left behind.
+The admin console at `/admin` remains the operator's view, rebuilt on the Unity
+theme in 0.4.0: a collapsible rail, a spend/health overview, an account drawer
+(per-user limits, key rotate/revoke, credits), key health, storage pools, the
+audit/alert history, and a Settings surface for gateway, alerting, billing and
+the Authentik group. Disabling an account revokes its key and ends its sessions
+immediately; the last active admin cannot be disabled, demoted or deleted.
 
 ## Where the code lives
 

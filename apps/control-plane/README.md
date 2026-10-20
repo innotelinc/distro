@@ -1,11 +1,13 @@
 # Distro Control Plane
 
-> Status: **M0–M5 implemented and running** — accounts, **one OmniRoute
-> gateway API key per user**, server-side quota enforcement (M3), usage
-> visibility backed by the gateway's own per-key ledger (M4) and an admin
-> console with audit log + backups (M5). Web-app integration is live (login,
-> per-user keys, quota gate, usage reports). Remaining: billing hooks only if
-> paid tiers are in scope.
+> Status: **v0.4.0 (M9) — the operator console, rebuilt** on the family Unity
+> theme. The tenancy work is M0–M8 (accounts, **one OmniRoute gateway API key per
+> user**, quota enforcement, usage visibility from the gateway's per-key ledger,
+> audit log, backups, Authentik SSO, Magnate entitlements, scoped service
+> credentials). 0.4.0 adds the console an operator actually works in: a
+> collapsible rail, a spend/health overview, per-account drawers, a command
+> palette and a Settings surface. Billing hooks remain the only open item if paid
+> tiers come in scope.
 >
 > M4 detail: the gateway's HTTP usage logs drop key attribution, but its
 > SQLite `usage_history` carries `api_key_id` — given the gateway's data dir
@@ -24,7 +26,7 @@ quota windows and rate limiting **per API key**, so mapping
 `distro_user ↔ gateway_key` gives per-user attribution and enforcement for
 free — no gateway forking required.
 
-## What is implemented (this milestone)
+## What is implemented (v0.4.0)
 
 | Area | Where | Notes |
 |---|---|---|
@@ -40,8 +42,9 @@ free — no gateway forking required.
 | Quota gate (M3) | `GET /api/internal/quota-check` + `POST /api/internal/usage-report` | the web app identifies the user by their gateway key and enforces/records before/after each chat turn (`DISTRO_ENFORCE_QUOTA`) |
 | Tenancy for the builder (convergence §5.2) | `POST /api/internal/identity` + `POST /api/internal/audit` | service-to-service via a **scoped service credential** (`x-control-internal-token`; `src/serviceCredentials.js`, `service_credentials`): resolves an Authentik `sub` to an account (creating it and minting its key on first sight, `users.oidc_sub` is the join), so Genie can key its library on the control-plane user id, spend the user's own key, and write build/publish/export rows into `audit_log` |
 | Usage sync (M4) | `src/sync.js` + `src/gatewayUsage.js` | scheduled/CLI sync of the gateway's per-key ledger into `usage_cache` (needs the gateway data dir mounted ro at `GATEWAY_DATA_DIR`; off for the remote gateway) |
-| Admin API (M5) | users list/stats, PATCH (disable, quota, role), revoke/rotate key, DELETE user, audit list | disabling/deleting revokes the gateway key; last-admin guard |
-| Admin console (M5) | `GET /admin` → `src/admin.html` | no build step, no CDNs; login as an admin |
+| Admin API (M5) | users list/stats/usage, PATCH (disable, quota, role), revoke/rotate key, DELETE user, audit list | disabling/deleting revokes the gateway key; the last active admin cannot be demoted, deleted **or disabled** |
+| Admin console (M9) | `GET /admin` → `src/admin.html` + `/admin/unity-theme.{css,js}` | no build step, no CDNs; Unity theme; collapsible rail; overview trend + attention queue; account drawer; command palette; Settings (gateway, alerting, billing, identity); CSV export |
+| Operator trend (M9) | `GET /api/admin/usage?days=14` → daily series + top spenders | the same `usage_cache` rows the quota gate reads; empty days are zero rows, the window is clamped to 1–90 |
 | Authentik group mapping | `src/authentik.js` + `/api/admin/identity-groups/*` | mirrors the configured Authentik group, creates it when missing, provisions missing local users and replaces the local membership cache |
 | Cloud storage providers and pools | `cloud_storage_providers`, `storage_pools` + `/api/admin/storage-{providers,pools}` | Shares GUI can register providers and create logical pools rooted at a provider path; stores metadata and Vault references only, never raw provider credentials |
 | Audit log (M5) | `audit_log` table + `GET /api/admin/audit` | signups, key lifecycle, quota/role/disable changes, deletes. `?action=<prefix>` narrows to a namespace (`build.` = rows the retired build plane wrote), `?user=<id>` to rows an account performed or was the target of |
@@ -107,11 +110,13 @@ DELETE /api/admin/storage-pools/:id                              → remove a po
 GET    /api/shares/storage-providers                             → enabled providers for signed-in Shares views
 GET    /api/shares/storage-pools                                 → enabled pools for signed-in Shares views
 GET    /api/admin/users                                           → users + quotas + usageToday + key
+GET    /api/admin/usage?days=14                                   → daily series + top spenders
 PATCH  /api/admin/users/:id       { disabled?, quota?, role? }    → disable/delete revokes gateway key
 POST   /api/admin/users/:id/revoke-key
 POST   /api/admin/users/:id/rotate-key
 DELETE /api/admin/users/:id                                      → revokes key, removes account
 GET    /admin                                                     → admin console (static HTML)
+GET    /admin/unity-theme.css|js                                  → the canonical Unity theme, served beside the console
 
 CORS is enabled so the Distro web UI can call this API directly from the
 browser (`CONTROL_CORS_ORIGIN` restrict, default `*`). The control-plane port
@@ -163,8 +168,11 @@ existed), the subject ↔ account join, which credential each route demands, and
 that with no credential and no `CONTROL_INTERNAL_TOKEN` the provisioning routes
 are **off** rather than open. `test/service-credentials.test.mjs` holds the scoped
 model itself: hashed storage, scope refusal (403 vs 401), revocation, expiry, and
-the bootstrap token across all three routes. The gateway is the one thing faked,
-since minting a key is a call to another service.
+the bootstrap token across all three routes. `test/admin-usage.test.mjs` pins the
+trend window (zero-filled, clamped, ending today), `test/last-admin.test.mjs` the
+lockout guard, and `test/admin-page.test.mjs` compiles the console's inline script
+and checks every element it binds. The gateway is the one thing faked, since
+minting a key is a call to another service.
 
 ## Still to do
 

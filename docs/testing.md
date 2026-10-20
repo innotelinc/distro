@@ -62,15 +62,29 @@ With a service credential set — `CONTROL_INTERNAL_TOKEN` (Distro's
 
 ## 4. Admin console
 
-`http://<host>:20140/admin`, sign in with an admin account. From there:
+`http://<host>:20140/admin`, sign in with an admin account. The console is one
+surface with a collapsible left rail (the icon strip remembers its state per
+browser; `Ctrl/Cmd+B` toggles it):
 
-- stats cards (users, today requests/tokens/spend),
-- per-user limits (plan, req/day, tokens/day, spend/day) — Save applies live,
-- enable/disable (disable revokes the gateway key immediately),
-- revoke / rotate a user's key,
-- role changes (last-admin guard) and account deletion (revokes key, cascades),
-- the audit log panel, and the builder-audit panel (which now shows only the
-  historical `build.*` rows the retired build plane wrote).
+- **Overview** — accounts, active, requests/tokens/spend today, the 14-day spend
+trend, a *Needs attention* queue, gateway/alerting cards, top accounts and the
+model mix.
+- **Accounts** — searchable list with state filters. Open an account for the
+drawer: usage, quota editor with presets, models today, gateway key
+(rotate/revoke), credits (balance, ledger, grant), and enable/disable/delete.
+Export the filtered list as CSV.
+- **Keys** — key health and a *Sync now* pass that mints or rotates what cannot
+spend.
+- **Storage** — pools with probe/prepare/delete, providers, and the add forms.
+- **Activity** — audit or alerts, filterable and exportable as CSV.
+- **Settings** — gateway pin, alerting, Magnate billing, the Authentik group
+(with *Sync group users*), release version and accounting zone.
+- `Ctrl/Cmd+K` opens the command palette (sections and accounts). The
+light/dark/system switch is the shared Unity control.
+
+Guards: the last active admin cannot be demoted, deleted **or disabled** (the
+console shows the refusal), and disabling an account ends its sessions and
+revokes its gateway key immediately.
 
 `DELETE /api/admin/users/:id` removes a test account — try it with a
 throwaway signup; the key is revoked and all rows cascade.
@@ -83,7 +97,10 @@ cd apps/control-plane && npm install && npm test
 
 Covers the schema migration (including the `oidc_sub` upgrade path and the
 retired build-plane columns on an existing database), identity
-provisioning/conflict, quota gating, usage reports and audit writes.
+provisioning/conflict, quota gating, usage reports and audit writes. The 0.4.0
+console-specific checks are `test/admin-usage.test.mjs` (the trend window),
+`test/last-admin.test.mjs` (the lockout guard) and `test/admin-page.test.mjs`
+(the inline script compiles and every bound element exists).
 
 ## 6. Backups
 
