@@ -349,7 +349,7 @@ test("usage reports that name a model build a per-model breakdown beside the tot
     const stats = await (await fetch(`${plane.url}/api/admin/stats`, { headers: adminHeaders })).json();
     const mini = stats.models.find((m) => m.model === "gpt-4o-mini");
     assert.deepEqual([mini.requests, mini.tokensIn, mini.users], [2, 300, 1]);
-    assert.equal(stats.gateway.expected, "3.8.51", "the pin is reported even before a probe ran");
+    assert.equal(stats.gateway.expected, null, "no pin by default — the gateway ships its own builds");
     assert.equal(stats.gateway.compatible, null);
   } finally {
     await plane.close();

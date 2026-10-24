@@ -1261,9 +1261,10 @@ function renderStats(stats) {
 
   const gateway = stats.gateway || {};
   const compatible = gateway.compatible === true;
-  const unknown = gateway.compatible == null;
-  const tone = compatible ? 'ot-pill--ok' : unknown ? 'ot-pill--attention' : 'ot-pill--bad';
-  const label = compatible ? 'compatible' : unknown ? 'not checked' : 'mismatch';
+  const unpinned = gateway.compatible == null && Boolean(gateway.running);
+  const unknown = gateway.compatible == null && !gateway.running;
+  const tone = compatible || unpinned ? 'ot-pill--ok' : unknown ? 'ot-pill--attention' : 'ot-pill--bad';
+  const label = compatible ? 'compatible' : unpinned ? 'unpinned' : unknown ? 'not checked' : 'mismatch';
   $('#gatewayPill').className = 'ot-pill ' + tone;
   $('#gatewayPill').innerHTML = '<span class="ot-dot"></span>' + esc(gateway.running ? 'gateway ' + gateway.running : 'gateway unknown');
   $('#gatewayState').className = 'ot-pill ' + tone;
@@ -1273,8 +1274,8 @@ function renderStats(stats) {
 
   const rows = [
     ['Running', gateway.running || 'unknown'],
-    ['Expected pin', gateway.expected || 'none'],
-    ['Checked', gateway.checked_at ? when(gateway.checked_at) : 'never'],
+    ['Expected pin', gateway.expected || 'not pinned'],
+    ['Checked', gateway.checkedAt ? when(gateway.checkedAt) : 'never'],
     ['Build', gateway.buildSha ? gateway.buildSha.slice(0, 12) : '—'],
   ];
   renderKv('#gatewayDetail', rows);
@@ -1415,7 +1416,7 @@ function renderAttention() {
   const gateway = stats.gateway || {};
   if (gateway.compatible === false) {
     items.push({ tone: 'bad', title: 'Gateway version mismatch', detail: 'Running ' + (gateway.running || 'unknown') + ', pinned ' + (gateway.expected || 'none') + '. The sync still runs; the schema read is the thing to check.', view: 'settings' });
-  } else if (gateway.compatible == null) {
+  } else if (!gateway.running) {
     items.push({ tone: 'attention', title: 'Gateway version not checked', detail: 'The plane has not asked the gateway which release it is running.', view: 'settings' });
   }
   if (!(stats.alerting && stats.alerting.enabled)) {

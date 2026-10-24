@@ -59,11 +59,13 @@ unchanged in practice.
 
 ## The pin (M6)
 
-`GATEWAY_EXPECTED_VERSION=3.8.51` is the release every ✅ above and the
-`usage_history` column list were verified against. `src/gatewayVersion.js`
-compares it with what the gateway reports at boot and before each usage sync;
-a mismatch is a warning + alert, not a stop. OmniRoute publishes versioned
-image tags (`3.8.50`, `3.8.51`, `…-web`) beside `:latest`, so the platform
+Everything above and the `usage_history` column list were verified against
+OmniRoute `3.8.51`. `src/gatewayVersion.js` records what the gateway reports at
+boot and before each usage sync. There is no pin by default — the gateway ships
+its own builds and moving forward is expected; the running release is reported in
+`/admin` as `unpinned`. Set `GATEWAY_EXPECTED_VERSION=3.8.51` (or another `x.y.z`)
+to hold a release deliberately, where a difference warns + alerts but never stops.
+OmniRoute publishes versioned image tags (`3.8.50`, `3.8.51`, `…-web`) beside `:latest`, so the platform
 gateway can be pinned on its side too. **To move the pin:** re-run the 🔎
 rows above against the new release, re-check the `usage_history` columns in
 `src/gatewayUsage.js`, then update the env var and this document.

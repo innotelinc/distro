@@ -11,19 +11,24 @@
 // crashing the sync, and chat usage reports + key spend caps carry accounting
 // regardless. Re-verify the inventory, then move the pin.
 //
-//   GATEWAY_EXPECTED_VERSION   pinned release (default 3.8.51); empty = no check
+// The pin is opt-in. The gateway ships its own builds and moves them forward
+// without asking this plane, so an unset GATEWAY_EXPECTED_VERSION means "no
+// pin": the probe still records which release is running, and nothing is
+// called incompatible for having moved.
+//
+//   GATEWAY_EXPECTED_VERSION   release to pin, when a deployment wants one; unset = no pin
 
 import { alert } from './alerts.js';
 import { normalizeVersion } from './gateway.js';
 
-export const DEFAULT_EXPECTED_VERSION = '3.8.51';
+export const DEFAULT_EXPECTED_VERSION = null;
 
 let warnedUnparseable = false;
 
-/** The pin, or null when the check is off (empty) or the value is not `x.y.z`. */
+/** The pin, or null when none is set (unset/empty) or the value is not `x.y.z`. */
 export function expectedGatewayVersion() {
   const raw = process.env.GATEWAY_EXPECTED_VERSION;
-  if (raw === undefined) return DEFAULT_EXPECTED_VERSION;
+  if (raw === undefined) return DEFAULT_EXPECTED_VERSION; // no pin unless asked for
   const trimmed = raw.trim();
   if (!trimmed) return null; // explicitly disabled
   const parsed = normalizeVersion(trimmed);
@@ -54,21 +59,18 @@ export function lastGatewayVersionCheck() {
 }
 
 /**
- * Probe the gateway and compare against the pin.
+ * Probe the gateway, record what it is running, and compare against the pin.
  *
- * Never throws: an unreachable gateway is recorded as `error` with
- * `compatible: null`. A mismatch is logged and alerted (`gateway.version-
- * mismatch`, subject to the alert cooldown) — the caller keeps running.
+ * With no pin this is a report, not a check: the running release and build are
+ * recorded and nothing is called a mismatch, because the gateway updates on its
+ * own. When a deployment does pin a release, a difference is logged and alerted
+ * (`gateway.version-mismatch`, subject to the alert cooldown) — the caller keeps
+ * running. Never throws: an unreachable gateway is recorded as `error` with
+ * `compatible: null`.
  */
 export async function checkGatewayVersion(gateway, { log = console } = {}) {
   const expected = expectedGatewayVersion();
   const result = { expected, running: null, buildSha: null, endpoint: null, compatible: null, checkedAt: new Date().toISOString(), error: null };
-
-  if (!expected) {
-    result.error = 'GATEWAY_EXPECTED_VERSION is empty — version check disabled';
-    last = result;
-    return result;
-  }
 
   try {
     const probe = await gateway.version();
@@ -91,7 +93,7 @@ export async function checkGatewayVersion(gateway, { log = console } = {}) {
   } else if (result.error) {
     log.warn(`[gateway] version check inconclusive: ${result.error}`);
   } else if (result.running == null) {
-    log.warn(`[gateway] version check inconclusive: ${result.endpoint} answered without a version (pin ${expected})`);
+    log.warn(`[gateway] version check inconclusive: ${result.endpoint} answered without a version (pin ${expected || 'none'})`);
   }
 
   last = result;

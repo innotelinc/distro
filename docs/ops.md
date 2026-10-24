@@ -77,16 +77,23 @@ I move it": the **gateway pin** and the **image roll-forward/roll-back**. See al
 [apps/control-plane/docs/threat-model.md](../apps/control-plane/docs/threat-model.md)
 for what the plane holds, and § *Secrets* above for what it must never hold.
 
-### The gateway pin
+### The gateway version
 
-`GATEWAY_EXPECTED_VERSION` (default `3.8.51`) is the OmniRoute release the plane is
-verified against. It is checked at boot and **before every usage sync**, and a
-mismatch is a *loud warning, never a stop*: it raises a `gateway.version-mismatch`
-alert through the usual webhook path and turns the admin console's gateway card
-red. `bin/control.mjs gateway-check` prints the same verdict on demand, and
-`make keys-check` asks a second question — are the accounts' keys still accepted.
+The plane asks the gateway which release it is running at boot and **before every
+usage sync**, and reports it in `/admin` (running version, build, when it last
+asked). **Nothing is pinned by default**: the gateway ships its own builds and
+moves forward on its own, so a new release is information, not a fault, and the
+gateway card stays green (`unpinned`). `bin/control.mjs gateway-check` prints the
+same report on demand, and `make keys-check` asks a second question — are the
+accounts' keys still accepted.
 
-**What breaks when the gateway moves.** The pin exists because the plane drives the
+A deployment that needs to hold a release can set `GATEWAY_EXPECTED_VERSION` to an
+`x.y.z`; a difference then is a *loud warning, never a stop*: it raises a
+`gateway.version-mismatch` alert through the usual webhook path and turns the
+console's gateway card red. Clearing the variable (or leaving it unset) returns
+to reporting.
+
+**What breaks when the gateway moves.** The plane drives the
 gateway's *dashboard* API (`src/gateway.js`, inventory in
 [apps/control-plane/docs/gateway-api-inventory.md](../apps/control-plane/docs/gateway-api-inventory.md))
 and reads its per-key usage ledger. A release that renames a management route or
@@ -100,8 +107,8 @@ often they bite:
 | Usage stops moving but the gateway is busy | a changed ledger shape, or the data dir is not mounted | `control.mjs usage-sync`, then `GET /api/admin/stats` |
 | Keys minted but rejected by the gateway | the dashboard login rotated (`INITIAL_PASSWORD`) | re-register the key or fix the dashboard password |
 
-Turning it forward is deliberate: verify the new release against the inventory,
-then set `GATEWAY_EXPECTED_VERSION` to it. The default is not moved for you.
+Turning a pin forward is deliberate: verify the new release against the inventory,
+then set `GATEWAY_EXPECTED_VERSION` to it. With no pin there is nothing to turn.
 
 ### Rolling the image forward and back
 
@@ -311,13 +318,12 @@ over 50 MB (trimmed to 10 MB). Volumes are never touched. Run it manually with
   version restore plus a restart. Because the cap is on the gateway key, a
   runaway app is stopped by the gateway with a 429 rather than discovered on the
   next invoice.
-- **Gateway version pin**: `GATEWAY_EXPECTED_VERSION` (default `3.8.51`) is
-  the OmniRoute release the control plane was verified against. It is probed
-  at boot and before every usage sync; the `/admin` *Gateway version* card is
-  green (match), red (mismatch — also a `gateway.version-mismatch` webhook
-  alert) or amber (unchecked: unreachable, or the health route did not say).
-  A mismatch never stops anything. Check by hand:
-  `docker compose exec control-plane node bin/control.mjs gateway-check`.
+- **Gateway version**: probed at boot and before every usage sync and shown in
+  the `/admin` *Gateway version* card with the running release, build and when it
+  last asked. With no pin (the default) the card reads *unpinned* and is green;
+  an opt-in pin makes a difference red (plus a `gateway.version-mismatch`
+  webhook alert), and an unreachable gateway amber. Nothing ever stops.
+  Check by hand: `docker compose exec control-plane node bin/control.mjs gateway-check`.
   To move the pin, re-verify `apps/control-plane/docs/gateway-api-inventory.md`
   first.
 - **Per-model usage**: `usage_models` holds one row per user/day/model, filled

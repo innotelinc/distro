@@ -99,7 +99,13 @@ async function main() {
         const version = await checkGatewayVersion(gateway, { log: { warn: () => {} } });
         console.log(
           `gateway version: ${version.running || 'unknown'} — pin ${version.expected || 'none'} → ` +
-            (version.compatible === true ? 'compatible' : version.compatible === false ? 'MISMATCH' : 'unchecked') +
+            (version.compatible === true
+              ? 'compatible'
+              : version.compatible === false
+                ? 'MISMATCH'
+                : version.running
+                  ? 'unpinned'
+                  : 'unchecked') +
             (version.error ? ` (${version.error})` : ''),
         );
       } catch (err) {

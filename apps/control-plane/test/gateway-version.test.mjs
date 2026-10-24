@@ -76,9 +76,10 @@ test("compatible is exact-match, and null when either side is unknown", () => {
   assert.equal(compatible(null, "3.8.51"), null);
 });
 
-test("the pin defaults to the verified release and can be moved or disabled", () => {
+test("there is no pin by default, and one can be set or cleared", () => {
   delete process.env.GATEWAY_EXPECTED_VERSION;
-  assert.equal(expectedGatewayVersion(), DEFAULT_EXPECTED_VERSION);
+  assert.equal(DEFAULT_EXPECTED_VERSION, null, "the gateway ships its own builds; nothing is pinned unless asked");
+  assert.equal(expectedGatewayVersion(), null);
   process.env.GATEWAY_EXPECTED_VERSION = "v3.9.0";
   assert.equal(expectedGatewayVersion(), "3.9.0");
   process.env.GATEWAY_EXPECTED_VERSION = "   ";
@@ -90,11 +91,11 @@ test("the pin defaults to the verified release and can be moved or disabled", ()
 });
 
 test("a monitoring route without a version lets /api/health supply it", async () => {
-  delete process.env.GATEWAY_EXPECTED_VERSION;
+  process.env.GATEWAY_EXPECTED_VERSION = "3.8.51";
   resetGatewayVersionCheck();
   const gw = await fakeGateway({
     "/api/monitoring/health": { body: { status: "healthy", buildSha: "abc1234" } },
-    "/api/health": { body: { version: DEFAULT_EXPECTED_VERSION } },
+    "/api/health": { body: { version: "3.8.51" } },
   });
   try {
     const result = await checkGatewayVersion(gw.client, quiet);
@@ -106,13 +107,13 @@ test("a monitoring route without a version lets /api/health supply it", async ()
 });
 
 test("a matching gateway is compatible", async () => {
-  delete process.env.GATEWAY_EXPECTED_VERSION;
+  process.env.GATEWAY_EXPECTED_VERSION = "3.8.51";
   resetGatewayVersionCheck();
-  const gw = await fakeGateway({ "/api/monitoring/health": { body: { status: "ok", version: DEFAULT_EXPECTED_VERSION, buildSha: "deadbeef" } } });
+  const gw = await fakeGateway({ "/api/monitoring/health": { body: { status: "ok", version: "3.8.51", buildSha: "deadbeef" } } });
   try {
     const result = await checkGatewayVersion(gw.client, quiet);
     assert.equal(result.compatible, true);
-    assert.equal(result.running, DEFAULT_EXPECTED_VERSION);
+    assert.equal(result.running, "3.8.51");
     assert.equal(result.buildSha, "deadbeef");
     assert.equal(result.endpoint, "/api/monitoring/health");
     assert.equal(result.error, null);
@@ -122,7 +123,7 @@ test("a matching gateway is compatible", async () => {
 });
 
 test("a mismatch is warned, not thrown, and the sync caller keeps going", async () => {
-  delete process.env.GATEWAY_EXPECTED_VERSION;
+  process.env.GATEWAY_EXPECTED_VERSION = "3.8.51";
   resetGatewayVersionCheck();
   const warnings = [];
   const gw = await fakeGateway({ "/api/monitoring/health": { body: { version: "3.9.0" } } });
@@ -139,9 +140,9 @@ test("a mismatch is warned, not thrown, and the sync caller keeps going", async 
 });
 
 test("the probe falls back to /api/health when the monitoring route is missing", async () => {
-  delete process.env.GATEWAY_EXPECTED_VERSION;
+  process.env.GATEWAY_EXPECTED_VERSION = "3.8.51";
   resetGatewayVersionCheck();
-  const gw = await fakeGateway({ "/api/health": { body: { ok: true, appVersion: `v${DEFAULT_EXPECTED_VERSION}` } } });
+  const gw = await fakeGateway({ "/api/health": { body: { ok: true, appVersion: "v3.8.51" } } });
   try {
     const result = await checkGatewayVersion(gw.client, quiet);
     assert.equal(result.endpoint, "/api/health");
@@ -152,19 +153,19 @@ test("the probe falls back to /api/health when the monitoring route is missing",
 });
 
 test("the probe reads /api/system/version first, which stays reachable behind SSO", async () => {
-  delete process.env.GATEWAY_EXPECTED_VERSION;
+  process.env.GATEWAY_EXPECTED_VERSION = "3.8.51";
   resetGatewayVersionCheck();
   const gw = await fakeGateway({
     // The one route the gateway's sign-in proxy whitelists, so it answers even
     // when the dashboard has been put behind Cerulean SSO.
-    "/api/system/version": { body: { current: DEFAULT_EXPECTED_VERSION, latest: "3.9.0", updateAvailable: true, channel: "source" } },
+    "/api/system/version": { body: { current: "3.8.51", latest: "3.9.0", updateAvailable: true, channel: "source" } },
     // The health route would redirect to the IdP, so it must not be preferred.
     "/api/monitoring/health": { body: { version: "3.9.0" } },
   });
   try {
     const result = await checkGatewayVersion(gw.client, quiet);
     assert.equal(result.endpoint, "/api/system/version");
-    assert.equal(result.running, DEFAULT_EXPECTED_VERSION);
+    assert.equal(result.running, "3.8.51");
     assert.equal(result.compatible, true);
     assert.equal(result.error, null);
   } finally {
@@ -173,7 +174,7 @@ test("the probe reads /api/system/version first, which stays reachable behind SS
 });
 
 test("a health route that does not say its version is unchecked, not incompatible", async () => {
-  delete process.env.GATEWAY_EXPECTED_VERSION;
+  process.env.GATEWAY_EXPECTED_VERSION = "3.8.51";
   resetGatewayVersionCheck();
   const gw = await fakeGateway({ "/api/monitoring/health": { body: { status: "healthy", providers: { activeCount: 3 } } } });
   try {
@@ -188,7 +189,7 @@ test("a health route that does not say its version is unchecked, not incompatibl
 });
 
 test("an unreachable gateway is recorded as an error with no verdict", async () => {
-  delete process.env.GATEWAY_EXPECTED_VERSION;
+  process.env.GATEWAY_EXPECTED_VERSION = "3.8.51";
   resetGatewayVersionCheck();
   const gw = await fakeGateway({});
   await gw.close(); // nothing listening any more
@@ -197,15 +198,35 @@ test("an unreachable gateway is recorded as an error with no verdict", async () 
   assert.match(result.error, /version probe failed/);
 });
 
-test("an empty pin disables the check", async () => {
+test("with no pin the probe still records the running release and never calls it a mismatch", async () => {
+  delete process.env.GATEWAY_EXPECTED_VERSION;
+  resetGatewayVersionCheck();
+  const warnings = [];
+  const gw = await fakeGateway({ "/api/monitoring/health": { body: { version: "3.8.53", buildSha: "c0ffee12" } } });
+  try {
+    const result = await checkGatewayVersion(gw.client, { log: { warn: (m) => warnings.push(m) } });
+    assert.equal(result.expected, null);
+    assert.equal(result.running, "3.8.53");
+    assert.equal(result.buildSha, "c0ffee12");
+    assert.equal(result.compatible, null, "unpinned is neither compatible nor incompatible");
+    assert.equal(result.error, null);
+    assert.equal(warnings.length, 0);
+    assert.ok(result.checkedAt, "the console can show when it last asked");
+  } finally {
+    await gw.close();
+  }
+});
+
+test("an explicitly empty pin behaves the same as no pin", async () => {
   process.env.GATEWAY_EXPECTED_VERSION = "";
   resetGatewayVersionCheck();
   const gw = await fakeGateway({ "/api/monitoring/health": { body: { version: "0.0.1" } } });
   try {
     const result = await checkGatewayVersion(gw.client, quiet);
     assert.equal(result.expected, null);
+    assert.equal(result.running, "0.0.1");
     assert.equal(result.compatible, null);
-    assert.match(result.error, /disabled/);
+    assert.equal(result.error, null);
   } finally {
     await gw.close();
     delete process.env.GATEWAY_EXPECTED_VERSION;
