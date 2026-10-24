@@ -215,7 +215,13 @@ server.listen(PORT, HOST, async () => {
     `[control-plane] gateway version: ${version.running || 'unknown'}` +
       (version.buildSha ? ` (${version.buildSha.slice(0, 7)})` : '') +
       ` — pin ${version.expected || 'none'} → ` +
-      (version.compatible === true ? 'compatible' : version.compatible === false ? 'MISMATCH' : 'unchecked'),
+      (version.compatible === true
+        ? 'compatible'
+        : version.compatible === false
+          ? 'MISMATCH'
+          : version.running
+            ? 'unpinned'
+            : 'unchecked'),
   );
 
   // Magnate billing: resolve via env override or Consul, then seed the distro
