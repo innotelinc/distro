@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Distro — build apps with AI, in your browser</title>
-  <meta name="description" content="Distro is a self-hosted AI app-building platform: describe an app and the agent writes, runs, previews, and iterates on a full-stack codebase in your browser.">
+  <meta name="description" content="Distro is the self-hosted BuilderOps tenancy service: accounts, one OmniRoute gateway key per user, quota and spend enforcement per turn, and an admin console — the layer the ecosystem's builder calls for every model.">
   <meta property="og:title" content="Distro — build apps with AI, in your browser">
   <meta property="og:description" content="Self-hosted multi-tenant control plane for AI agent turns — accounts, one gateway key each, quota and usage per turn. MIT-licensed.">
   <meta property="og:type" content="website">
@@ -444,33 +444,12 @@ $ <span class="p">docker</span> <span class="o">compose up -d --build &amp;&amp;
       </div>
     </section>
 
-    <!-- Gallery -->
-    <section id="gallery">
-      <div class="wrap">
-        <h2>See it build<span class="accent">.</span></h2>
-        <p class="section-sub">From the front door to a running app — the agent's reply streams in as files, installs, and dev servers.</p>
-        <div class="shot">
-          <img src="assets/screenshot-landing.png" alt="Distro landing page" loading="lazy" />
-          <div class="cap">The Distro front door.</div>
-        </div>
-        <div class="shot">
-          <img src="assets/screenshot-workspace.png" alt="Distro workspace with generated files" loading="lazy" />
-          <div class="cap">The agent writes a project and it appears in the file tree.</div>
-        </div>
-        <div class="shot">
-          <img src="assets/screenshot-preview.png" alt="Distro live preview" loading="lazy" />
-          <div class="cap">The reply streams in with actions — files, installs, and dev servers.</div>
-        </div>
-      </div>
-    </section>
-
     <!-- Platform surfaces -->
     <section id="platform">
       <div class="wrap">
         <h2>Live on the stack<span class="accent">.</span></h2>
-        <p class="section-sub">Wildcard TLS through Nginx Proxy Manager, identity via Cerulean Authentik. The OmniRoute gateway also publishes on the LAN (dashboard + API keys on port 20128).</p>
+        <p class="section-sub">Wildcard TLS through Nginx Proxy Manager, identity via Cerulean Authentik. The OmniRoute gateway also publishes on the LAN (dashboard + API keys on port 20128). The bolt.diy front door is retired — the builder surface is Genie; what ships here is the control plane.</p>
         <div class="surfaces">
-          <a class="surface" href="https://distro.innotel.us"><b>App</b><small>distro.innotel.us · the builder front door</small><span class="live">live</span></a>
           <a class="surface" href="https://cp.distro.innotel.us"><b>Control plane</b><small>cp.distro.innotel.us · accounts, keys, admin</small><span class="live">live</span></a>
           <a class="surface" href="https://admin.distro.innotel.us/admin"><b>Admin console</b><small>admin.distro.innotel.us · operations and quotas</small><span class="live">live</span></a>
         </div>
@@ -481,11 +460,10 @@ $ <span class="p">docker</span> <span class="o">compose up -d --build &amp;&amp;
     <section id="roadmap">
       <div class="wrap">
         <h2>Roadmap<span class="accent">.</span></h2>
-        <p class="section-sub">v1.0 is shipped and verified on the live stack; the control-plane roadmap tracks what's next.</p>
+        <p class="section-sub">v0.4.0 is shipped and verified on the live stack; the control-plane roadmap tracks what's next.</p>
         <div class="roadmap">
-          <div class="mile"><span class="tag">v1.0 <em>"BuilderOps"</em></span><p>Gateway-only provider mode, full agent pipeline, multi-tenant control plane, Authentik SSO, HTTPS behind NPM.</p><span class="state done">shipped</span></div>
-          <div class="mile"><span class="tag">v1.1 <em>"Metering"</em></span><p>Billing hooks via Magnate subscriptions, if paid tiers come into scope.</p><span class="state next">next</span></div>
-          <div class="mile"><span class="tag">v1.2 <em>"Desktop"</em></span><p>Electron packaging promoted from inherited upstream config to a verified path.</p><span class="state later">later</span></div>
+          <div class="mile"><span class="tag">v0.4.0 <em>"Console"</em></span><p>Unity operator console: overview with a 14-day spend trend and needs-attention queue, per-account drawers, command palette, CSV export, and the token-gated service API Genie consumes.</p><span class="state done">shipped</span></div>
+          <div class="mile"><span class="tag">0.5 <em>"Metering"</em></span><p>Billing hooks via Magnate subscriptions, if paid tiers come into scope.</p><span class="state next">next</span></div>
         </div>
       </div>
     </section>

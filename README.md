@@ -22,7 +22,7 @@ agent console, **Genie**, consumes for every model turn.
 > **multi-tenant control plane** behind **Genie**, the ecosystem's one builder
 > surface. Upstream attribution is retained in
 > [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). **Landing page (the
-> product's history and gallery):**
+> product's history):**
 > [innotelinc.github.io/distro](https://innotelinc.github.io/distro)
 
 ## What it is
@@ -120,7 +120,7 @@ Point the builder surface at it (Genie):
 ```
 apps/control-plane/  the tenancy service — accounts, per-user gateway keys, quotas/usage, admin console
 licenses/            retained upstream license texts (bolt.diy)
-web/landing/         static landing + screenshot gallery (GitHub Pages) — the product's history
+web/landing/         static landing (GitHub Pages) — the product's history
 docker-compose.yml   control plane as one stack (the gateway is the shared platform service)
 Makefile             up / down / doctor / bootstrap / backup / …
 scripts/             bootstrap · backup · healthcheck-gateway · npm-proxy-hosts
