@@ -4,9 +4,10 @@
 
 **Tenancy service for AI app building — BuilderOps.**
 
-Accounts, one OmniRoute gateway key per user, quota/usage enforcement, spend
-tracking, and an admin console — the multi-tenant layer the family's browser
-agent console, **Genie**, consumes for every model turn.
+Accounts, one OmniRoute gateway key per user, quota enforcement and a spend cap
+on every account, credits, usage and 14-day spend rollups, an audit log, an alert
+webhook, and the operator console an admin works in — the multi-tenant layer the
+family's browser agent console, **Genie**, consumes for every model turn.
 
 [![CI](https://github.com/innotelinc/distro/actions/workflows/ci.yml/badge.svg)](https://github.com/innotelinc/distro/actions/workflows/ci.yml)
 [![Conformity](https://github.com/innotelinc/distro/actions/workflows/conform.yml/badge.svg)](https://github.com/innotelinc/distro/actions/workflows/conform.yml)
@@ -15,12 +16,22 @@ agent console, **Genie**, consumes for every model turn.
 
 </div>
 
-> **About Distro** — Distro began as an assembly of two MIT-licensed projects:
-> bolt.diy (in-browser IDE) + OmniRoute (AI routing gateway). It shed the
-> surfaces other platforms own — the bundled gateway first, then the bolt.diy
-> front door — and now ships the part that was always its own: the
-> **multi-tenant control plane** behind **Genie**, the ecosystem's one builder
-> surface. Upstream attribution is retained in
+> **About Distro** — Distro is the tenancy layer under AI app building. It signs
+> people in (or takes them from Authentik), mints one OmniRoute gateway key per
+> account, gates every model turn on that account's quota, caps what the key can
+> spend, keeps the credits ledger, rolls the gateway's own per-key ledger into
+> the usage and 14-day spend figures the console shows, and records who did what
+> in an audit log. Operators work in its console, not a shell.
+>
+> It serves **Genie**, the ecosystem's one builder surface; the shared gateway
+> (OmniRoute), identity (Authentik), entitlements (Magnate) and secrets
+> (Cerulean Vault) stay the platforms that own them.
+>
+> Distro began as an assembly of two MIT-licensed projects — bolt.diy
+> (in-browser IDE) + OmniRoute (AI routing gateway) — and shed the surfaces other
+> platforms own: the bundled gateway first, then the bolt.diy front door, and in
+> September 2026 the build plane, leaving the identity → quota → turn →
+> usage/audit loop it is now. Upstream attribution is retained in
 > [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). **Landing page (the
 > product's history):**
 > [innotelinc.github.io/distro](https://innotelinc.github.io/distro)
@@ -28,13 +39,21 @@ agent console, **Genie**, consumes for every model turn.
 ## What it is
 
 - **Multi-tenant control plane** (`apps/control-plane`, plain Node + SQLite) —
-  accounts, one gateway key per user, quota/usage enforcement, an admin
-  console, and an audit log.
+  accounts, one gateway key per user, quota enforcement, credits, usage/spend
+  rollups, an audit log, and alerting with backups.
+- **The operator console** at `/admin` (no build step, Unity theme) — a 14-day
+  spend trend read from the same rows the quota gate uses, a "needs attention"
+  queue, per-account drawers (quota, key, credits, usage), a command palette,
+  CSV export, and a Settings surface for gateway, alerting, billing and
+  identity.
 - **A token-gated service API** — `POST /api/internal/identity`,
   `GET /api/internal/quota-check`, `POST /api/internal/usage-report`,
   `POST /api/internal/audit` — which the builder surface (Genie) calls
   before and after every model turn, keyed to the signed-in Authentik
   subject.
+- **The surrounding platforms, joined up** — Authentik SSO and group sync,
+  Magnate entitlement checks, and cloud storage providers/pools registered as
+  references so the console can show them without holding a raw credential.
 
 OmniRoute remains the shared AI plane: Distro holds only gateway-issued keys
 (one service key to mint/revoke user keys, plus one per user) and never
@@ -109,7 +128,7 @@ Point the builder surface at it (Genie):
 | [docs/architecture.md](docs/architecture.md) | the control plane, the service API, where the retired front door went |
 | [docs/ops.md](docs/ops.md) | first boot, ports, secrets, day-2 ops, sizing, reverse proxy, Authentik SSO |
 | [docs/upstream.md](docs/upstream.md) | the upstream record: what was consumed, what was retired, license/attribution |
-| [docs/multi-tenant.md](docs/multi-tenant.md) | design: accounts, per-user quotas, usage visibility |
+| [docs/multi-tenant.md](docs/multi-tenant.md) | design: accounts, per-user quotas, credits, usage visibility |
 | [docs/testing.md](docs/testing.md) | verification walkthrough: accounts, 429s, service API, admin console |
 | [docs/atlas-integration.md](docs/atlas-integration.md) | git-export config consumed by the builder surface |
 | [apps/control-plane](apps/control-plane/README.md) | control plane: schema, gateway API inventory, milestone roadmap |
@@ -131,9 +150,11 @@ docs/                stack · architecture · ops · upstream · multi-tenant ·
 ## Status
 
 **v0.4.0** — shipped and verified on the live stack: multi-tenant control plane
-with per-user gateway keys, quota enforcement, spend tracking, alert webhooks,
-backups, and an admin console; Authentik SSO; Magnate entitlement checks; the
-token-gated service API Genie consumes (identity → quota → turn → usage/audit).
+with per-user gateway keys, quota enforcement, spend caps, credits, usage and
+spend rollups, alert webhooks, backups, cloud storage providers and pools, and
+the operator console; Authentik SSO with group sync; Magnate entitlement checks;
+the token-gated service API Genie consumes (identity → quota → turn →
+usage/audit).
 
 The 0.4.0 console is a full rebuild on the family **Unity** theme: a collapsible
 left rail (icon strip, remembered per browser), an overview with a 14-day spend
