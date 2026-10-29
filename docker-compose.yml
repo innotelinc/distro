@@ -29,6 +29,15 @@ services:
     image: distro-control-plane:local
     container_name: distro-control-plane
     restart: unless-stopped
+    # An init in front of the app, because the app is the container's PID 1 and its
+    # own healthcheck is a child of PID 1. Node reaps the processes it spawns, not
+    # the ones `docker exec` creates, so a healthcheck killed at its 5s timeout stays
+    # in the process table as a zombie. On 2026-10-29 the pools went stale underneath
+    # the control plane, every probe timed out, and 2 376 dead children accumulated
+    # over six hours — which starved the container until `/health` answered nothing,
+    # the door at admin.distro.innotel.us answered 000, and the failure looked like
+    # an application bug rather than a reaping one. `init` makes that impossible.
+    init: true
     env_file: .env
     environment:
       # Gateway address is resolved at runtime: GATEWAY_DASHBOARD_URL /
