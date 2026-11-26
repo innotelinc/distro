@@ -18,6 +18,45 @@ import { usageDay, usageDayOf } from './usageDay.js';
 const DATA_DIR = process.env.GATEWAY_DATA_DIR || '/gateway-data';
 const DB_FILE = `${DATA_DIR}/storage.sqlite`;
 
+const RETRY_MS = 750;
+const ATTEMPTS = 4;
+const CORRUPT = /SQLITE_CORRUPT|SQLITE_NOTADB|malformed|not a database/i;
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Open the gateway store for reading, tolerating a refresh still in flight.
+ *
+ * The file is a copy of a live gateway store. Replaced by a plain copy it is
+ * truncated and rewritten in place, and a reader in that window sees a torn
+ * page: SQLite reports SQLITE_CORRUPT, which reaches the log as "database disk
+ * image is malformed". That is a moment, not a broken gateway, so wait for the
+ * copy to land and retry. The install path (scripts/gateway-db-install.sh)
+ * renames a verified temp file instead, so this only covers the old way.
+ *
+ * The count(*) forces a real page read while opening, so corrupt data pages are
+ * caught here rather than halfway through a caller's own query.
+ */
+function openGatewayDb() {
+  let lastErr;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+    let db;
+    try {
+      db = new Database(DB_FILE, { readonly: true, fileMustExist: true, timeout: 5000 });
+      db.prepare('SELECT count(*) FROM usage_history').get();
+      return db;
+    } catch (err) {
+      lastErr = err;
+      if (db) db.close();
+      if (!CORRUPT.test(String(err && err.message))) throw err;
+      if (attempt < ATTEMPTS - 1) sleepSync(RETRY_MS);
+    }
+  }
+  throw lastErr;
+}
+
 export function gatewayDbAvailable() {
   return existsSync(DB_FILE);
 }
@@ -47,7 +86,7 @@ export async function readGatewayUsageByDay({ days = 30 } = {}) {
 
   let db;
   try {
-    db = new Database(DB_FILE, { readonly: true, fileMustExist: true, timeout: 5000 });
+    db = openGatewayDb();
     // One extra UTC day on each side of the window, because the accounting day
     // is offset from UTC by up to five hours: without the margin the first and
     // last accounting days would be read short.
@@ -106,7 +145,7 @@ export async function readGatewayUsageToday() {
 
   let db;
   try {
-    db = new Database(DB_FILE, { readonly: true, fileMustExist: true, timeout: 5000 });
+    db = openGatewayDb();
     // Rows are bucketed in JS, not by SQL `date(timestamp)`: SQLite alone cannot
     // resolve America/New_York (DST included), and a UTC day boundary is the bug
     // this replaced. Three days of rows keeps the read small while still covering
@@ -158,3 +197,4 @@ export async function readGatewayUsageToday() {
     if (db) db.close();
   }
 }
+
